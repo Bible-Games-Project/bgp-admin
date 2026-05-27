@@ -168,7 +168,7 @@ function DashboardPage() {
           {runsQ.data?.runs.length === 0 && !runsQ.isLoading && (
             <div className="p-4 text-xs text-muted-foreground">No runs yet.</div>
           )}
-          {runsQ.data?.runs.map((r) => (
+          {runsQ.data?.runs.map((r: any) => (
             <a
               key={r.id}
               href={r.html_url}
