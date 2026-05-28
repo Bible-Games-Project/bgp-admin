@@ -3,12 +3,13 @@ import { createFileRoute, Outlet, redirect, useNavigate } from "@tanstack/react-
 import { supabase } from "@/integrations/supabase/client";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { checkAccessGate } from "@/lib/auth-gate";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) {
-      throw redirect({ to: "/login" });
+    const result = await checkAccessGate();
+    if ("redirect" in result) {
+      throw redirect({ to: result.redirect });
     }
   },
   component: AuthenticatedLayout,
