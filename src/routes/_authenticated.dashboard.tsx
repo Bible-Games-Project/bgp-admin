@@ -16,6 +16,8 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
   component: DashboardPage,
 });
 
+type Platform = "ios" | "android";
+
 function StatusDot({ status, conclusion }: { status: string; conclusion: string | null }) {
   let color = "bg-muted-foreground";
   let label = status;
@@ -52,61 +54,44 @@ function formatTime(iso: string) {
   return d.toLocaleDateString();
 }
 
-function DashboardPage() {
-  const meta = workflowMeta();
+function PlatformPanel({
+  platform,
+  label,
+  file,
+  defaultRef,
+}: {
+  platform: Platform;
+  label: string;
+  file: string;
+  defaultRef: string;
+}) {
   const qc = useQueryClient();
-  const adminFn = useServerFn(isCurrentUserAdmin);
   const runsFn = useServerFn(listWorkflowRuns);
   const deployFn = useServerFn(triggerDeploy);
-  const [ref, setRef] = useState(meta.defaultRef);
+  const [ref, setRef] = useState(defaultRef);
 
-  const adminQ = useQuery({ queryKey: ["isAdmin"], queryFn: () => adminFn() });
   const runsQ = useQuery({
-    queryKey: ["runs"],
-    queryFn: () => runsFn(),
-    enabled: adminQ.data?.isAdmin === true,
+    queryKey: ["runs", platform],
+    queryFn: () => runsFn({ data: { platform } }),
     refetchInterval: 8000,
   });
 
   const deployM = useMutation({
-    mutationFn: () => deployFn({ data: { ref } }),
+    mutationFn: () => deployFn({ data: { platform, ref } }),
     onSuccess: () => {
-      toast.success(`Dispatched ${meta.file} on ${ref}`);
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["runs"] }), 1500);
+      toast.success(`Dispatched ${file} on ${ref}`);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["runs", platform] }), 1500);
     },
     onError: (e: any) => toast.error(e.message ?? "Deploy failed"),
   });
 
-  if (adminQ.isLoading) {
-    return (
-      <div className="p-8 text-sm text-muted-foreground flex items-center gap-2">
-        <Loader2 className="h-4 w-4 animate-spin" /> Checking access…
-      </div>
-    );
-  }
-
-  if (!adminQ.data?.isAdmin) {
-    return (
-      <div className="p-8 max-w-md">
-        <h1 className="text-xl font-display font-semibold">Access denied</h1>
-        <p className="text-sm text-muted-foreground mt-2">
-          Your account is signed in but not authorized to use this console.
-          Ask an admin to add your user to the allow list.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-6 md:p-8 max-w-3xl mx-auto w-full">
-      <div className="mb-8">
-        <span className="label-mono">workflow</span>
-        <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">
-          {meta.file}
-        </h1>
-        <p className="text-xs text-muted-foreground mt-1 font-mono">
-          {meta.owner}/{meta.repo}
-        </p>
+    <section className="mb-10">
+      <div className="mb-3 flex items-baseline justify-between">
+        <div>
+          <span className="label-mono">{label}</span>
+          <p className="text-xs text-muted-foreground mt-0.5 font-mono">{file}</p>
+        </div>
       </div>
 
       <div className="rounded-md border border-border bg-card p-5">
@@ -114,7 +99,7 @@ function DashboardPage() {
           <div>
             <div className="label-mono mb-1">trigger</div>
             <p className="text-sm text-foreground">
-              Dispatch <span className="font-mono text-primary">{meta.file}</span> via workflow_dispatch
+              Dispatch <span className="font-mono text-primary">{file}</span>
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -137,13 +122,13 @@ function DashboardPage() {
               ) : (
                 <Rocket className="h-4 w-4" />
               )}
-              Deploy
+              Deploy {label}
             </Button>
           </div>
         </div>
       </div>
 
-      <div className="mt-10">
+      <div className="mt-4">
         <div className="flex items-center justify-between mb-3">
           <span className="label-mono">recent runs</span>
           <button
@@ -156,7 +141,7 @@ function DashboardPage() {
         </div>
 
         {runsQ.data?.error && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive font-mono">
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive font-mono mb-2">
             {runsQ.data.error}
           </div>
         )}
@@ -195,6 +180,56 @@ function DashboardPage() {
           ))}
         </div>
       </div>
+    </section>
+  );
+}
+
+function DashboardPage() {
+  const meta = workflowMeta();
+  const adminFn = useServerFn(isCurrentUserAdmin);
+  const adminQ = useQuery({ queryKey: ["isAdmin"], queryFn: () => adminFn() });
+
+  if (adminQ.isLoading) {
+    return (
+      <div className="p-8 text-sm text-muted-foreground flex items-center gap-2">
+        <Loader2 className="h-4 w-4 animate-spin" /> Checking access…
+      </div>
+    );
+  }
+
+  if (!adminQ.data?.isAdmin) {
+    return (
+      <div className="p-8 max-w-md">
+        <h1 className="text-xl font-display font-semibold">Access denied</h1>
+        <p className="text-sm text-muted-foreground mt-2">
+          Your account is signed in but not authorized to use this console.
+          Ask an admin to add your user to the allow list.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 md:p-8 max-w-3xl mx-auto w-full">
+      <div className="mb-8">
+        <span className="label-mono">project</span>
+        <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">
+          {meta.repo}
+        </h1>
+        <p className="text-xs text-muted-foreground mt-1 font-mono">
+          {meta.owner}/{meta.repo}
+        </p>
+      </div>
+
+      {meta.platforms.map((p) => (
+        <PlatformPanel
+          key={p.id}
+          platform={p.id}
+          label={p.label}
+          file={p.file}
+          defaultRef={meta.defaultRef}
+        />
+      ))}
     </div>
   );
 }
