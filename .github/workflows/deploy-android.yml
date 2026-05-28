@@ -1,0 +1,182 @@
+name: "[Reusable] Deploy Android"
+
+on:
+  workflow_call:
+    inputs:
+      package-name:
+        description: "Android package name (e.g., com.biblegames.eden)"
+        required: true
+        type: string
+      play-track:
+        description: "Google Play track (internal, alpha, beta, production)"
+        required: false
+        type: string
+        default: "internal"
+      java-version:
+        description: "Java version for Gradle"
+        required: false
+        type: string
+        default: "21"
+      version-code-offset:
+        description: "Offset added to GITHUB_RUN_NUMBER for versionCode"
+        required: false
+        type: number
+        default: 2
+      pre-build-script:
+        description: "Optional script to run before build"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      ANDROID_KEYSTORE:
+        required: true
+      KEYSTORE_PASSWORD:
+        required: true
+      KEY_ALIAS:
+        required: true
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:
+        required: true
+
+jobs:
+  deploy-android:
+    name: Build & Deploy Android
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Patch package.json version with build number
+        run: |
+          set -euo pipefail
+          FILE="package.json"
+
+          if [ ! -f "$FILE" ]; then
+            echo "❌ No existe $FILE"
+            exit 1
+          fi
+
+          echo "🔍 Versión original:"
+          grep '"version"' "$FILE"
+
+          node - <<'EOF'
+          const fs = require('fs');
+          const path = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+
+          const runNumber = process.env.GITHUB_RUN_NUMBER || '0';
+          const parts = pkg.version.split('.');
+          parts[parts.length - 1] = runNumber;
+          pkg.version = parts.join('.');
+
+          fs.writeFileSync(path, JSON.stringify(pkg, null, 2));
+          console.log('✅ Nueva versión:', pkg.version);
+          EOF
+
+          echo "✅ Resultado final:"
+          grep '"version"' "$FILE"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build web assets
+        run: bun run build
+
+      - name: Run pre-build script
+        if: inputs.pre-build-script != ''
+        run: ${{ inputs.pre-build-script }}
+
+      - name: Sync Capacitor (Android)
+        run: bunx cap sync android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: ${{ inputs.java-version }}
+
+      - name: Decode and setup keystore
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          echo "$ANDROID_KEYSTORE" | base64 -d > android/app/release.keystore
+
+      - name: Create key.properties
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          cat > android/key.properties << EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=release.keystore
+          EOF
+
+      - name: Grant execute permission for gradlew
+        working-directory: android
+        run: chmod +x ./gradlew
+
+      - name: Setup Gradle
+        run: |
+          mkdir -p $HOME/.gradle
+          cat > $HOME/.gradle/gradle.properties << EOF
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          org.gradle.configureondemand=false
+          org.gradle.caching=false
+          org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
+          EOF
+
+      - name: Patch Android versionCode & versionName
+        working-directory: android/app
+        run: |
+          VERSION_CODE=$(($GITHUB_RUN_NUMBER + ${{ inputs.version-code-offset }}))
+          echo "Using versionCode: $VERSION_CODE"
+          sed -i "s/versionCode .*/versionCode ${VERSION_CODE}/" build.gradle
+
+          VERSION_NAME=$(node -p "require('../../package.json').version")
+          echo "Using versionName: $VERSION_NAME"
+          sed -i "s/versionName .*/versionName \"${VERSION_NAME}\"/" build.gradle
+
+          echo "Final build.gradle:"
+          grep "versionCode" build.gradle
+          grep "versionName" build.gradle
+
+      - name: Build Android Release AAB
+        working-directory: android
+        run: ./gradlew bundleRelease --no-daemon --no-build-cache --stacktrace
+
+      - name: Sign AAB
+        working-directory: android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          jarsigner \
+            -keystore app/release.keystore \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -keypass "$KEYSTORE_PASSWORD" \
+            app/build/outputs/bundle/release/app-release.aab \
+            "$KEY_ALIAS"
+
+      - name: Upload to Google Play Console
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ inputs.package-name }}
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: ${{ inputs.play-track }}
+          status: completed
+
+      - name: Upload AAB as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-${{ github.run_number }}
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 30

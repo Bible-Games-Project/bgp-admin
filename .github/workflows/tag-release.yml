@@ -1,0 +1,43 @@
+name: "[Reusable] Tag Release"
+
+on:
+  workflow_call:
+    inputs:
+      tag-prefix:
+        description: "Prefix for the tag (e.g., 'v' for v1.2.3)"
+        required: false
+        type: string
+        default: "v"
+
+jobs:
+  tag:
+    name: Create Git Tag 🏷️
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version with build number
+        id: get_version
+        run: |
+          VER=$(node -e "const v=require('./package.json').version.split('.'); console.log(\`\${v[0]}.\${v[1]}\`)") \
+            || { echo 'No pude leer package.json.version'; exit 1; }
+          VERSION="${{ inputs.tag-prefix }}${VER}.${{ github.run_number }}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "📦 Version to tag: ${VERSION}"
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ steps.get_version.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git tag -a "${VERSION}" -m "Release ${VERSION}"
+          git push origin "${VERSION}"
+          
+          echo "✅ Tag ${VERSION} created and pushed successfully"
