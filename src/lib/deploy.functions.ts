@@ -3,9 +3,17 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const GITHUB_OWNER = "Bible-Games-Project";
-const GITHUB_REPO = "shared-workflows";
-const WORKFLOW_FILE = "deploy.yml";
+const GITHUB_REPO = "eden-choice-chronicles";
 const DEFAULT_REF = "main";
+
+const PLATFORM_WORKFLOW = {
+  ios: "deploy-ios.yml",
+  android: "deploy-android.yml",
+} as const;
+
+type Platform = keyof typeof PLATFORM_WORKFLOW;
+
+const platformSchema = z.enum(["ios", "android"]);
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -40,19 +48,23 @@ export const isCurrentUserAdmin = createServerFn({ method: "GET" })
     return { isAdmin: !!data };
   });
 
-export const listWorkflowRuns = createServerFn({ method: "GET" })
+export const listWorkflowRuns = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator((input) =>
+    z.object({ platform: platformSchema }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
-    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=10`;
+    const file = PLATFORM_WORKFLOW[data.platform as Platform];
+    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${file}/runs?per_page=10`;
     const res = await fetch(url, { headers: githubHeaders() });
     if (!res.ok) {
       const text = await res.text();
       return { runs: [], error: `GitHub API ${res.status}: ${text.slice(0, 200)}` };
     }
-    const data = await res.json();
+    const json = await res.json();
     return {
-      runs: (data.workflow_runs ?? []).map((r: any) => ({
+      runs: (json.workflow_runs ?? []).map((r: any) => ({
         id: r.id,
         status: r.status,
         conclusion: r.conclusion,
@@ -71,27 +83,35 @@ export const triggerDeploy = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) =>
     z
-      .object({ ref: z.string().min(1).max(255).optional() })
-      .parse(input ?? {}),
+      .object({
+        platform: platformSchema,
+        ref: z.string().min(1).max(255).optional(),
+      })
+      .parse(input),
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
-    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
+    const file = PLATFORM_WORKFLOW[data.platform as Platform];
+    const ref = data.ref ?? DEFAULT_REF;
+    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${file}/dispatches`;
     const res = await fetch(url, {
       method: "POST",
       headers: { ...githubHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ ref: data.ref ?? DEFAULT_REF }),
+      body: JSON.stringify({ ref }),
     });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`GitHub dispatch failed (${res.status}): ${text.slice(0, 200)}`);
     }
-    return { ok: true, ref: data.ref ?? DEFAULT_REF };
+    return { ok: true, ref, platform: data.platform };
   });
 
 export const workflowMeta = () => ({
   owner: GITHUB_OWNER,
   repo: GITHUB_REPO,
-  file: WORKFLOW_FILE,
   defaultRef: DEFAULT_REF,
+  platforms: [
+    { id: "ios" as const, label: "iOS", file: PLATFORM_WORKFLOW.ios },
+    { id: "android" as const, label: "Android", file: PLATFORM_WORKFLOW.android },
+  ],
 });
