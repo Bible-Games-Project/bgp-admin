@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Outlet, redirect, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -17,14 +18,19 @@ export const Route = createFileRoute("/_authenticated")({
 
 function AuthenticatedLayout() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [ready, setReady] = useState(true);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (!session) navigate({ to: "/login", replace: true });
+      if (!session) {
+        queryClient.cancelQueries();
+        queryClient.clear();
+        navigate({ to: "/login", replace: true });
+      }
     });
     return () => subscription.unsubscribe();
-  }, [navigate]);
+  }, [navigate, queryClient]);
 
   if (!ready) return null;
 
