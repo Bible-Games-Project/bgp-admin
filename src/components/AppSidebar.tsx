@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Rocket, LogOut, Terminal } from "lucide-react";
+import { Rocket, LogOut, Terminal, ShieldCheck } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -15,7 +15,10 @@ import {
 } from "@/components/ui/sidebar";
 import { supabase } from "@/integrations/supabase/client";
 
-const items = [{ title: "Deploy", url: "/dashboard", icon: Rocket }];
+const items = [
+  { title: "Deploy", url: "/dashboard", icon: Rocket },
+  { title: "Security", url: "/settings/security", icon: ShieldCheck },
+];
 
 export function AppSidebar() {
   const { state } = useSidebar();

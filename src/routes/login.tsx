@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { checkAccessGate } from "@/lib/auth-gate";
 
 export const Route = createFileRoute("/login")({
   head: () => ({ meta: [{ title: "Sign in — bgp console" }] }),
@@ -19,13 +20,18 @@ function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (session) navigate({ to: "/dashboard", replace: true });
-    });
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/dashboard", replace: true });
-    });
-    return () => subscription.unsubscribe();
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) return;
+      const result = await checkAccessGate();
+      if ("redirect" in result) {
+        if (result.redirect !== "/login") {
+          navigate({ to: result.redirect, replace: true });
+        }
+      } else {
+        navigate({ to: "/dashboard", replace: true });
+      }
+    })();
   }, [navigate]);
 
   const submit = async (e: React.FormEvent) => {
@@ -34,6 +40,15 @@ function LoginPage() {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      const result = await checkAccessGate();
+      if ("redirect" in result) {
+        if (result.redirect === "/forbidden") {
+          toast.error("Account not authorized");
+        }
+        navigate({ to: result.redirect, replace: true });
+      } else {
+        navigate({ to: "/dashboard", replace: true });
+      }
     } catch (err: any) {
       toast.error(err.message ?? "Authentication failed");
     } finally {
