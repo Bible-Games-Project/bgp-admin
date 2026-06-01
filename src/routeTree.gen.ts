@@ -15,8 +15,11 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForbiddenRouteImport } from './routes/forbidden'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedDocsRouteImport } from './routes/_authenticated.docs'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
+import { Route as AuthenticatedAppsRouteImport } from './routes/_authenticated.apps'
 import { Route as AuthenticatedSettingsSecurityRouteImport } from './routes/_authenticated.settings.security'
+import { Route as AuthenticatedAppsIdRouteImport } from './routes/_authenticated.apps.$id'
 
 const SetupMfaRoute = SetupMfaRouteImport.update({
   id: '/setup-mfa',
@@ -47,9 +50,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedDocsRoute = AuthenticatedDocsRouteImport.update({
+  id: '/docs',
+  path: '/docs',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAppsRoute = AuthenticatedAppsRouteImport.update({
+  id: '/apps',
+  path: '/apps',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedSettingsSecurityRoute =
@@ -58,6 +71,11 @@ const AuthenticatedSettingsSecurityRoute =
     path: '/settings/security',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedAppsIdRoute = AuthenticatedAppsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AuthenticatedAppsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -65,7 +83,10 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
+  '/apps': typeof AuthenticatedAppsRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/docs': typeof AuthenticatedDocsRoute
+  '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
 }
 export interface FileRoutesByTo {
@@ -74,7 +95,10 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
+  '/apps': typeof AuthenticatedAppsRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/docs': typeof AuthenticatedDocsRoute
+  '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
 }
 export interface FileRoutesById {
@@ -85,7 +109,10 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
+  '/_authenticated/apps': typeof AuthenticatedAppsRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/docs': typeof AuthenticatedDocsRoute
+  '/_authenticated/apps/$id': typeof AuthenticatedAppsIdRoute
   '/_authenticated/settings/security': typeof AuthenticatedSettingsSecurityRoute
 }
 export interface FileRouteTypes {
@@ -96,7 +123,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
+    | '/apps'
     | '/dashboard'
+    | '/docs'
+    | '/apps/$id'
     | '/settings/security'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -105,7 +135,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
+    | '/apps'
     | '/dashboard'
+    | '/docs'
+    | '/apps/$id'
     | '/settings/security'
   id:
     | '__root__'
@@ -115,7 +148,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
+    | '/_authenticated/apps'
     | '/_authenticated/dashboard'
+    | '/_authenticated/docs'
+    | '/_authenticated/apps/$id'
     | '/_authenticated/settings/security'
   fileRoutesById: FileRoutesById
 }
@@ -172,11 +208,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/docs': {
+      id: '/_authenticated/docs'
+      path: '/docs'
+      fullPath: '/docs'
+      preLoaderRoute: typeof AuthenticatedDocsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/apps': {
+      id: '/_authenticated/apps'
+      path: '/apps'
+      fullPath: '/apps'
+      preLoaderRoute: typeof AuthenticatedAppsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/settings/security': {
@@ -186,16 +236,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsSecurityRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/apps/$id': {
+      id: '/_authenticated/apps/$id'
+      path: '/$id'
+      fullPath: '/apps/$id'
+      preLoaderRoute: typeof AuthenticatedAppsIdRouteImport
+      parentRoute: typeof AuthenticatedAppsRoute
+    }
   }
 }
 
+interface AuthenticatedAppsRouteChildren {
+  AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
+}
+
+const AuthenticatedAppsRouteChildren: AuthenticatedAppsRouteChildren = {
+  AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
+}
+
+const AuthenticatedAppsRouteWithChildren =
+  AuthenticatedAppsRoute._addFileChildren(AuthenticatedAppsRouteChildren)
+
 interface AuthenticatedRouteChildren {
+  AuthenticatedAppsRoute: typeof AuthenticatedAppsRouteWithChildren
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedDocsRoute: typeof AuthenticatedDocsRoute
   AuthenticatedSettingsSecurityRoute: typeof AuthenticatedSettingsSecurityRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAppsRoute: AuthenticatedAppsRouteWithChildren,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedDocsRoute: AuthenticatedDocsRoute,
   AuthenticatedSettingsSecurityRoute: AuthenticatedSettingsSecurityRoute,
 }
 

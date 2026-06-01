@@ -29,12 +29,51 @@ export type Database = {
         }
         Relationships: []
       }
+      apps: {
+        Row: {
+          created_at: string
+          default_ref: string
+          github_owner: string
+          github_repo: string
+          id: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          default_ref?: string
+          github_owner: string
+          github_repo: string
+          id?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          default_ref?: string
+          github_owner?: string
+          github_repo?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_admin: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
