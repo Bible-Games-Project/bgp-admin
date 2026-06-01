@@ -119,7 +119,7 @@ function DeployPanel({ appId, defaultRef }: { appId: string; defaultRef: string 
                 />
               </SelectTrigger>
               <SelectContent>
-                {(wfQ.data?.workflows ?? []).map((w) => (
+                {(wfQ.data?.workflows ?? []).map((w: any) => (
                   <SelectItem key={w.id} value={w.file}>
                     <span className="font-mono text-xs">{w.file}</span>
                     <span className="text-muted-foreground ml-2">{w.name}</span>
@@ -191,7 +191,7 @@ function RunsHistory({ appId }: { appId: string }) {
         {!q.isLoading && runs.length === 0 && (
           <div className="p-4 text-xs text-muted-foreground">No runs yet.</div>
         )}
-        {runs.map((r) => (
+        {runs.map((r: any) => (
           <a
             key={r.id}
             href={r.html_url}
