@@ -28,7 +28,7 @@ function AppsPage() {
   const q = useQuery({ queryKey: ["apps"], queryFn: () => listFn() });
 
   const createM = useMutation({
-    mutationFn: (data: Parameters<typeof createFn>[0]["data"]) => createFn({ data }),
+    mutationFn: (data: any) => createFn({ data }),
     onSuccess: () => {
       toast.success("App created");
       setOpen(false);
