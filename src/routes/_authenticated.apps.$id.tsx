@@ -25,8 +25,7 @@ function AppDetailPage() {
   });
 
   const updateM = useMutation({
-    mutationFn: (patch: Parameters<typeof updateFn>[0]["data"]["patch"]) =>
-      updateFn({ data: { id, patch } }),
+    mutationFn: (patch: any) => updateFn({ data: { id, patch } }),
     onSuccess: () => {
       toast.success("Saved");
       qc.invalidateQueries({ queryKey: ["app", id] });
