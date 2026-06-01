@@ -9,12 +9,10 @@ import {
   RefreshCw,
   GitBranch,
   Boxes,
-  Workflow,
 } from "lucide-react";
 import {
   isCurrentUserAdmin,
   listRepoRuns,
-  listWorkflows,
   triggerDeploy,
 } from "@/lib/deploy.functions";
 import { listApps } from "@/lib/apps.functions";
@@ -71,26 +69,34 @@ function formatTime(iso: string) {
 function DeployPanel({ appId, defaultRef }: { appId: string; defaultRef: string }) {
   const qc = useQueryClient();
   const deployFn = useServerFn(triggerDeploy);
-  const workflowsFn = useServerFn(listWorkflows);
   const [ref, setRef] = useState(defaultRef);
-  const [workflowFile, setWorkflowFile] = useState<string>("");
+  const [deployIos, setDeployIos] = useState(true);
+  const [deployAndroid, setDeployAndroid] = useState(true);
 
   useEffect(() => setRef(defaultRef), [defaultRef]);
 
-  const wfQ = useQuery({
-    queryKey: ["workflows", appId],
-    queryFn: () => workflowsFn({ data: { appId } }),
-  });
-
-  useEffect(() => {
-    const list = wfQ.data?.workflows ?? [];
-    if (!workflowFile && list.length > 0) setWorkflowFile(list[0].file);
-  }, [wfQ.data, workflowFile]);
-
   const deployM = useMutation({
-    mutationFn: () => deployFn({ data: { appId, workflowFile, ref } }),
+    mutationFn: () => {
+      const platforms = [];
+      if (deployIos) platforms.push("iOS");
+      if (deployAndroid) platforms.push("Android");
+      return deployFn({ 
+        data: { 
+          appId, 
+          workflowFile: "deploy.yml", 
+          ref,
+          inputs: {
+            deploy_ios: deployIos,
+            deploy_android: deployAndroid,
+          }
+        } 
+      });
+    },
     onSuccess: () => {
-      toast.success(`Dispatched ${workflowFile} on ${ref}`);
+      const platforms = [];
+      if (deployIos) platforms.push("iOS");
+      if (deployAndroid) platforms.push("Android");
+      toast.success(`Deploying ${platforms.join(" + ")} on ${ref}`);
       setTimeout(() => qc.invalidateQueries({ queryKey: ["runs", appId] }), 1500);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -103,32 +109,28 @@ function DeployPanel({ appId, defaultRef }: { appId: string; defaultRef: string 
       </div>
 
       <div className="rounded-md border border-border bg-card p-5 space-y-4">
-        {wfQ.data?.error && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive font-mono">
-            {wfQ.data.error}
-          </div>
-        )}
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={deployIos}
+              onChange={(e) => setDeployIos(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            <span className="text-sm font-medium">iOS</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={deployAndroid}
+              onChange={(e) => setDeployAndroid(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            <span className="text-sm font-medium">Android</span>
+          </label>
+        </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 h-9 min-w-[240px]">
-            <Workflow className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <Select value={workflowFile} onValueChange={setWorkflowFile}>
-              <SelectTrigger className="border-0 h-7 p-0 focus:ring-0 shadow-none bg-transparent font-mono text-sm">
-                <SelectValue
-                  placeholder={wfQ.isLoading ? "Loading workflows…" : "Select workflow"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {(wfQ.data?.workflows ?? []).map((w: any) => (
-                  <SelectItem key={w.id} value={w.file}>
-                    <span className="font-mono text-xs">{w.file}</span>
-                    <span className="text-muted-foreground ml-2">{w.name}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 h-9">
             <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
             <input
@@ -141,7 +143,21 @@ function DeployPanel({ appId, defaultRef }: { appId: string; defaultRef: string 
 
           <Button
             onClick={() => deployM.mutate()}
-            disabled={deployM.isPending || !ref.trim() || !workflowFile}
+            disabled={deployM.isPending || !ref.trim() || (!deployIos && !deployAndroid)}
+            className="gap-2"
+          >
+            {deployM.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Rocket className="h-4 w-4" />
+            )}
+            Publicar
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}
             className="gap-2"
           >
             {deployM.isPending ? (
