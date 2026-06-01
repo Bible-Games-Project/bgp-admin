@@ -44,20 +44,27 @@ function LoginPage() {
       if ("redirect" in result) {
         if (result.redirect === "/forbidden") {
           toast.error("Account not authorized");
+          setLoading(false);
         }
         navigate({ to: result.redirect, replace: true });
+        // keep loading=true so the overlay stays until the next route mounts
       } else {
         navigate({ to: "/dashboard", replace: true });
       }
     } catch (err: any) {
       toast.error(err.message ?? "Authentication failed");
-    } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+    <div className="min-h-screen flex items-center justify-center bg-background px-4 relative">
+      {loading && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <span className="label-mono text-xs text-muted-foreground">Signing in…</span>
+        </div>
+      )}
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2 mb-8">
           <Terminal className="h-4 w-4 text-primary" />

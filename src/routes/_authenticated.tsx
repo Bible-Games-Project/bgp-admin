@@ -22,8 +22,11 @@ function AuthenticatedLayout() {
   const [ready, setReady] = useState(true);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (!session) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      // Only react to explicit sign-out. INITIAL_SESSION with a null session
+      // can fire before storage hydration completes and cause a login<->dashboard
+      // ping-pong. beforeLoad/checkAccessGate is the source of truth for auth.
+      if (event === "SIGNED_OUT") {
         queryClient.cancelQueries();
         queryClient.clear();
         navigate({ to: "/login", replace: true });
