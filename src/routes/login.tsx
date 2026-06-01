@@ -44,14 +44,15 @@ function LoginPage() {
       if ("redirect" in result) {
         if (result.redirect === "/forbidden") {
           toast.error("Account not authorized");
+          setLoading(false);
         }
         navigate({ to: result.redirect, replace: true });
+        // keep loading=true so the overlay stays until the next route mounts
       } else {
         navigate({ to: "/dashboard", replace: true });
       }
     } catch (err: any) {
       toast.error(err.message ?? "Authentication failed");
-    } finally {
       setLoading(false);
     }
   };
