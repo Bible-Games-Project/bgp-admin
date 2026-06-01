@@ -1,16 +1,28 @@
-import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Rocket, Loader2, ExternalLink, RefreshCw, GitBranch, Apple, Smartphone } from "lucide-react";
 import {
-  isCurrentUserAdmin,
-  listWorkflowRuns,
-  triggerDeploy,
-  workflowMeta,
-} from "@/lib/deploy.functions";
+  Rocket,
+  Loader2,
+  ExternalLink,
+  RefreshCw,
+  GitBranch,
+  Apple,
+  Smartphone,
+  Boxes,
+} from "lucide-react";
+import { isCurrentUserAdmin, listWorkflowRuns, triggerDeploy } from "@/lib/deploy.functions";
+import { listApps } from "@/lib/apps.functions";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -65,12 +77,26 @@ function formatTime(iso: string) {
   return d.toLocaleDateString();
 }
 
-function DeployPanel({ defaultRef }: { defaultRef: string }) {
+type Run = {
+  id: number;
+  status: string;
+  conclusion: string | null;
+  event: string;
+  actor: string | null;
+  head_branch: string;
+  created_at: string;
+  html_url: string;
+  run_number: number;
+};
+
+function DeployPanel({ appId, defaultRef }: { appId: string; defaultRef: string }) {
   const qc = useQueryClient();
   const deployFn = useServerFn(triggerDeploy);
   const [ref, setRef] = useState(defaultRef);
   const [ios, setIos] = useState(true);
   const [android, setAndroid] = useState(true);
+
+  useEffect(() => setRef(defaultRef), [defaultRef]);
 
   const deployM = useMutation({
     mutationFn: async () => {
@@ -78,7 +104,7 @@ function DeployPanel({ defaultRef }: { defaultRef: string }) {
       if (ios) platforms.push("ios");
       if (android) platforms.push("android");
       const results = await Promise.allSettled(
-        platforms.map((p) => deployFn({ data: { platform: p, ref } })),
+        platforms.map((p) => deployFn({ data: { appId, platform: p, ref } })),
       );
       return { platforms, results };
     },
@@ -91,7 +117,7 @@ function DeployPanel({ defaultRef }: { defaultRef: string }) {
           toast.error(`${p}: ${(r.reason as Error)?.message ?? "failed"}`);
         }
       });
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["runs"] }), 1500);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["runs", appId] }), 1500);
     },
   });
 
@@ -150,24 +176,12 @@ function DeployPanel({ defaultRef }: { defaultRef: string }) {
   );
 }
 
-type Run = {
-  id: number;
-  status: string;
-  conclusion: string | null;
-  event: string;
-  actor: string | null;
-  head_branch: string;
-  created_at: string;
-  html_url: string;
-  run_number: number;
-};
-
-function CombinedHistory() {
+function CombinedHistory({ appId }: { appId: string }) {
   const runsFn = useServerFn(listWorkflowRuns);
   const queries = useQueries({
     queries: (["ios", "android"] as Platform[]).map((p) => ({
-      queryKey: ["runs", p],
-      queryFn: () => runsFn({ data: { platform: p } }),
+      queryKey: ["runs", appId, p],
+      queryFn: () => runsFn({ data: { appId, platform: p } }),
       refetchInterval: 8000,
     })),
   });
@@ -243,9 +257,20 @@ function CombinedHistory() {
 }
 
 function DashboardPage() {
-  const meta = workflowMeta();
   const adminFn = useServerFn(isCurrentUserAdmin);
+  const listFn = useServerFn(listApps);
   const adminQ = useQuery({ queryKey: ["isAdmin"], queryFn: () => adminFn() });
+  const appsQ = useQuery({
+    queryKey: ["apps"],
+    queryFn: () => listFn(),
+    enabled: !!adminQ.data?.isAdmin,
+  });
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const apps = appsQ.data?.apps ?? [];
+    if (!selectedId && apps.length > 0) setSelectedId(apps[0].id);
+  }, [appsQ.data, selectedId]);
 
   if (adminQ.isLoading) {
     return (
@@ -260,27 +285,72 @@ function DashboardPage() {
       <div className="p-8 max-w-md">
         <h1 className="text-xl font-display font-semibold">Access denied</h1>
         <p className="text-sm text-muted-foreground mt-2">
-          Your account is signed in but not authorized to use this console.
-          Ask an admin to add your user to the allow list.
+          Your account is signed in but not authorized to use this console. Ask an admin to
+          add your user to the allow list.
         </p>
+      </div>
+    );
+  }
+
+  const apps = appsQ.data?.apps ?? [];
+  const selected = apps.find((a) => a.id === selectedId);
+
+  if (appsQ.isLoading) {
+    return <div className="p-8 text-sm text-muted-foreground">Loading apps…</div>;
+  }
+
+  if (apps.length === 0) {
+    return (
+      <div className="p-6 md:p-8 max-w-2xl mx-auto w-full">
+        <div className="rounded-md border border-border bg-card p-8 text-center">
+          <Boxes className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground mb-4">
+            No apps registered yet. Add one to start deploying.
+          </p>
+          <Button asChild>
+            <Link to="/apps">Go to Apps</Link>
+          </Button>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="p-6 md:p-8 max-w-3xl mx-auto w-full">
-      <div className="mb-8">
-        <span className="label-mono">project</span>
-        <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">
-          {meta.repo}
-        </h1>
-        <p className="text-xs text-muted-foreground mt-1 font-mono">
-          {meta.owner}/{meta.repo}
-        </p>
+      <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <span className="label-mono">project</span>
+          <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">
+            {selected?.name ?? "—"}
+          </h1>
+          {selected && (
+            <p className="text-xs text-muted-foreground mt-1 font-mono">
+              {selected.github_owner}/{selected.github_repo}
+            </p>
+          )}
+        </div>
+        <div className="min-w-[220px]">
+          <Select value={selectedId ?? undefined} onValueChange={setSelectedId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select app" />
+            </SelectTrigger>
+            <SelectContent>
+              {apps.map((a) => (
+                <SelectItem key={a.id} value={a.id} disabled={!a.is_active}>
+                  {a.name} {!a.is_active && "(disabled)"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <DeployPanel defaultRef={meta.defaultRef} />
-      <CombinedHistory />
+      {selected && (
+        <>
+          <DeployPanel appId={selected.id} defaultRef={selected.default_ref} />
+          <CombinedHistory appId={selected.id} />
+        </>
+      )}
     </div>
   );
 }

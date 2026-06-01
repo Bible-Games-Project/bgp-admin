@@ -2,18 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const GITHUB_OWNER = "Bible-Games-Project";
-const GITHUB_REPO = "eden-choice-chronicles";
-const DEFAULT_REF = "main";
-
-const PLATFORM_WORKFLOW = {
-  ios: "deploy-ios.yml",
-  android: "deploy-android.yml",
-} as const;
-
-type Platform = keyof typeof PLATFORM_WORKFLOW;
-
 const platformSchema = z.enum(["ios", "android"]);
+type Platform = z.infer<typeof platformSchema>;
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -23,6 +13,21 @@ async function assertAdmin(supabase: any, userId: string) {
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("Forbidden: not an admin");
+}
+
+async function loadApp(supabase: any, appId: string) {
+  const { data, error } = await supabase
+    .from("apps")
+    .select("*")
+    .eq("id", appId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("App not found");
+  return data;
+}
+
+function workflowFileFor(app: any, platform: Platform) {
+  return platform === "ios" ? app.ios_workflow_file : app.android_workflow_file;
 }
 
 function githubHeaders() {
@@ -51,18 +56,19 @@ export const isCurrentUserAdmin = createServerFn({ method: "GET" })
 export const listWorkflowRuns = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) =>
-    z.object({ platform: platformSchema }).parse(input),
+    z.object({ appId: z.string().uuid(), platform: platformSchema }).parse(input),
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
-    const file = PLATFORM_WORKFLOW[data.platform as Platform];
-    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${file}/runs?per_page=10`;
+    const app = await loadApp(context.supabase, data.appId);
+    const file = workflowFileFor(app, data.platform);
+    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows/${file}/runs?per_page=10`;
     const res = await fetch(url, { headers: githubHeaders() });
     if (!res.ok) {
       const text = await res.text();
       return { runs: [], error: `GitHub API ${res.status}: ${text.slice(0, 200)}` };
     }
-    const json = await res.json();
+    const json: any = await res.json();
     return {
       runs: (json.workflow_runs ?? []).map((r: any) => ({
         id: r.id,
@@ -84,6 +90,7 @@ export const triggerDeploy = createServerFn({ method: "POST" })
   .inputValidator((input) =>
     z
       .object({
+        appId: z.string().uuid(),
         platform: platformSchema,
         ref: z.string().min(1).max(255).optional(),
       })
@@ -91,9 +98,11 @@ export const triggerDeploy = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
-    const file = PLATFORM_WORKFLOW[data.platform as Platform];
-    const ref = data.ref ?? DEFAULT_REF;
-    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${file}/dispatches`;
+    const app = await loadApp(context.supabase, data.appId);
+    if (!app.is_active) throw new Error("App is disabled");
+    const file = workflowFileFor(app, data.platform);
+    const ref = data.ref ?? app.default_ref ?? "main";
+    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows/${file}/dispatches`;
     const res = await fetch(url, {
       method: "POST",
       headers: { ...githubHeaders(), "Content-Type": "application/json" },
@@ -105,13 +114,3 @@ export const triggerDeploy = createServerFn({ method: "POST" })
     }
     return { ok: true, ref, platform: data.platform };
   });
-
-export const workflowMeta = () => ({
-  owner: GITHUB_OWNER,
-  repo: GITHUB_REPO,
-  defaultRef: DEFAULT_REF,
-  platforms: [
-    { id: "ios" as const, label: "iOS", file: PLATFORM_WORKFLOW.ios },
-    { id: "android" as const, label: "Android", file: PLATFORM_WORKFLOW.android },
-  ],
-});
