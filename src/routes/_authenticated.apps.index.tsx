@@ -15,7 +15,7 @@ import {
 import { AppForm, emptyAppForm } from "@/components/AppForm";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/_authenticated/apps")({
+export const Route = createFileRoute("/_authenticated/apps/")({
   component: AppsPage,
 });
 
