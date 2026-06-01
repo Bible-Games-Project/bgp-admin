@@ -10,9 +10,9 @@ This guide explains **which secrets you need** and **where to configure them** s
 
 - ✅ **bgp-admin**: 1/1 (100%)
 - ✅ **iOS Organization**: 6/6 (100%)
-- ✅ **iOS Repository**: 2/2 (100%)
-- ✅ **Android Organization**: 3/3 (100%)
-- ✅ **Android Repository**: 1/1 (100%)
+- ✅ **iOS Repository (per app)**: 2/2 (100%)
+- ✅ **Android Organization**: 1/1 (100%)
+- ✅ **Android Repository (per app)**: 3/3 (100%)
 
 🎉 **All secrets are configured. The deployment system is fully operational.**
 
@@ -64,19 +64,19 @@ base64 -i file.ext
 - [x] `APP_STORE_CONNECT_ISSUER_ID` ✅
 - [x] `APP_STORE_CONNECT_API_KEY_BASE64` ✅
 
-#### Android Organization secrets (3):
-- [x] `ANDROID_KEYSTORE` ✅
-- [x] `KEYSTORE_PASSWORD` ✅
+#### Android Organization secrets (1):
 - [x] `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` ✅
 
-### 3. In **eden-choice-chronicles Repository** (specific)
+### 3. In **eden-choice-chronicles Repository** (app-specific)
 
 #### iOS Repository secrets (2):
 - [x] `IOS_BUILD_PROVISION_PROFILE_BASE64` ✅
 - [x] `IOS_EXPORT_OPTIONS_PLIST` ✅
 
-#### Android Repository secrets (1):
-- [x] `KEY_ALIAS` ✅
+#### Android Repository secrets (3):
+- [x] `ANDROID_KEYSTORE` ✅ (unique keystore for Eden)
+- [x] `KEYSTORE_PASSWORD` ✅ (password for Eden's keystore)
+- [x] `KEY_ALIAS` ✅ (alias: "eden")
 
 ---
 
@@ -89,8 +89,8 @@ base64 -i file.ext
 | `GITHUB_PAT` | **Environment Variable** | Lovable Cloud → bgp-admin project → Settings → Environment Variables |
 | Shared iOS secrets | **Organization Level** | GitHub → Bible-Games-Project (org) → Settings → Secrets → Actions → Organization secrets |
 | App-specific iOS secrets | **Repository Level** | GitHub → eden-choice-chronicles → Settings → Secrets → Actions → Repository secrets |
-| Shared Android secrets | **Organization Level** | GitHub → Bible-Games-Project (org) → Settings → Secrets → Actions → Organization secrets |
-| `KEY_ALIAS` Android | **Repository Level** | GitHub → eden-choice-chronicles → Settings → Secrets → Actions → Repository secrets |
+| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | **Organization Level** | GitHub → Bible-Games-Project (org) → Settings → Secrets → Actions → Organization secrets |
+| App-specific Android secrets | **Repository Level** | GitHub → eden-choice-chronicles → Settings → Secrets → Actions → Repository secrets |
 
 ### Organization-level secrets (shared across projects):
 
@@ -102,19 +102,19 @@ base64 -i file.ext
 - `APP_STORE_CONNECT_ISSUER_ID` - Shared Issuer
 - `APP_STORE_CONNECT_API_KEY_BASE64` - Shared API Key
 
-✅ **Android - Shared:**
-- `ANDROID_KEYSTORE` - Keystore with multiple aliases for all apps
-- `KEYSTORE_PASSWORD` - Shared keystore password
-- `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` - Shared service account
+✅ **Android - Shared (Google Play only):**
+- `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` - Shared service account for uploading to Play Store
 
 ### Repository-level secrets (app-specific):
 
-⚠️ **iOS - App-specific:**
-- `IOS_BUILD_PROVISION_PROFILE_BASE64` - Specific profile for `com.biblegames.eden`
-- `IOS_EXPORT_OPTIONS_PLIST` - Specific configuration for Eden
+⚠️ **iOS - App-specific (per app):**
+- `IOS_BUILD_PROVISION_PROFILE_BASE64` - Specific profile for the app bundle ID
+- `IOS_EXPORT_OPTIONS_PLIST` - Specific export configuration
 
-⚠️ **Android - App-specific:**
-- `KEY_ALIAS` - Alias inside the shared keystore (e.g., `eden-key` for Eden, `lost-sheep-key` for Lost Sheep)
+⚠️ **Android - App-specific (per app):**
+- `ANDROID_KEYSTORE` - Unique keystore file for this app (.jks in base64)
+- `KEYSTORE_PASSWORD` - Password for this app's keystore
+- `KEY_ALIAS` - Alias inside this keystore (typically the app name)
 
 **Benefits of using Organization level:**
 - ✅ Configure once, use in multiple repos (Eden, Lost Sheep, etc.)
