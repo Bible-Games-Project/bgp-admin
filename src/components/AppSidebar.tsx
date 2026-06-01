@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Rocket, LogOut, Terminal, ShieldCheck } from "lucide-react";
+import { Rocket, LogOut, Terminal, ShieldCheck, Boxes, BookOpen } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -17,6 +17,8 @@ import { supabase } from "@/integrations/supabase/client";
 
 const items = [
   { title: "Deploy", url: "/dashboard", icon: Rocket },
+  { title: "Apps", url: "/apps", icon: Boxes },
+  { title: "Docs", url: "/docs", icon: BookOpen },
   { title: "Security", url: "/settings/security", icon: ShieldCheck },
 ];
 
@@ -43,7 +45,14 @@ export function AppSidebar() {
             <SidebarMenu>
               {items.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={pathname === item.url}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={
+                      item.url === "/dashboard"
+                        ? pathname === item.url
+                        : pathname === item.url || pathname.startsWith(item.url + "/")
+                    }
+                  >
                     <Link to={item.url} className="flex items-center gap-2">
                       <item.icon className="h-4 w-4" />
                       {!collapsed && <span>{item.title}</span>}
