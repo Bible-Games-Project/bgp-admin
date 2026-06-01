@@ -158,20 +158,6 @@ function DeployPanel({ appId, defaultRef }: { appId: string; defaultRef: string 
     </section>
   );
 }
-            className="gap-2"
-          >
-            {deployM.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Rocket className="h-4 w-4" />
-            )}
-            Deploy
-          </Button>
-        </div>
-      </div>
-    </section>
-  );
-}
 
 function RunsHistory({ appId }: { appId: string }) {
   const runsFn = useServerFn(listRepoRuns);
