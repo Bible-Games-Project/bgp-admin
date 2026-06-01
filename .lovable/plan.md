@@ -1,48 +1,112 @@
 
-# Plan: Panel para disparar GitHub Actions
-
 ## Objetivo
-Una web muy simple con un solo botón "Deploy" que dispara el workflow `deploy.yml` en `Bible-Games-Project/shared-workflows` vía la API de GitHub (`workflow_dispatch`).
 
-## Stack y decisiones
-- **Backend**: Lovable Cloud (incluye auth segura). Se habilita en el primer paso del build.
-- **Auth (login fuerte)**: Email + contraseña con Lovable Cloud, más:
-  - Protección contra contraseñas filtradas (HIBP) activada.
-  - Signups deshabilitados desde el dashboard tras crear tu cuenta, así nadie más puede registrarse.
-  - Acceso restringido por una tabla `admins` (user_id) con RLS; sólo tu user_id estará en ella. Esto evita que aunque alguien lograra crear una cuenta, pueda usar el botón.
-  - Opción de añadir Google como segundo método más adelante si lo quieres.
-- **Llamada a GitHub**: server function de TanStack Start (`createServerFn`) protegida por sesión + check de admin. El `GITHUB_PAT` se guarda como secret en Lovable Cloud y nunca toca el cliente.
-- **Endpoint GitHub**: `POST /repos/Bible-Games-Project/shared-workflows/actions/workflows/deploy.yml/dispatches` con body `{ "ref": "main" }`.
+Centralizar en `bgp-admin` todo el orquestador de publicación: las apps se dan de alta desde la UI, se guardan en BD, y desde aquí se dispara el deploy de iOS/Android en el repo de cada app, que solo contiene un workflow "caller" mínimo apuntando a los reutilizables de `bgp-admin`.
 
-## UI (1 sola pantalla útil)
-- `/login` — formulario email + password.
-- `/` (protegida, layout `_authenticated`):
-  - Card centrada: título "Bible Games — Deploys".
-  - Bloque para el workflow `deploy.yml`:
-    - Selector opcional de branch (default `main`).
-    - Botón grande **Deploy**.
-    - Toast de éxito/error + link al run en github.com/.../actions tras disparar.
-  - Botón logout en la esquina.
+## 1) Base de datos (migración)
 
-Diseñado para añadir más workflows/repos después simplemente duplicando la card.
+Tabla `apps` (gestionada solo por admins):
 
-## Pasos de implementación
-1. Habilitar Lovable Cloud.
-2. Crear tabla `admins (user_id uuid pk references auth.users)` + RLS (sólo el propio user ve su fila) + grants.
-3. Activar HIBP en auth settings.
-4. Pedirte el `GITHUB_PAT` (fine-grained, scope `actions:write` sobre `shared-workflows`) y guardarlo como secret.
-5. Rutas: `__root`, `_authenticated`, `_authenticated/index` (panel), `login`.
-6. Server function `triggerDeploy({ ref })`:
-   - Verifica sesión (`requireSupabaseAuth`) y que `userId` esté en `admins`.
-   - Llama a la API de GitHub con el PAT.
-   - Devuelve `{ ok, runUrl? , error? }`.
-7. UI con shadcn + toast.
-8. Tras desplegar, te indico cómo:
-   - Crear tu cuenta (única vez).
-   - Insertar tu fila en `admins`.
-   - Desactivar signups en el dashboard.
+- `id` uuid PK
+- `slug` text unique (p.ej. `eden`)
+- `name` text (p.ej. "Eden — Choice Chronicles")
+- `github_owner` text (`Bible-Games-Project`)
+- `github_repo` text (`eden-choice-chronicles`)
+- `default_ref` text default `main`
+- `ios_bundle_id` text nullable (`com.biblegames.eden`)
+- `ios_workflow_file` text default `deploy-ios.yml`
+- `android_package_name` text nullable
+- `android_workflow_file` text default `deploy-android.yml`
+- `android_play_track` text default `internal`
+- `notes` text nullable
+- `is_active` boolean default true
+- `created_at`, `updated_at` timestamptz
 
-## Notas técnicas
-- `workflow_dispatch` requiere que el workflow tenga `on: workflow_dispatch:` en el yml — tú ya lo añadirás.
-- La API responde `204 No Content` sin devolver el run_id; obtenemos el último run con `GET /repos/.../actions/workflows/deploy.yml/runs?per_page=1` para enseñar el link.
-- PAT recomendado: fine-grained, sólo este repo, permiso "Actions: Read and write".
+RLS: solo lectura/escritura para admins (vía `EXISTS (select 1 from admins where user_id = auth.uid())`). GRANTs a `authenticated` y `service_role`.
+
+## 2) Server functions (`src/lib/apps.functions.ts` + refactor `deploy.functions.ts`)
+
+- `listApps`, `getApp(id)`, `createApp(input)`, `updateApp(id, input)`, `deleteApp(id)` — todas con `requireSupabaseAuth` + check admin.
+- `triggerDeploy({ appId, platform, ref? })`: lee el `app` de BD, construye la URL `…/repos/{owner}/{repo}/actions/workflows/{file}/dispatches` y dispara con `GITHUB_PAT` (ya existe en secrets).
+- `listWorkflowRuns({ appId, platform })`: igual, pero `…/workflows/{file}/runs`.
+
+## 3) UI admin
+
+- `/_authenticated/apps` — listado de apps + botón "Nueva app".
+- `/_authenticated/apps/$id` — detalle/edición con todos los campos.
+- `/_authenticated/deploy` — refactor del panel actual: selector de app + tabs iOS/Android, botón Deploy, tabla de últimos runs (con link a GitHub).
+- Entrada en `AppSidebar`: "Apps" y "Deploy".
+
+## 4) Documentación dentro de la app
+
+- `/_authenticated/docs` con una página Markdown-style que explique:
+  - cómo dar de alta una nueva app
+  - qué workflow caller pegar en su repo
+  - qué secretos hace falta configurar en GitHub
+  - permisos del `GITHUB_PAT`
+
+## 5) Qué tienes que hacer en `eden-choice-chronicles`
+
+Crear **solo dos ficheros** en el repo de la app:
+
+`.github/workflows/deploy-ios.yml`
+```yaml
+name: Deploy iOS
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag
+        required: false
+        default: main
+jobs:
+  ios:
+    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-ios.yml@main
+    with:
+      bundle-id: com.biblegames.eden
+    secrets: inherit
+```
+
+`.github/workflows/deploy-android.yml`
+```yaml
+name: Deploy Android
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        required: false
+        default: main
+jobs:
+  android:
+    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@main
+    with:
+      package-name: com.biblegames.eden
+      play-track: internal
+    secrets: inherit
+```
+
+Secrets a configurar en `Settings → Secrets and variables → Actions` del repo `eden-choice-chronicles` (los reutilizables los exigen):
+
+- iOS: `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` (si aplica), certificados/perfiles según tu `deploy-ios.yml`.
+- Android: `ANDROID_KEYSTORE` (base64), `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`.
+
+Requisitos en GitHub para que los reutilizables sean accesibles:
+
+- Si `bgp-admin` es **privado**: en `bgp-admin` → Settings → Actions → General → "Access" → permitir acceso desde repos de la org.
+- `GITHUB_PAT` (ya guardado aquí) debe ser un fine-grained PAT con permiso **Actions: Read & Write** sobre los repos de las apps.
+
+## 6) Plan de despliegue
+
+1. Migración BD (te paso el SQL para aprobar).
+2. Backend server fns.
+3. UI: listado/edición de apps + refactor pantalla de deploy + página docs.
+4. Sembrar Eden vía la UI (no en migración) para que pruebes el flujo.
+
+## Detalles técnicos relevantes
+
+- El `GITHUB_PAT` se sigue leyendo en `process.env` dentro del handler.
+- El repo y el workflow ya no se hardcodean en código: vienen de la fila `apps`.
+- Validación con Zod en todas las server fns.
+- Errores del API de GitHub se devuelven como `{ ok:false, error }` para mostrarlos en UI sin romper.
+
+¿Apruebas el plan tal cual, o quieres ajustar algo (p. ej. campos extra en `apps`, otra ruta, dejar fuera la página de docs)?
