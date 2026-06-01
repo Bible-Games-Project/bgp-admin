@@ -166,15 +166,17 @@ jobs:
             "$KEY_ALIAS"
 
       - name: Decode Google Play Service Account JSON
+        id: decode_service_account
         env:
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
           echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" | base64 -d > $RUNNER_TEMP/service-account.json
+          echo "json-file=$RUNNER_TEMP/service-account.json" >> $GITHUB_OUTPUT
 
       - name: Upload to Google Play Console
         uses: r0adkll/upload-google-play@v1
         with:
-          serviceAccountJson: ${{ runner.temp }}/service-account.json
+          serviceAccountJson: ${{ steps.decode_service_account.outputs.json-file }}
           packageName: ${{ inputs.package-name }}
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
           track: ${{ inputs.play-track }}

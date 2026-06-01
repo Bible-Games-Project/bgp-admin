@@ -229,9 +229,8 @@ jobs:
       - name: Build .xcarchive
         run: |
           set -euo pipefail
-          cd "${{ inputs.ios-workspace-dir }}"
           xcodebuild \
-            -workspace "${{ inputs.ios-workspace-file }}" \
+            -workspace "${{ inputs.ios-workspace-dir }}/${{ inputs.ios-workspace-file }}" \
             -scheme "${{ inputs.ios-scheme }}" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
