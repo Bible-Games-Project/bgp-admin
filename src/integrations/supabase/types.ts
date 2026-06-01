@@ -29,12 +29,66 @@ export type Database = {
         }
         Relationships: []
       }
+      apps: {
+        Row: {
+          android_package_name: string | null
+          android_play_track: string
+          android_workflow_file: string
+          created_at: string
+          default_ref: string
+          github_owner: string
+          github_repo: string
+          id: string
+          ios_bundle_id: string | null
+          ios_workflow_file: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          android_package_name?: string | null
+          android_play_track?: string
+          android_workflow_file?: string
+          created_at?: string
+          default_ref?: string
+          github_owner: string
+          github_repo: string
+          id?: string
+          ios_bundle_id?: string | null
+          ios_workflow_file?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          android_package_name?: string | null
+          android_play_track?: string
+          android_workflow_file?: string
+          created_at?: string
+          default_ref?: string
+          github_owner?: string
+          github_repo?: string
+          id?: string
+          ios_bundle_id?: string | null
+          ios_workflow_file?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_admin: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
