@@ -2,9 +2,6 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const platformSchema = z.enum(["ios", "android"]);
-type Platform = z.infer<typeof platformSchema>;
-
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
     .from("admins")
@@ -24,10 +21,6 @@ async function loadApp(supabase: any, appId: string) {
   if (error) throw new Error(error.message);
   if (!data) throw new Error("App not found");
   return data;
-}
-
-function workflowFileFor(app: any, platform: Platform) {
-  return platform === "ios" ? app.ios_workflow_file : app.android_workflow_file;
 }
 
 function githubHeaders() {
@@ -53,16 +46,39 @@ export const isCurrentUserAdmin = createServerFn({ method: "GET" })
     return { isAdmin: !!data };
   });
 
-export const listWorkflowRuns = createServerFn({ method: "POST" })
+export const listWorkflows = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input) =>
-    z.object({ appId: z.string().uuid(), platform: platformSchema }).parse(input),
-  )
+  .inputValidator((input) => z.object({ appId: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
     const app = await loadApp(context.supabase, data.appId);
-    const file = workflowFileFor(app, data.platform);
-    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows/${file}/runs?per_page=10`;
+    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows?per_page=100`;
+    const res = await fetch(url, { headers: githubHeaders() });
+    if (!res.ok) {
+      const text = await res.text();
+      return { workflows: [], error: `GitHub API ${res.status}: ${text.slice(0, 200)}` };
+    }
+    const json: any = await res.json();
+    return {
+      workflows: (json.workflows ?? [])
+        .filter((w: any) => w.state === "active")
+        .map((w: any) => ({
+          id: w.id,
+          name: w.name,
+          path: w.path,
+          file: w.path.split("/").pop() as string,
+        })),
+      error: null as string | null,
+    };
+  });
+
+export const listRepoRuns = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ appId: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/runs?per_page=15`;
     const res = await fetch(url, { headers: githubHeaders() });
     if (!res.ok) {
       const text = await res.text();
@@ -80,6 +96,7 @@ export const listWorkflowRuns = createServerFn({ method: "POST" })
         created_at: r.created_at,
         html_url: r.html_url,
         run_number: r.run_number,
+        workflow_name: r.name ?? null,
       })),
       error: null as string | null,
     };
@@ -91,7 +108,7 @@ export const triggerDeploy = createServerFn({ method: "POST" })
     z
       .object({
         appId: z.string().uuid(),
-        platform: platformSchema,
+        workflowFile: z.string().min(1).max(255),
         ref: z.string().min(1).max(255).optional(),
       })
       .parse(input),
@@ -100,9 +117,10 @@ export const triggerDeploy = createServerFn({ method: "POST" })
     await assertAdmin(context.supabase, context.userId);
     const app = await loadApp(context.supabase, data.appId);
     if (!app.is_active) throw new Error("App is disabled");
-    const file = workflowFileFor(app, data.platform);
     const ref = data.ref ?? app.default_ref ?? "main";
-    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows/${file}/dispatches`;
+    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows/${encodeURIComponent(
+      data.workflowFile,
+    )}/dispatches`;
     const res = await fetch(url, {
       method: "POST",
       headers: { ...githubHeaders(), "Content-Type": "application/json" },
@@ -112,5 +130,5 @@ export const triggerDeploy = createServerFn({ method: "POST" })
       const text = await res.text();
       throw new Error(`GitHub dispatch failed (${res.status}): ${text.slice(0, 200)}`);
     }
-    return { ok: true, ref, platform: data.platform };
+    return { ok: true, ref, workflowFile: data.workflowFile };
   });
