@@ -110,6 +110,7 @@ export const triggerDeploy = createServerFn({ method: "POST" })
         appId: z.string().uuid(),
         workflowFile: z.string().min(1).max(255),
         ref: z.string().min(1).max(255).optional(),
+        inputs: z.record(z.any()).optional(),
       })
       .parse(input),
   )
@@ -121,10 +122,16 @@ export const triggerDeploy = createServerFn({ method: "POST" })
     const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows/${encodeURIComponent(
       data.workflowFile,
     )}/dispatches`;
+    
+    const body: any = { ref };
+    if (data.inputs && Object.keys(data.inputs).length > 0) {
+      body.inputs = data.inputs;
+    }
+    
     const res = await fetch(url, {
       method: "POST",
       headers: { ...githubHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ ref }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const text = await res.text();
