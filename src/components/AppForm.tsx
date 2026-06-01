@@ -39,18 +39,32 @@ export function AppForm({
   onCancel?: () => void;
 }) {
   const [v, setV] = useState<AppFormValues>(initial);
+  const [repoError, setRepoError] = useState<string | null>(null);
 
   const upd = <K extends keyof AppFormValues>(k: K, val: AppFormValues[K]) =>
     setV((s) => ({ ...s, [k]: val }));
 
+  // Extracts the repo name from a full GitHub URL if pasted, otherwise returns the input unchanged.
+  const normalizeRepo = (raw: string): string => {
+    const trimmed = raw.trim();
+    const urlMatch = trimmed.match(/github\.com\/[^/]+\/([^/?#]+?)(?:\.git)?(?:[/?#]|$)/i);
+    if (urlMatch) return urlMatch[1];
+    return trimmed;
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const normalized = normalizeRepo(v.github_repo);
+    if (normalized.includes("/") || /https?:/i.test(normalized) || !normalized) {
+      setRepoError("Enter just the repo name (e.g. eden-choice-chronicles), no URL or slashes.");
+      return;
+    }
+    setRepoError(null);
+    onSubmit({ ...v, github_repo: normalized });
+  };
+
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSubmit(v);
-      }}
-      className="space-y-6"
-    >
+    <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Slug" hint="lowercase, dashes (e.g. eden)">
           <Input value={v.slug} onChange={(e) => upd("slug", e.target.value)} required />
@@ -61,8 +75,18 @@ export function AppForm({
         <Field label="GitHub owner">
           <Input value={v.github_owner} onChange={(e) => upd("github_owner", e.target.value)} required />
         </Field>
-        <Field label="GitHub repo">
-          <Input value={v.github_repo} onChange={(e) => upd("github_repo", e.target.value)} required />
+        <Field label="Repo name" hint="just the repo name, e.g. eden-choice-chronicles">
+          <Input
+            value={v.github_repo}
+            onChange={(e) => {
+              upd("github_repo", e.target.value);
+              if (repoError) setRepoError(null);
+            }}
+            onBlur={(e) => upd("github_repo", normalizeRepo(e.target.value))}
+            placeholder="eden-choice-chronicles"
+            required
+          />
+          {repoError && <p className="text-[11px] text-destructive">{repoError}</p>}
         </Field>
         <Field label="Default branch">
           <Input value={v.default_ref} onChange={(e) => upd("default_ref", e.target.value)} required />

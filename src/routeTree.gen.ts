@@ -17,7 +17,7 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedDocsRouteImport } from './routes/_authenticated.docs'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
-import { Route as AuthenticatedAppsRouteImport } from './routes/_authenticated.apps'
+import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authenticated.apps.index'
 import { Route as AuthenticatedSettingsSecurityRouteImport } from './routes/_authenticated.settings.security'
 import { Route as AuthenticatedAppsIdRouteImport } from './routes/_authenticated.apps.$id'
 
@@ -60,9 +60,9 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedAppsRoute = AuthenticatedAppsRouteImport.update({
-  id: '/apps',
-  path: '/apps',
+const AuthenticatedAppsIndexRoute = AuthenticatedAppsIndexRouteImport.update({
+  id: '/apps/',
+  path: '/apps/',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedSettingsSecurityRoute =
@@ -72,9 +72,9 @@ const AuthenticatedSettingsSecurityRoute =
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedAppsIdRoute = AuthenticatedAppsIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => AuthenticatedAppsRoute,
+  id: '/apps/$id',
+  path: '/apps/$id',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -83,11 +83,11 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
-  '/apps': typeof AuthenticatedAppsRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/docs': typeof AuthenticatedDocsRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
+  '/apps/': typeof AuthenticatedAppsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -95,11 +95,11 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
-  '/apps': typeof AuthenticatedAppsRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/docs': typeof AuthenticatedDocsRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
+  '/apps': typeof AuthenticatedAppsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -109,11 +109,11 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
-  '/_authenticated/apps': typeof AuthenticatedAppsRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/docs': typeof AuthenticatedDocsRoute
   '/_authenticated/apps/$id': typeof AuthenticatedAppsIdRoute
   '/_authenticated/settings/security': typeof AuthenticatedSettingsSecurityRoute
+  '/_authenticated/apps/': typeof AuthenticatedAppsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -123,11 +123,11 @@ export interface FileRouteTypes {
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
-    | '/apps'
     | '/dashboard'
     | '/docs'
     | '/apps/$id'
     | '/settings/security'
+    | '/apps/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -135,11 +135,11 @@ export interface FileRouteTypes {
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
-    | '/apps'
     | '/dashboard'
     | '/docs'
     | '/apps/$id'
     | '/settings/security'
+    | '/apps'
   id:
     | '__root__'
     | '/'
@@ -148,11 +148,11 @@ export interface FileRouteTypes {
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
-    | '/_authenticated/apps'
     | '/_authenticated/dashboard'
     | '/_authenticated/docs'
     | '/_authenticated/apps/$id'
     | '/_authenticated/settings/security'
+    | '/_authenticated/apps/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -222,11 +222,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/apps': {
-      id: '/_authenticated/apps'
+    '/_authenticated/apps/': {
+      id: '/_authenticated/apps/'
       path: '/apps'
-      fullPath: '/apps'
-      preLoaderRoute: typeof AuthenticatedAppsRouteImport
+      fullPath: '/apps/'
+      preLoaderRoute: typeof AuthenticatedAppsIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/settings/security': {
@@ -238,37 +238,28 @@ declare module '@tanstack/react-router' {
     }
     '/_authenticated/apps/$id': {
       id: '/_authenticated/apps/$id'
-      path: '/$id'
+      path: '/apps/$id'
       fullPath: '/apps/$id'
       preLoaderRoute: typeof AuthenticatedAppsIdRouteImport
-      parentRoute: typeof AuthenticatedAppsRoute
+      parentRoute: typeof AuthenticatedRoute
     }
   }
 }
 
-interface AuthenticatedAppsRouteChildren {
-  AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
-}
-
-const AuthenticatedAppsRouteChildren: AuthenticatedAppsRouteChildren = {
-  AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
-}
-
-const AuthenticatedAppsRouteWithChildren =
-  AuthenticatedAppsRoute._addFileChildren(AuthenticatedAppsRouteChildren)
-
 interface AuthenticatedRouteChildren {
-  AuthenticatedAppsRoute: typeof AuthenticatedAppsRouteWithChildren
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDocsRoute: typeof AuthenticatedDocsRoute
+  AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
   AuthenticatedSettingsSecurityRoute: typeof AuthenticatedSettingsSecurityRoute
+  AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
-  AuthenticatedAppsRoute: AuthenticatedAppsRouteWithChildren,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedDocsRoute: AuthenticatedDocsRoute,
+  AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
   AuthenticatedSettingsSecurityRoute: AuthenticatedSettingsSecurityRoute,
+  AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
