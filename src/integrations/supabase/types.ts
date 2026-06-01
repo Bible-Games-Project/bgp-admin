@@ -31,16 +31,11 @@ export type Database = {
       }
       apps: {
         Row: {
-          android_package_name: string | null
-          android_play_track: string
-          android_workflow_file: string
           created_at: string
           default_ref: string
           github_owner: string
           github_repo: string
           id: string
-          ios_bundle_id: string | null
-          ios_workflow_file: string
           is_active: boolean
           name: string
           notes: string | null
@@ -48,16 +43,11 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          android_package_name?: string | null
-          android_play_track?: string
-          android_workflow_file?: string
           created_at?: string
           default_ref?: string
           github_owner: string
           github_repo: string
           id?: string
-          ios_bundle_id?: string | null
-          ios_workflow_file?: string
           is_active?: boolean
           name: string
           notes?: string | null
@@ -65,16 +55,11 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          android_package_name?: string | null
-          android_play_track?: string
-          android_workflow_file?: string
           created_at?: string
           default_ref?: string
           github_owner?: string
           github_repo?: string
           id?: string
-          ios_bundle_id?: string | null
-          ios_workflow_file?: string
           is_active?: boolean
           name?: string
           notes?: string | null

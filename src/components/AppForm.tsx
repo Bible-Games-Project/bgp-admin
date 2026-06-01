@@ -4,13 +4,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 export type AppFormValues = {
   slug: string;
@@ -18,11 +11,6 @@ export type AppFormValues = {
   github_owner: string;
   github_repo: string;
   default_ref: string;
-  ios_bundle_id: string;
-  ios_workflow_file: string;
-  android_package_name: string;
-  android_workflow_file: string;
-  android_play_track: "internal" | "alpha" | "beta" | "production";
   notes: string;
   is_active: boolean;
 };
@@ -33,11 +21,6 @@ export const emptyAppForm: AppFormValues = {
   github_owner: "Bible-Games-Project",
   github_repo: "",
   default_ref: "main",
-  ios_bundle_id: "",
-  ios_workflow_file: "deploy-ios.yml",
-  android_package_name: "",
-  android_workflow_file: "deploy-android.yml",
-  android_play_track: "internal",
   notes: "",
   is_active: true,
 };
@@ -89,60 +72,6 @@ export function AppForm({
             <Switch checked={v.is_active} onCheckedChange={(b) => upd("is_active", b)} />
           </div>
         </Field>
-      </div>
-
-      <div>
-        <div className="label-mono mb-2">iOS</div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Bundle ID">
-            <Input
-              value={v.ios_bundle_id}
-              onChange={(e) => upd("ios_bundle_id", e.target.value)}
-              placeholder="com.biblegames.eden"
-            />
-          </Field>
-          <Field label="Workflow file">
-            <Input
-              value={v.ios_workflow_file}
-              onChange={(e) => upd("ios_workflow_file", e.target.value)}
-            />
-          </Field>
-        </div>
-      </div>
-
-      <div>
-        <div className="label-mono mb-2">Android</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Field label="Package name">
-            <Input
-              value={v.android_package_name}
-              onChange={(e) => upd("android_package_name", e.target.value)}
-              placeholder="com.biblegames.eden"
-            />
-          </Field>
-          <Field label="Workflow file">
-            <Input
-              value={v.android_workflow_file}
-              onChange={(e) => upd("android_workflow_file", e.target.value)}
-            />
-          </Field>
-          <Field label="Play track">
-            <Select
-              value={v.android_play_track}
-              onValueChange={(val) => upd("android_play_track", val as AppFormValues["android_play_track"])}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="internal">internal</SelectItem>
-                <SelectItem value="alpha">alpha</SelectItem>
-                <SelectItem value="beta">beta</SelectItem>
-                <SelectItem value="production">production</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-        </div>
       </div>
 
       <Field label="Notes">

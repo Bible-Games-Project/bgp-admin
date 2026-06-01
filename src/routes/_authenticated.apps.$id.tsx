@@ -58,11 +58,6 @@ function AppDetailPage() {
     github_owner: app.github_owner,
     github_repo: app.github_repo,
     default_ref: app.default_ref,
-    ios_bundle_id: app.ios_bundle_id ?? "",
-    ios_workflow_file: app.ios_workflow_file,
-    android_package_name: app.android_package_name ?? "",
-    android_workflow_file: app.android_workflow_file,
-    android_play_track: app.android_play_track as AppFormValues["android_play_track"],
     notes: app.notes ?? "",
     is_active: app.is_active,
   };
@@ -104,8 +99,6 @@ function AppDetailPage() {
         onSubmit={(v) =>
           updateM.mutate({
             ...v,
-            ios_bundle_id: v.ios_bundle_id || null,
-            android_package_name: v.android_package_name || null,
             notes: v.notes || null,
           })
         }

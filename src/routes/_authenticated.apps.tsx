@@ -61,8 +61,6 @@ function AppsPage() {
               onSubmit={(v) =>
                 createM.mutate({
                   ...v,
-                  ios_bundle_id: v.ios_bundle_id || null,
-                  android_package_name: v.android_package_name || null,
                   notes: v.notes || null,
                 })
               }
