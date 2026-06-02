@@ -23,16 +23,16 @@ on:
         required: false
         type: string
         default: "App"
-      ios-workspace-dir:
-        description: "Directory containing .xcworkspace"
+      ios-project-dir:
+        description: "Directory containing .xcodeproj"
         required: false
         type: string
         default: "ios/App"
-      ios-workspace-file:
-        description: "Workspace filename"
+      ios-project-file:
+        description: "Xcode project filename"
         required: false
         type: string
-        default: "App.xcworkspace"
+        default: "App.xcodeproj"
       pre-build-script:
         description: "Optional script to run before build (e.g., icon generation)"
         required: false
@@ -68,8 +68,8 @@ jobs:
 
     env:
       IOS_SCHEME: ${{ inputs.ios-scheme }}
-      IOS_WORKSPACE_DIR: ${{ inputs.ios-workspace-dir }}
-      IOS_WORKSPACE_FILE: ${{ inputs.ios-workspace-file }}
+      IOS_PROJECT_DIR: ${{ inputs.ios-project-dir }}
+      IOS_PROJECT_FILE: ${{ inputs.ios-project-file }}
       TEAM_ID: ${{ inputs.team-id }}
 
     steps:
@@ -124,17 +124,6 @@ jobs:
       - name: Sync Capacitor (iOS)
         run: bunx cap sync ios
 
-      - name: Debug - List iOS directory structure
-        run: |
-          echo "=== iOS directory contents ==="
-          ls -la ios/ || echo "ios/ not found"
-          echo ""
-          echo "=== ios/App directory contents ==="
-          ls -la ios/App/ || echo "ios/App/ not found"
-          echo ""
-          echo "=== Search for .xcworkspace files ==="
-          find . -name "*.xcworkspace" -type d || echo "No .xcworkspace found"
-
       - name: Run Capacitor hooks
         if: inputs.capacitor-hooks-script != ''
         run: node ${{ inputs.capacitor-hooks-script }} capacitor:sync:after ios
@@ -169,7 +158,7 @@ jobs:
           echo "BUILD_NUMBER=$BUILD"
 
       - name: Patch Info.plist (version, build, export compliance)
-        working-directory: ${{ inputs.ios-workspace-dir }}
+        working-directory: ${{ inputs.ios-project-dir }}
         run: |
           set -euo pipefail
           PLIST="App/Info.plist"
@@ -241,7 +230,7 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild \
-            -workspace "${{ inputs.ios-workspace-dir }}/${{ inputs.ios-workspace-file }}" \
+            -project "${{ inputs.ios-project-dir }}/${{ inputs.ios-project-file }}" \
             -scheme "${{ inputs.ios-scheme }}" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
