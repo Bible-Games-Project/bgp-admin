@@ -82,34 +82,26 @@ function DeployPanel({
 }) {
   const qc = useQueryClient();
   const deployFn = useServerFn(triggerDeploy);
+  const fetchRepoVersion = useServerFn(getRepoMarketingVersion);
   const [ref, setRef] = useState(defaultRef);
   const [marketingVersion, setMarketingVersion] = useState(currentVersion || "");
-  const [repoVersion, setRepoVersion] = useState<string | null>(null);
   const [deployIos, setDeployIos] = useState(true);
   const [deployAndroid, setDeployAndroid] = useState(true);
 
   useEffect(() => setRef(defaultRef), [defaultRef]);
-  useEffect(() => setMarketingVersion(currentVersion || repoVersion || ""), [currentVersion, repoVersion]);
 
-  // Fetch current version from package.json
-  useEffect(() => {
-    const fetchVersion = async () => {
-      try {
-        const url = `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/${ref}/package.json`;
-        const res = await fetch(url);
-        if (!res.ok) return;
-        const pkg = await res.json();
-        if (pkg.version) {
-          // Extract major.minor from semver (e.g., "1.0.0" -> "1.0")
-          const match = pkg.version.match(/^(\d+\.\d+)/);
-          setRepoVersion(match ? match[1] : pkg.version);
-        }
-      } catch (err) {
-        // Silently fail - not critical
-      }
-    };
-    fetchVersion();
-  }, [githubOwner, githubRepo, ref]);
+  const { data: repoVersionData } = useQuery({
+    queryKey: ["repoVersion", appId, ref],
+    queryFn: () => fetchRepoVersion({ data: { appId, ref } }),
+    enabled: !!appId && !!ref,
+    staleTime: 60_000,
+  });
+  const repoVersion = repoVersionData?.version ?? null;
+
+  useEffect(
+    () => setMarketingVersion(currentVersion || repoVersion || ""),
+    [currentVersion, repoVersion],
+  );
 
   const deployM = useMutation({
     mutationFn: () => {
