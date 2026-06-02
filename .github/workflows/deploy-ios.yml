@@ -7,7 +7,7 @@ on:
         description: "Xcode version to use"
         required: false
         type: string
-        default: "26.2"
+        default: "16.0"
       runner:
         description: "macOS runner to use"
         required: false
