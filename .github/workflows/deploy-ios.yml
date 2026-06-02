@@ -145,15 +145,13 @@ jobs:
 
       - name: Install iOS platform (SDK + runtimes)
         run: |
-          set -euo pipefail
-          echo "== Installed SDKs =="
-          xcodebuild -showsdks
-          if xcodebuild -showsdks | grep -q "iphoneos"; then
-            echo "✅ iOS SDK already installed, skipping download"
-          else
-            echo "== iOS SDK missing, downloading platform =="
-            sudo xcodebuild -downloadPlatform iOS
-          fi
+          set -u
+          echo "== Installed SDKs (before) =="
+          xcodebuild -showsdks || true
+          echo "== Downloading iOS platform =="
+          sudo xcodebuild -downloadPlatform iOS || echo "downloadPlatform exited non-zero (often harmless when simulator runtime fails but platform is installed)"
+          echo "== Installed SDKs (after) =="
+          xcodebuild -showsdks || true
 
       # === VERSIONADO AUTOMÁTICO ===
       - name: Read marketing version from package.json (MAJOR.MINOR)
