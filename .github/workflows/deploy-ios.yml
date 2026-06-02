@@ -13,11 +13,6 @@ on:
         required: false
         type: string
         default: "macos-15"
-      team-id:
-        description: "Apple Developer Team ID"
-        required: false
-        type: string
-        default: "92Q87D39T8"
       ios-scheme:
         description: "Xcode scheme name"
         required: false
@@ -49,6 +44,8 @@ on:
         type: string
         default: ""
     secrets:
+      IOS_TEAM_ID:
+        required: true
       IOS_BUILD_CERTIFICATE_BASE64:
         required: true
       IOS_P12_PASSWORD:
@@ -75,7 +72,7 @@ jobs:
       IOS_SCHEME: ${{ inputs.ios-scheme }}
       IOS_PROJECT_DIR: ${{ inputs.ios-project-dir }}
       IOS_PROJECT_FILE: ${{ inputs.ios-project-file }}
-      TEAM_ID: ${{ inputs.team-id }}
+      TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
 
     steps:
       - name: Checkout code
@@ -246,7 +243,7 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            DEVELOPMENT_TEAM=${{ inputs.team-id }} \
+            DEVELOPMENT_TEAM=${{ secrets.IOS_TEAM_ID }} \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
