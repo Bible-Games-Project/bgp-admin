@@ -7,7 +7,7 @@ on:
         description: "Xcode version to use"
         required: false
         type: string
-        default: "16.0"
+        default: "16.2"
       runner:
         description: "macOS runner to use"
         required: false
@@ -243,11 +243,14 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -sdk iphoneos \
             DEVELOPMENT_TEAM=${{ secrets.IOS_TEAM_ID }} \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
             PROVISIONING_PROFILE="$PP_UUID" \
+            ONLY_ACTIVE_ARCH=NO \
+            SKIP_INSTALL=NO \
             archive
 
       - name: Inject provisioning profile into .app
