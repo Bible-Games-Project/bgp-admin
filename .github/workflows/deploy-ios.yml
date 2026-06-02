@@ -124,6 +124,17 @@ jobs:
       - name: Sync Capacitor (iOS)
         run: bunx cap sync ios
 
+      - name: Debug - List iOS directory structure
+        run: |
+          echo "=== iOS directory contents ==="
+          ls -la ios/ || echo "ios/ not found"
+          echo ""
+          echo "=== ios/App directory contents ==="
+          ls -la ios/App/ || echo "ios/App/ not found"
+          echo ""
+          echo "=== Search for .xcworkspace files ==="
+          find . -name "*.xcworkspace" -type d || echo "No .xcworkspace found"
+
       - name: Run Capacitor hooks
         if: inputs.capacitor-hooks-script != ''
         run: node ${{ inputs.capacitor-hooks-script }} capacitor:sync:after ios
