@@ -7,12 +7,12 @@ on:
         description: "Xcode version to use (empty = runner default)"
         required: false
         type: string
-        default: "16.4"
+        default: "26.0"
       runner:
         description: "macOS runner to use"
         required: false
         type: string
-        default: "macos-15"
+        default: "macos-26"
       ios-scheme:
         description: "Xcode scheme name"
         required: false
