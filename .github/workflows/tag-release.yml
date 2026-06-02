@@ -13,6 +13,8 @@ jobs:
   tag:
     name: Create Git Tag 🏷️
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code

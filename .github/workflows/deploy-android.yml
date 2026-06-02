@@ -190,8 +190,9 @@ jobs:
           status: completed
 
       - name: Upload AAB as artifact
+        if: inputs.skip-upload == true
         uses: actions/upload-artifact@v4
         with:
           name: android-release-${{ github.run_number }}
           path: android/app/build/outputs/bundle/release/app-release.aab
-          retention-days: 30
+          retention-days: 7
