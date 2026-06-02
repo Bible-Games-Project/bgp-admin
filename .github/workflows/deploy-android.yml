@@ -150,8 +150,13 @@ jobs:
           echo "Using versionCode: $VERSION_CODE"
           sed -i "s/versionCode .*/versionCode ${VERSION_CODE}/" build.gradle
 
-          VERSION_NAME=$(node -p "require('../../package.json').version")
-          echo "Using versionName: $VERSION_NAME"
+          if [ -n "${{ inputs.marketing-version }}" ]; then
+            VERSION_NAME="${{ inputs.marketing-version }}.${GITHUB_RUN_NUMBER}"
+            echo "Using versionName from input: $VERSION_NAME"
+          else
+            VERSION_NAME=$(node -p "require('../../package.json').version")
+            echo "Using versionName from package.json: $VERSION_NAME"
+          fi
           sed -i "s/versionName .*/versionName \"${VERSION_NAME}\"/" build.gradle
 
           echo "Final build.gradle:"

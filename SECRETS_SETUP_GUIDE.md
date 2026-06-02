@@ -6,10 +6,10 @@ This guide explains **which secrets you need** and **where to configure them** s
 
 ## 📊 Overall Status
 
-**Total progress:** 13/13 secrets configured (100%) ✅
+**Total progress:** 14/14 secrets configured (100%) ✅
 
 - ✅ **bgp-admin**: 1/1 (100%)
-- ✅ **iOS Organization**: 6/6 (100%)
+- ✅ **iOS Organization**: 7/7 (100%)
 - ✅ **iOS Repository (per app)**: 2/2 (100%)
 - ✅ **Android Organization**: 1/1 (100%)
 - ✅ **Android Repository (per app)**: 3/3 (100%)
@@ -56,7 +56,8 @@ base64 -i file.ext
 
 ### 2. In **Bible-Games-Project Organization** (shared)
 
-#### iOS Organization secrets (6):
+#### iOS Organization secrets (7):
+- [x] `IOS_TEAM_ID` ✅
 - [x] `IOS_BUILD_CERTIFICATE_BASE64` ✅
 - [x] `IOS_P12_PASSWORD` ✅
 - [x] `IOS_KEYCHAIN_PASSWORD` ✅
@@ -95,6 +96,7 @@ base64 -i file.ext
 ### Organization-level secrets (shared across projects):
 
 ✅ **iOS - Shared for all apps:**
+- `IOS_TEAM_ID` - Apple Developer Team ID (organization identifier)
 - `IOS_BUILD_CERTIFICATE_BASE64` - Same certificate for all apps
 - `IOS_P12_PASSWORD` - Certificate password
 - `IOS_KEYCHAIN_PASSWORD` - Temporary GitHub Actions password
@@ -160,9 +162,46 @@ base64 -i file.ext
    - Repository access: **"All repositories"** or select specific repos
    - Click **"Add secret"**
 
-**Configure these 6 secrets at Organization level:**
+**Configure these 7 secrets at Organization level:**
 
-#### 1. `IOS_BUILD_CERTIFICATE_BASE64` ✅
+#### 1. `IOS_TEAM_ID` ✅
+
+**What it is:** Your Apple Developer Team ID (10 characters). This identifies your organization in Apple's systems.
+
+**How to find it:**
+
+**Option A - From App Store Connect:**
+1. Go to [App Store Connect](https://appstoreconnect.apple.com)
+2. Click your name (top right) → **View Membership**
+3. Look for **Team ID** (e.g., `N65TK8GHAL`)
+
+**Option B - From Apple Developer Portal:**
+1. Go to [Apple Developer - Membership](https://developer.apple.com/account)
+2. Scroll down to **Membership Information**
+3. Look for **Team ID**
+
+**Option C - From your existing certificate:**
+```bash
+# If you have an Apple Distribution certificate installed:
+security find-identity -v -p codesigning | grep "Apple Distribution"
+# The Team ID is in parentheses at the end, e.g., (N65TK8GHAL)
+```
+
+**Value to use:**
+- Just the Team ID: `N65TK8GHAL` (example for Joan Sabé's team)
+- **Do NOT use:** The full team name or anything else
+
+**Set this secret:**
+- Name: `IOS_TEAM_ID`
+- Value: `N65TK8GHAL` (your actual Team ID)
+- Repository access: **All repositories**
+
+- [x] Team ID identified ✅
+- [x] Secret created at Organization level ✅
+
+---
+
+#### 2. `IOS_BUILD_CERTIFICATE_BASE64` ✅
 
 **Step by step to obtain the .p12 certificate:**
 
@@ -203,7 +242,7 @@ base64 -i file.ext
 
 ---
 
-#### 2. `IOS_P12_PASSWORD` ✅
+#### 3. `IOS_P12_PASSWORD` ✅
 
 **The password you used when exporting the .p12 in the previous step.**
 
@@ -211,7 +250,7 @@ base64 -i file.ext
 
 ---
 
-#### 3. `IOS_KEYCHAIN_PASSWORD` ✅
+#### 4. `IOS_KEYCHAIN_PASSWORD` ✅
 
 **A temporary password that GitHub Actions will use internally.**
 
@@ -223,7 +262,7 @@ base64 -i file.ext
 
 ---
 
-#### 4. `APP_STORE_CONNECT_API_KEY_ID` ✅
+#### 5. `APP_STORE_CONNECT_API_KEY_ID` ✅
 
 **Step by step to obtain the App Store Connect API Key:**
 
@@ -248,7 +287,7 @@ base64 -i file.ext
 
 ---
 
-#### 5. `APP_STORE_CONNECT_ISSUER_ID` ✅
+#### 6. `APP_STORE_CONNECT_ISSUER_ID` ✅
 
 **On the same API Keys page:**
 
@@ -260,7 +299,7 @@ base64 -i file.ext
 
 ---
 
-#### 6. `APP_STORE_CONNECT_API_KEY_BASE64` ✅
+#### 7. `APP_STORE_CONNECT_API_KEY_BASE64` ✅
 
 **Download the .p8 file of the API Key:**
 
