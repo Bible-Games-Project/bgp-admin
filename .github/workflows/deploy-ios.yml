@@ -43,6 +43,11 @@ on:
         required: false
         type: string
         default: ""
+      marketing-version:
+        description: "Marketing version (e.g., 1.0, 2.1). If empty, uses package.json"
+        required: false
+        type: string
+        default: ""
     secrets:
       IOS_BUILD_CERTIFICATE_BASE64:
         required: true
@@ -144,7 +149,13 @@ jobs:
       # === VERSIONADO AUTOMÁTICO ===
       - name: Read marketing version from package.json (MAJOR.MINOR)
         run: |
-          VER=$(node -e "const v=require('./package.json').version.split('.'); console.log(\`\${v[0]}.\${v[1]}\`)") \
+          if [ -n "${{ inputs.marketing-version }}" ]; then
+            VER="${{ inputs.marketing-version }}"
+            echo "Using marketing version from input: $VER"
+          else
+            VER=$(node -e "const v=require('./package.json').version.split('.'); console.log(\`\${v[0]}.\${v[1]}\`)")
+            echo "Using marketing version from package.json: $VER"
+          fi \
             || { echo 'No pude leer package.json.version'; exit 1; }
           echo "MARKETING_VERSION=$VER" >> $GITHUB_ENV
           echo "MARKETING_VERSION=$VER"

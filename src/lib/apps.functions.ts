@@ -8,6 +8,7 @@ const appInputSchema = z.object({
   github_owner: z.string().min(1).max(255),
   github_repo: z.string().min(1).max(255),
   default_ref: z.string().min(1).max(255).default("main"),
+  marketing_version: z.string().regex(/^\d+\.\d+$/, "must be in format X.Y (e.g., 1.0, 2.1)").nullable().optional(),
   notes: z.string().max(4000).nullable().optional(),
   is_active: z.boolean().default(true),
 });

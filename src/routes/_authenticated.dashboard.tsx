@@ -66,14 +66,16 @@ function formatTime(iso: string) {
   return d.toLocaleDateString();
 }
 
-function DeployPanel({ appId, defaultRef }: { appId: string; defaultRef: string }) {
+function DeployPanel({ appId, defaultRef, currentVersion }: { appId: string; defaultRef: string; currentVersion: string | null }) {
   const qc = useQueryClient();
   const deployFn = useServerFn(triggerDeploy);
   const [ref, setRef] = useState(defaultRef);
+  const [marketingVersion, setMarketingVersion] = useState(currentVersion || "");
   const [deployIos, setDeployIos] = useState(true);
   const [deployAndroid, setDeployAndroid] = useState(true);
 
   useEffect(() => setRef(defaultRef), [defaultRef]);
+  useEffect(() => setMarketingVersion(currentVersion || ""), [currentVersion]);
 
   const deployM = useMutation({
     mutationFn: () => {
@@ -88,6 +90,7 @@ function DeployPanel({ appId, defaultRef }: { appId: string; defaultRef: string 
           inputs: {
             deploy_ios: deployIos,
             deploy_android: deployAndroid,
+            marketing_version: marketingVersion.trim() || undefined,
           }
         } 
       });
@@ -96,7 +99,8 @@ function DeployPanel({ appId, defaultRef }: { appId: string; defaultRef: string 
       const platforms = [];
       if (deployIos) platforms.push("iOS");
       if (deployAndroid) platforms.push("Android");
-      toast.success(`Deploying ${platforms.join(" + ")} on ${ref}`);
+      const versionStr = marketingVersion.trim() ? ` v${marketingVersion}` : "";
+      toast.success(`Deploying ${platforms.join(" + ")}${versionStr} on ${ref}`);
       setTimeout(() => qc.invalidateQueries({ queryKey: ["runs", appId] }), 1500);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -138,6 +142,17 @@ function DeployPanel({ appId, defaultRef }: { appId: string; defaultRef: string 
               onChange={(e) => setRef(e.target.value)}
               className="bg-transparent text-sm font-mono w-32 outline-none"
               placeholder="main"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 h-9">
+            <span className="text-xs text-muted-foreground font-mono">v</span>
+            <input
+              value={marketingVersion}
+              onChange={(e) => setMarketingVersion(e.target.value)}
+              className="bg-transparent text-sm font-mono w-16 outline-none"
+              placeholder="1.0"
+              title="Marketing version (e.g., 1.0, 2.1). If empty, uses package.json"
             />
           </div>
 
@@ -314,7 +329,11 @@ function DashboardPage() {
 
       {selected && (
         <>
-          <DeployPanel appId={selected.id} defaultRef={selected.default_ref} />
+          <DeployPanel 
+            appId={selected.id} 
+            defaultRef={selected.default_ref} 
+            currentVersion={selected.marketing_version} 
+          />
           <RunsHistory appId={selected.id} />
         </>
       )}

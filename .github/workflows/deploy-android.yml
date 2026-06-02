@@ -32,6 +32,11 @@ on:
         required: false
         type: boolean
         default: false
+      marketing-version:
+        description: "Marketing version (e.g., 1.0, 2.1). If empty, uses package.json"
+        required: false
+        type: string
+        default: ""
     secrets:
       ANDROID_KEYSTORE:
         required: true
