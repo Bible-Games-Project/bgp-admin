@@ -37,6 +37,7 @@ export type Database = {
           github_repo: string
           id: string
           is_active: boolean
+          marketing_version: string | null
           name: string
           notes: string | null
           slug: string
@@ -49,6 +50,7 @@ export type Database = {
           github_repo: string
           id?: string
           is_active?: boolean
+          marketing_version?: string | null
           name: string
           notes?: string | null
           slug: string
@@ -61,6 +63,7 @@ export type Database = {
           github_repo?: string
           id?: string
           is_active?: boolean
+          marketing_version?: string | null
           name?: string
           notes?: string | null
           slug?: string
