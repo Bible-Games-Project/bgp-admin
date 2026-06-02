@@ -143,6 +143,16 @@ jobs:
           sudo xcodebuild -license accept || true
           sudo xcodebuild -runFirstLaunch
 
+      - name: Install iOS platform (SDK + runtimes)
+        run: |
+          set -euo pipefail
+          echo "== Installed SDKs before =="
+          xcodebuild -showsdks || true
+          echo "== Downloading iOS platform =="
+          sudo xcodebuild -downloadPlatform iOS
+          echo "== Installed SDKs after =="
+          xcodebuild -showsdks
+
       # === VERSIONADO AUTOMÁTICO ===
       - name: Read marketing version from package.json (MAJOR.MINOR)
         run: |
