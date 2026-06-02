@@ -1,3 +1,4 @@
+// redeploy trigger 2026-06-02
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
