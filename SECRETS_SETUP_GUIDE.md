@@ -141,10 +141,14 @@ base64 -i file.ext
 - [x] Go to GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens
 - [x] Create token with:
   - [x] **Repository access**: Only `Bible-Games-Project/eden-choice-chronicles`
-  - [x] **Permissions**: Actions - Read and write
+  - [x] **Permissions**: 
+    - [x] **Actions** - Read and write (required for triggering workflows)
+    - [x] **Contents** - Read and write (required for creating commits with assets)
   - [x] **Expiration**: Configured
 - [x] Token copied
 - [x] Configured in Lovable Cloud (Environment Variables → GITHUB_PAT)
+
+**Note:** The Contents permission is required for the asset management feature (icon and splash screen generation) which creates commits directly to app repositories.
 
 ---
 

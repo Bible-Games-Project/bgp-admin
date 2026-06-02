@@ -5,6 +5,8 @@ import { ArrowLeft, Trash2 } from "lucide-react";
 import { getApp, updateApp, deleteApp } from "@/lib/apps.functions";
 import { Button } from "@/components/ui/button";
 import { AppForm, type AppFormValues } from "@/components/AppForm";
+import { AppAssetUpload } from "@/components/AppAssetUpload";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/apps/$id")({
@@ -92,17 +94,65 @@ function AppDetailPage() {
         </Button>
       </div>
 
-      <AppForm
-        initial={initial}
-        submitting={updateM.isPending}
-        submitLabel="Save changes"
-        onSubmit={(v) =>
-          updateM.mutate({
-            ...v,
-            notes: v.notes || null,
-          })
-        }
-      />
+      <Tabs defaultValue="general" className="w-full">
+        <TabsList className="grid w-full grid-cols-3 mb-6">
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="icon">Icon</TabsTrigger>
+          <TabsTrigger value="splash">Splash</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="general">
+          <AppForm
+            initial={initial}
+            submitting={updateM.isPending}
+            submitLabel="Save changes"
+            onSubmit={(v) =>
+              updateM.mutate({
+                ...v,
+                notes: v.notes || null,
+              })
+            }
+          />
+        </TabsContent>
+
+        <TabsContent value="icon">
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-xl font-semibold mb-2">App Icon</h2>
+              <p className="text-sm text-muted-foreground">
+                Upload a square icon image to generate all required iOS and Android icon sizes.
+                Optionally provide a dark mode variant for adaptive theming.
+              </p>
+            </div>
+            <AppAssetUpload
+              type="icon"
+              appId={id}
+              onSuccess={() => {
+                qc.invalidateQueries({ queryKey: ["app", id] });
+              }}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="splash">
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Splash Screen</h2>
+              <p className="text-sm text-muted-foreground">
+                Upload a square splash screen image to generate all required sizes for iOS and Android.
+                Choose background colors for light and dark modes.
+              </p>
+            </div>
+            <AppAssetUpload
+              type="splash"
+              appId={id}
+              onSuccess={() => {
+                qc.invalidateQueries({ queryKey: ["app", id] });
+              }}
+            />
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
