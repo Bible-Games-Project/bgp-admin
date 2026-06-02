@@ -34,6 +34,37 @@ function githubHeaders() {
   };
 }
 
+export const getRepoMarketingVersion = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        appId: z.string().uuid(),
+        ref: z.string().min(1).max(255).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const ref = data.ref ?? app.default_ref ?? "main";
+    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/package.json?ref=${encodeURIComponent(ref)}`;
+    const res = await fetch(url, {
+      headers: { ...githubHeaders(), Accept: "application/vnd.github.raw" },
+    });
+    if (!res.ok) return { version: null as string | null };
+    try {
+      const pkg: any = await res.json();
+      if (typeof pkg.version === "string") {
+        const match = pkg.version.match(/^(\d+\.\d+)/);
+        return { version: match ? match[1] : pkg.version };
+      }
+    } catch {
+      // fall through
+    }
+    return { version: null as string | null };
+  });
+
 export const isCurrentUserAdmin = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
