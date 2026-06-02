@@ -133,46 +133,198 @@ function DocsPage() {
           <h2 className="font-display font-semibold text-lg mb-3">
             📋 Prerequisites (One-Time Setup)
           </h2>
-          <p className="text-muted-foreground mb-3">
-            Before adding your first app, ensure these organization-level configurations are
-            complete. You only need to do this once for the entire organization:
+          <p className="text-muted-foreground mb-4">
+            Before adding your first app, complete these organization-level configurations.
+            You only need to do this <strong>once</strong> for the entire organization:
           </p>
-          <div className="space-y-3 mb-4">
-            <div className="rounded-md border border-border bg-card p-4">
-              <div className="font-medium mb-1">1. bgp-admin configuration</div>
-              <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs">
-                <li>
-                  <code>GITHUB_PAT</code> environment variable configured in Lovable with
-                  Actions: Read & Write permissions
-                </li>
-              </ul>
+
+          <div className="space-y-4">
+            {/* GITHUB_PAT */}
+            <div className="rounded-lg border-2 border-primary/20 bg-card p-4">
+              <div className="flex items-baseline gap-2 mb-3">
+                <div className="font-display font-semibold">1.</div>
+                <div className="font-display font-semibold">GitHub Personal Access Token</div>
+              </div>
+              <p className="text-muted-foreground text-xs mb-3">
+                Create a personal access token (PAT) from your GitHub account to allow
+                bgp-admin to trigger deployments and manage assets.
+              </p>
+              <div className="space-y-3">
+                <div className="rounded-md bg-muted p-3">
+                  <div className="font-medium text-xs mb-2">📍 Where to create it:</div>
+                  <ol className="list-decimal pl-5 space-y-1 text-muted-foreground text-xs">
+                    <li>
+                      Go to{" "}
+                      <a
+                        href="https://github.com/settings/tokens?type=beta"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        GitHub → Settings → Developer settings → Fine-grained tokens
+                      </a>
+                    </li>
+                    <li>Click "Generate new token"</li>
+                    <li>
+                      <strong>Repository access:</strong> Select only your app repositories
+                      (e.g., eden-choice-chronicles)
+                    </li>
+                    <li>
+                      <strong>Permissions:</strong>
+                      <ul className="list-disc pl-5 mt-1">
+                        <li>Actions: Read & Write (trigger deployments)</li>
+                        <li>Contents: Read & Write (commit icon/splash assets)</li>
+                      </ul>
+                    </li>
+                    <li>Set an expiration date</li>
+                    <li>Generate and copy the token</li>
+                  </ol>
+                </div>
+                <div className="rounded-md bg-muted p-3">
+                  <div className="font-medium text-xs mb-2">⚙️ Where to configure it:</div>
+                  <p className="text-muted-foreground text-xs">
+                    Go to{" "}
+                    <a
+                      href="https://lovable.dev"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      Lovable Cloud
+                    </a>{" "}
+                    → bgp-admin project → Settings → Environment Variables
+                    <br />
+                    Add: <code className="text-xs">GITHUB_PAT</code> = your token
+                  </p>
+                </div>
+              </div>
             </div>
-            <div className="rounded-md border border-border bg-card p-4">
-              <div className="font-medium mb-1">2. GitHub Organization Secrets</div>
-              <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs">
-                <li>
-                  <strong>iOS (7 secrets):</strong> Certificate, passwords, App Store Connect
-                  API credentials
-                </li>
-                <li>
-                  <strong>Android (1 secret):</strong> Google Play service account JSON
-                </li>
-              </ul>
+
+            {/* Organization Secrets */}
+            <div className="rounded-lg border-2 border-primary/20 bg-card p-4">
+              <div className="flex items-baseline gap-2 mb-3">
+                <div className="font-display font-semibold">2.</div>
+                <div className="font-display font-semibold">
+                  GitHub Organization Secrets (Shared)
+                </div>
+              </div>
+              <p className="text-muted-foreground text-xs mb-3">
+                Configure these secrets once at organization level. All app repositories will
+                inherit them automatically.
+              </p>
+              <div className="space-y-3">
+                <div className="rounded-md bg-muted p-3">
+                  <div className="font-medium text-xs mb-2">
+                    📍 Where to configure them:
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    <a
+                      href="https://github.com/organizations/Bible-Games-Project/settings/secrets/actions"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      GitHub → Bible-Games-Project (org) → Settings → Secrets → Actions →
+                      New organization secret
+                    </a>
+                  </p>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-3">
+                  <div className="rounded-md border border-border bg-background p-3">
+                    <div className="font-medium text-xs mb-2">iOS Secrets (7)</div>
+                    <ul className="space-y-1 font-mono text-[10px] text-muted-foreground">
+                      <li>• IOS_TEAM_ID</li>
+                      <li>• IOS_BUILD_CERTIFICATE_BASE64</li>
+                      <li>• IOS_P12_PASSWORD</li>
+                      <li>• IOS_KEYCHAIN_PASSWORD</li>
+                      <li>• APP_STORE_CONNECT_API_KEY_ID</li>
+                      <li>• APP_STORE_CONNECT_ISSUER_ID</li>
+                      <li>• APP_STORE_CONNECT_API_KEY_BASE64</li>
+                    </ul>
+                  </div>
+                  <div className="rounded-md border border-border bg-background p-3">
+                    <div className="font-medium text-xs mb-2">Android Secrets (1)</div>
+                    <ul className="space-y-1 font-mono text-[10px] text-muted-foreground">
+                      <li>• GOOGLE_PLAY_SERVICE_ACCOUNT_JSON</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
+                  <div className="flex gap-2">
+                    <span className="text-amber-600 dark:text-amber-400">💡</span>
+                    <div className="text-xs text-muted-foreground">
+                      <strong>Quick guide:</strong>
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        <li>
+                          <strong>IOS_TEAM_ID:</strong> Find in App Store Connect →
+                          Membership (10 chars)
+                        </li>
+                        <li>
+                          <strong>Certificate & P12:</strong> Download from Apple Developer
+                          Portal, export as .p12 with password
+                        </li>
+                        <li>
+                          <strong>App Store Connect API:</strong> Create key in App Store
+                          Connect → Users → Keys
+                        </li>
+                        <li>
+                          <strong>Google Play:</strong> Create service account in Google
+                          Cloud Console, grant access in Play Console
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="rounded-md border border-border bg-card p-4">
-              <div className="font-medium mb-1">3. Workflow access</div>
-              <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs">
-                <li>
-                  bgp-admin repo → Settings → Actions → General → Access: "Accessible from
-                  repositories in the Bible-Games-Project organization"
-                </li>
-              </ul>
+
+            {/* Workflow Access */}
+            <div className="rounded-lg border-2 border-primary/20 bg-card p-4">
+              <div className="flex items-baseline gap-2 mb-3">
+                <div className="font-display font-semibold">3.</div>
+                <div className="font-display font-semibold">Enable Workflow Sharing</div>
+              </div>
+              <p className="text-muted-foreground text-xs mb-3">
+                Allow app repositories to use the shared workflows from bgp-admin:
+              </p>
+              <div className="rounded-md bg-muted p-3">
+                <ol className="list-decimal pl-5 space-y-1 text-muted-foreground text-xs">
+                  <li>
+                    Go to{" "}
+                    <a
+                      href="https://github.com/Bible-Games-Project/bgp-admin/settings/actions"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      bgp-admin repo → Settings → Actions → General
+                    </a>
+                  </li>
+                  <li>
+                    Scroll to <strong>Access</strong> section
+                  </li>
+                  <li>
+                    Select: "Accessible from repositories in the Bible-Games-Project
+                    organization"
+                  </li>
+                  <li>Save</li>
+                </ol>
+              </div>
             </div>
           </div>
-          <p className="text-muted-foreground text-xs">
-            ℹ️ See <code>SECRETS_SETUP_GUIDE.md</code> in the bgp-admin repo for detailed
-            instructions on these prerequisites.
-          </p>
+
+          <div className="mt-4 rounded-md bg-green-500/10 border border-green-500/20 p-3">
+            <div className="flex gap-2">
+              <span className="text-green-600 dark:text-green-400">✅</span>
+              <p className="text-xs text-muted-foreground">
+                <strong>Once these 3 steps are complete,</strong> you're ready to add as
+                many apps as you want. Each new app only needs the app-specific configuration
+                from the steps below.
+              </p>
+            </div>
+          </div>
         </section>
 
         <section>
@@ -198,6 +350,9 @@ bunx cap init "Your App Name" "com.biblegames.yourapp"
 # Add platforms
 bunx cap add ios
 bunx cap add android
+
+# Create assets directory for icon and splash screen
+mkdir -p assets
 
 # Build and sync
 bun run build
@@ -385,6 +540,49 @@ base64 -i ExportOptions.plist | pbcopy`}</CodeBlock>
             <div className="rounded-lg border border-border bg-card p-4">
               <div className="flex items-baseline gap-2 mb-2">
                 <div className="font-display font-semibold text-base">Step 9</div>
+                <div className="font-medium">Configure app icon and splash screen</div>
+              </div>
+              <p className="text-muted-foreground mb-3 text-xs">
+                In the bgp-admin panel, go to your app's detail page and use the{" "}
+                <strong>Icon</strong> and <strong>Splash</strong> tabs to upload your assets:
+              </p>
+              <div className="space-y-3">
+                <div className="rounded-md border border-border bg-muted p-3">
+                  <div className="font-medium text-xs mb-2">Icon Tab</div>
+                  <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs">
+                    <li>Upload a square PNG image (recommended: 1024×1024px minimum)</li>
+                    <li>
+                      Optionally upload a dark mode variant for adaptive theming
+                    </li>
+                    <li>
+                      All required iOS and Android icon sizes will be generated automatically
+                    </li>
+                  </ul>
+                </div>
+                <div className="rounded-md border border-border bg-muted p-3">
+                  <div className="font-medium text-xs mb-2">Splash Tab</div>
+                  <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs">
+                    <li>Upload a square splash screen image (recommended: 2732×2732px)</li>
+                    <li>Choose background colors for light and dark modes</li>
+                    <li>
+                      Optionally upload a dark mode variant
+                    </li>
+                    <li>
+                      All required splash screen sizes will be generated for both platforms
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <p className="text-muted-foreground mt-3 text-xs">
+                ✨ The system will automatically clone your repo, save the images to the{" "}
+                <code>assets/</code> folder, run <code>@capacitor/assets</code> to generate
+                all sizes, commit the changes, and push them to GitHub.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="flex items-baseline gap-2 mb-2">
+                <div className="font-display font-semibold text-base">Step 10</div>
                 <div className="font-medium">Test deployment</div>
               </div>
               <p className="text-muted-foreground mb-3 text-xs">
@@ -485,11 +683,16 @@ base64 -i ExportOptions.plist | pbcopy`}</CodeBlock>
         </section>
 
         <section className="pt-4 border-t border-border">
-          <p className="text-muted-foreground text-xs">
-            📚 For detailed secrets setup instructions, see{" "}
-            <code>SECRETS_SETUP_GUIDE.md</code>. For workflow details, see{" "}
-            <code>WORKFLOWS_README.md</code>.
-          </p>
+          <div className="rounded-md bg-blue-500/10 border border-blue-500/20 p-3">
+            <div className="flex gap-2">
+              <span className="text-blue-600 dark:text-blue-400">💬</span>
+              <p className="text-xs text-muted-foreground">
+                <strong>Need help?</strong> This guide covers the complete setup process. If
+                you encounter issues, check the Common Errors section above or review your
+                GitHub Actions logs for detailed error messages.
+              </p>
+            </div>
+          </div>
         </section>
       </div>
     </div>

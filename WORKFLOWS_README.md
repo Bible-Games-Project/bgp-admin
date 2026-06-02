@@ -129,7 +129,7 @@ Each project needs Capacitor configured before the deploy workflows will work:
 
 ```bash
 # Install Capacitor
-bun add @capacitor/core @capacitor/cli
+bun add @capacitor/core @capacitor/cli @capacitor/assets
 
 # Initialize (creates capacitor.config.ts)
 bunx cap init "Eden Choice Chronicles" "com.biblegames.eden"
@@ -138,10 +138,15 @@ bunx cap init "Eden Choice Chronicles" "com.biblegames.eden"
 bunx cap add ios
 bunx cap add android
 
+# Create assets directory for icon and splash screen
+mkdir -p assets
+
 # Build web assets first, then sync
 bun run build
 bunx cap sync
 ```
+
+> **Note**: The `assets/` directory is used by bgp-admin to store your app icon and splash screen images. The system will automatically generate all required sizes for iOS and Android using `@capacitor/assets`.
 
 ### Android build.gradle setup for signing
 
