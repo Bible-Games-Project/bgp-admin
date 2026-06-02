@@ -14,6 +14,7 @@ import {
   isCurrentUserAdmin,
   listRepoRuns,
   triggerDeploy,
+  getRepoMarketingVersion,
 } from "@/lib/deploy.functions";
 import { listApps } from "@/lib/apps.functions";
 import { Button } from "@/components/ui/button";
