@@ -66,16 +66,49 @@ function formatTime(iso: string) {
   return d.toLocaleDateString();
 }
 
-function DeployPanel({ appId, defaultRef, currentVersion }: { appId: string; defaultRef: string; currentVersion: string | null }) {
+function DeployPanel({ 
+  appId, 
+  defaultRef, 
+  currentVersion,
+  githubOwner,
+  githubRepo 
+}: { 
+  appId: string; 
+  defaultRef: string; 
+  currentVersion: string | null;
+  githubOwner: string;
+  githubRepo: string;
+}) {
   const qc = useQueryClient();
   const deployFn = useServerFn(triggerDeploy);
   const [ref, setRef] = useState(defaultRef);
   const [marketingVersion, setMarketingVersion] = useState(currentVersion || "");
+  const [repoVersion, setRepoVersion] = useState<string | null>(null);
   const [deployIos, setDeployIos] = useState(true);
   const [deployAndroid, setDeployAndroid] = useState(true);
 
   useEffect(() => setRef(defaultRef), [defaultRef]);
-  useEffect(() => setMarketingVersion(currentVersion || ""), [currentVersion]);
+  useEffect(() => setMarketingVersion(currentVersion || repoVersion || ""), [currentVersion, repoVersion]);
+
+  // Fetch current version from package.json
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const url = `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/${ref}/package.json`;
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const pkg = await res.json();
+        if (pkg.version) {
+          // Extract major.minor from semver (e.g., "1.0.0" -> "1.0")
+          const match = pkg.version.match(/^(\d+\.\d+)/);
+          setRepoVersion(match ? match[1] : pkg.version);
+        }
+      } catch (err) {
+        // Silently fail - not critical
+      }
+    };
+    fetchVersion();
+  }, [githubOwner, githubRepo, ref]);
 
   const deployM = useMutation({
     mutationFn: () => {
@@ -151,8 +184,8 @@ function DeployPanel({ appId, defaultRef, currentVersion }: { appId: string; def
               value={marketingVersion}
               onChange={(e) => setMarketingVersion(e.target.value)}
               className="bg-transparent text-sm font-mono w-16 outline-none"
-              placeholder="1.0"
-              title="Marketing version (e.g., 1.0, 2.1). If empty, uses package.json"
+              placeholder={repoVersion || "1.0"}
+              title={`Marketing version (e.g., 1.0, 2.1). ${repoVersion ? `Current repo version: ${repoVersion}` : "If empty, uses package.json"}`}
             />
           </div>
 
@@ -332,7 +365,9 @@ function DashboardPage() {
           <DeployPanel 
             appId={selected.id} 
             defaultRef={selected.default_ref} 
-            currentVersion={selected.marketing_version} 
+            currentVersion={selected.marketing_version}
+            githubOwner={selected.github_owner}
+            githubRepo={selected.github_repo}
           />
           <RunsHistory appId={selected.id} />
         </>
