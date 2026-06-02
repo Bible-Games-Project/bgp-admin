@@ -56,8 +56,7 @@ export const getRepoMarketingVersion = createServerFn({ method: "POST" })
     try {
       const pkg: any = await res.json();
       if (typeof pkg.version === "string") {
-        const match = pkg.version.match(/^(\d+\.\d+)/);
-        return { version: match ? match[1] : pkg.version };
+        return { version: pkg.version };
       }
     } catch {
       // fall through
