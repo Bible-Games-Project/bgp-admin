@@ -384,7 +384,9 @@ security find-identity -v -p codesigning | grep "Apple Distribution"
     <string>app-store</string>
 
     <key>teamID</key>
-    <string>92Q87D39T8</string>
+    <string>YOUR_TEAM_ID</string>
+    <!-- ⚠️ Replace YOUR_TEAM_ID with your real Apple Developer Team ID (10 chars).
+         It MUST match the team that owns the certificate and provisioning profile. -->
 
     <key>provisioningProfiles</key>
     <dict>
