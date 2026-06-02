@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       xcode-version:
-        description: "Xcode version to use"
+        description: "Xcode version to use (empty = runner default)"
         required: false
         type: string
         default: "16.2"
