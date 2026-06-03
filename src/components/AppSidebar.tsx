@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Rocket, LogOut, Terminal, ShieldCheck, Boxes, BookOpen } from "lucide-react";
+import { Rocket, LogOut, Terminal, ShieldCheck, Boxes, BookOpen, DollarSign } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 const items = [
   { title: "Deploy", url: "/dashboard", icon: Rocket },
   { title: "Apps", url: "/apps", icon: Boxes },
+  { title: "Revenue", url: "/revenue", icon: DollarSign },
   { title: "Docs", url: "/docs", icon: BookOpen },
   { title: "Security", url: "/settings/security", icon: ShieldCheck },
 ];

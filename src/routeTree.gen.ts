@@ -15,6 +15,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForbiddenRouteImport } from './routes/forbidden'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticated.revenue'
 import { Route as AuthenticatedDocsRouteImport } from './routes/_authenticated.docs'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
 import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authenticated.apps.index'
@@ -49,6 +50,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRevenueRoute = AuthenticatedRevenueRouteImport.update({
+  id: '/revenue',
+  path: '/revenue',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedDocsRoute = AuthenticatedDocsRouteImport.update({
   id: '/docs',
@@ -85,6 +91,7 @@ export interface FileRoutesByFullPath {
   '/setup-mfa': typeof SetupMfaRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/docs': typeof AuthenticatedDocsRoute
+  '/revenue': typeof AuthenticatedRevenueRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
   '/apps/': typeof AuthenticatedAppsIndexRoute
@@ -97,6 +104,7 @@ export interface FileRoutesByTo {
   '/setup-mfa': typeof SetupMfaRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/docs': typeof AuthenticatedDocsRoute
+  '/revenue': typeof AuthenticatedRevenueRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
   '/apps': typeof AuthenticatedAppsIndexRoute
@@ -111,6 +119,7 @@ export interface FileRoutesById {
   '/setup-mfa': typeof SetupMfaRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/docs': typeof AuthenticatedDocsRoute
+  '/_authenticated/revenue': typeof AuthenticatedRevenueRoute
   '/_authenticated/apps/$id': typeof AuthenticatedAppsIdRoute
   '/_authenticated/settings/security': typeof AuthenticatedSettingsSecurityRoute
   '/_authenticated/apps/': typeof AuthenticatedAppsIndexRoute
@@ -125,6 +134,7 @@ export interface FileRouteTypes {
     | '/setup-mfa'
     | '/dashboard'
     | '/docs'
+    | '/revenue'
     | '/apps/$id'
     | '/settings/security'
     | '/apps/'
@@ -137,6 +147,7 @@ export interface FileRouteTypes {
     | '/setup-mfa'
     | '/dashboard'
     | '/docs'
+    | '/revenue'
     | '/apps/$id'
     | '/settings/security'
     | '/apps'
@@ -150,6 +161,7 @@ export interface FileRouteTypes {
     | '/setup-mfa'
     | '/_authenticated/dashboard'
     | '/_authenticated/docs'
+    | '/_authenticated/revenue'
     | '/_authenticated/apps/$id'
     | '/_authenticated/settings/security'
     | '/_authenticated/apps/'
@@ -208,6 +220,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/revenue': {
+      id: '/_authenticated/revenue'
+      path: '/revenue'
+      fullPath: '/revenue'
+      preLoaderRoute: typeof AuthenticatedRevenueRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/docs': {
       id: '/_authenticated/docs'
       path: '/docs'
@@ -249,6 +268,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDocsRoute: typeof AuthenticatedDocsRoute
+  AuthenticatedRevenueRoute: typeof AuthenticatedRevenueRoute
   AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
   AuthenticatedSettingsSecurityRoute: typeof AuthenticatedSettingsSecurityRoute
   AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute
@@ -257,6 +277,7 @@ interface AuthenticatedRouteChildren {
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedDocsRoute: AuthenticatedDocsRoute,
+  AuthenticatedRevenueRoute: AuthenticatedRevenueRoute,
   AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
   AuthenticatedSettingsSecurityRoute: AuthenticatedSettingsSecurityRoute,
   AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,
