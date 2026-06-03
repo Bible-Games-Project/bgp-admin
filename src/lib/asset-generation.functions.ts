@@ -1,10 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { simpleGit } from "simple-git";
-import { writeFile, mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -27,12 +23,22 @@ async function loadApp(supabase: any, appId: string) {
   return data;
 }
 
-function getGithubPAT() {
+function githubHeaders() {
   const token = process.env.GITHUB_PAT;
   if (!token) throw new Error("GITHUB_PAT not configured");
-  return token;
+  return {
+    Accept: "application/vnd.github+json",
+    Authorization: `Bearer ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "bgp-admin-assets",
+  };
 }
 
+/**
+ * Upload asset files to GitHub repository and trigger the asset generation workflow.
+ * This function uses the GitHub Contents API to upload files directly, which works
+ * in Cloudflare Workers runtime (unlike git clone + simple-git).
+ */
 export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) =>
@@ -62,85 +68,98 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
       throw new Error("Dark mode image size must be less than 5MB");
     }
 
-    const token = getGithubPAT();
-    const timestamp = Date.now();
-    const tempDir = join(tmpdir(), `bgp-assets-${data.appId}-${timestamp}`);
+    const owner = app.github_owner;
+    const repo = app.github_repo;
+    const branch = app.default_ref || "main";
 
     try {
-      // Clone the repository
-      const repoUrl = `https://x-access-token:${token}@github.com/${app.github_owner}/${app.github_repo}.git`;
-      const git = simpleGit();
+      // Helper to upload a file via GitHub Contents API
+      const uploadFile = async (path: string, content: Uint8Array) => {
+        // First, try to get the existing file to obtain its SHA (required for updates)
+        const getUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
+        const getRes = await fetch(getUrl, { headers: githubHeaders() });
+        
+        let sha: string | undefined;
+        if (getRes.ok) {
+          const existing = await getRes.json() as any;
+          sha = existing.sha;
+        }
 
-      console.log(`Cloning ${app.github_owner}/${app.github_repo} to ${tempDir}...`);
-      await git.clone(repoUrl, tempDir, ["--depth", "1", "--branch", app.default_ref]);
+        // Convert Uint8Array to base64
+        const base64 = btoa(String.fromCharCode(...content));
 
-      // Initialize git in the cloned directory
-      const repoGit = simpleGit(tempDir);
-      await repoGit.addConfig("user.name", "BGP Admin Bot");
-      await repoGit.addConfig("user.email", "admin@biblegames.dev");
+        // Upload or update the file
+        const putUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+        const putBody = {
+          message: `chore: update ${path} via bgp-admin`,
+          content: base64,
+          branch,
+          ...(sha && { sha }),
+        };
 
-      // Create assets directory if it doesn't exist
-      const assetsDir = join(tempDir, "assets");
-      await mkdir(assetsDir, { recursive: true });
+        const putRes = await fetch(putUrl, {
+          method: "PUT",
+          headers: githubHeaders(),
+          body: JSON.stringify(putBody),
+        });
 
-      // Save uploaded images
+        if (!putRes.ok) {
+          const errorText = await putRes.text();
+          throw new Error(`Failed to upload ${path}: ${putRes.status} ${errorText}`);
+        }
+
+        return await putRes.json();
+      };
+
+      // Upload light mode image
       const lightFileName = data.type === "icon" ? "logo.png" : "splash.png";
-      const darkFileName = data.type === "icon" ? "logo-dark.png" : "splash-dark.png";
+      console.log(`Uploading ${lightFileName} to assets/...`);
+      await uploadFile(`assets/${lightFileName}`, data.imageData);
 
-      await writeFile(join(assetsDir, lightFileName), data.imageData);
-      console.log(`Saved ${lightFileName} to assets/`);
-
+      // Upload dark mode image if provided
       if (data.imageDarkData) {
-        await writeFile(join(assetsDir, darkFileName), data.imageDarkData);
-        console.log(`Saved ${darkFileName} to assets/`);
+        const darkFileName = data.type === "icon" ? "logo-dark.png" : "splash-dark.png";
+        console.log(`Uploading ${darkFileName} to assets/...`);
+        await uploadFile(`assets/${darkFileName}`, data.imageDarkData);
       }
 
-      // Run @capacitor/assets to generate all sizes
-      console.log("Running @capacitor/assets to generate all required sizes...");
-
-      // Import capacitor assets dynamically
-      const { loadContext } = await import("@capacitor/assets/dist/ctx");
-      const { run } = await import("@capacitor/assets/dist/tasks/generate");
-
-      const ctx = await loadContext(tempDir);
-      ctx.args = {
+      // Upload or update assets configuration file with colors
+      const configContent = JSON.stringify({
         iconBackgroundColor: "#ffffff",
         splashBackgroundColor: data.splashBgColor || "#ffffff",
         splashBackgroundColorDark: data.splashBgColorDark || "#000000",
-        silent: false,
-      };
+      }, null, 2);
+      
+      const configBytes = new TextEncoder().encode(configContent);
+      console.log("Uploading assets configuration...");
+      await uploadFile("assets/config.json", configBytes);
 
-      await run(ctx);
-      console.log("Asset generation complete!");
+      // Trigger the GitHub Action workflow to generate all asset sizes
+      console.log("Triggering asset generation workflow...");
+      const workflowUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/generate-assets.yml/dispatches`;
+      const workflowRes = await fetch(workflowUrl, {
+        method: "POST",
+        headers: githubHeaders(),
+        body: JSON.stringify({
+          ref: branch,
+          inputs: {
+            asset_type: data.type,
+          },
+        }),
+      });
 
-      // Stage all changes
-      await repoGit.add(".");
-
-      // Check if there are changes to commit
-      const status = await repoGit.status();
-      if (status.files.length === 0) {
-        throw new Error("No changes to commit - assets may already be up to date");
+      if (!workflowRes.ok) {
+        const errorText = await workflowRes.text();
+        console.warn(`Failed to trigger workflow: ${workflowRes.status} ${errorText}`);
+        // Don't throw - files are uploaded, workflow can be triggered manually
       }
 
-      // Commit changes
       const assetType = data.type === "icon" ? "app icon" : "splash screen";
-      const commitMessage = `chore: update ${assetType} via bgp-admin\n\nGenerated by BGP Admin Panel\nAsset type: ${data.type}\nDark mode: ${data.imageDarkData ? "yes" : "no"}`;
-
-      await repoGit.commit(commitMessage);
-      console.log("Changes committed");
-
-      // Push to remote
-      await repoGit.push("origin", app.default_ref);
-      console.log("Changes pushed to GitHub");
-
-      // Get the commit SHA for the URL
-      const log = await repoGit.log(["-1"]);
-      const commitSha = log.latest?.hash;
-
+      
       // Cache icon as base64 data URL on apps row for fast list rendering.
       // Only for icons, and only when payload is small enough (<= 500KB raw).
       if (data.type === "icon" && data.imageData.length <= 500 * 1024) {
-        const base64 = Buffer.from(data.imageData).toString("base64");
+        const base64 = btoa(String.fromCharCode(...data.imageData));
         const dataUrl = `data:image/png;base64,${base64}`;
         const { error: updErr } = await context.supabase
           .from("apps")
@@ -153,22 +172,11 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
 
       return {
         success: true,
-        commitUrl: commitSha
-          ? `https://github.com/${app.github_owner}/${app.github_repo}/commit/${commitSha}`
-          : undefined,
-        message: `${assetType.charAt(0).toUpperCase() + assetType.slice(1)} generated and committed successfully`,
+        commitUrl: `https://github.com/${owner}/${repo}/tree/${branch}/assets`,
+        message: `${assetType.charAt(0).toUpperCase() + assetType.slice(1)} uploaded successfully. Asset generation workflow has been triggered.`,
       };
     } catch (error) {
-      console.error("Asset generation failed:", error);
-      throw error instanceof Error ? error : new Error("Asset generation failed");
-    } finally {
-      // Clean up temporary directory
-      try {
-        await rm(tempDir, { recursive: true, force: true });
-        console.log(`Cleaned up temp directory: ${tempDir}`);
-      } catch (cleanupError) {
-        console.error("Failed to cleanup temp directory:", cleanupError);
-        // Don't throw - the main operation completed
-      }
+      console.error("Asset upload failed:", error);
+      throw error instanceof Error ? error : new Error("Asset upload failed");
     }
   });

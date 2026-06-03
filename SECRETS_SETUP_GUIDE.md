@@ -142,13 +142,19 @@ base64 -i file.ext
 - [x] Create token with:
   - [x] **Repository access**: Only `Bible-Games-Project/eden-choice-chronicles`
   - [x] **Permissions**: 
-    - [x] **Actions** - Read and write (required for triggering workflows)
-    - [x] **Contents** - Read and write (required for creating commits with assets)
+    - [x] **Actions** - Read and write (required for triggering asset generation workflows)
+    - [x] **Contents** - Read and write (required for uploading asset files via GitHub API)
   - [x] **Expiration**: Configured
 - [x] Token copied
 - [x] Configured in Lovable Cloud (Environment Variables → GITHUB_PAT)
 
-**Note:** The Contents permission is required for the asset management feature (icon and splash screen generation) which creates commits directly to app repositories.
+**Note:** The asset management feature (icon and splash screen) works as follows:
+1. BGP Admin uploads the source images to `assets/` via GitHub Contents API
+2. BGP Admin triggers the `generate-assets.yml` workflow
+3. The GitHub Action runs `@capacitor/assets` to generate all required sizes
+4. The workflow commits and pushes the generated assets back to the repository
+
+This approach works in Cloudflare Workers runtime (production) because it uses only HTTP APIs, unlike the git clone approach which requires Node.js child_process.
 
 ---
 

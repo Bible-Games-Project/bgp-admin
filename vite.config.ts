@@ -13,10 +13,6 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
-    optimizeDeps: {
-      // Exclude native modules from client bundle optimization
-      exclude: ["@capacitor/assets", "sharp", "simple-git"],
-    },
     ssr: {
       // Don't externalize these for SSR - let them be bundled
       noExternal: [],

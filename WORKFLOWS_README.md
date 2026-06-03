@@ -140,13 +140,31 @@ bunx cap add android
 
 # Create assets directory for icon and splash screen
 mkdir -p assets
+touch assets/.gitkeep
 
 # Build web assets first, then sync
 bun run build
 bunx cap sync
 ```
 
-> **Note**: The `assets/` directory is used by bgp-admin to store your app icon and splash screen images. The system will automatically generate all required sizes for iOS and Android using `@capacitor/assets`.
+> **Note**: The `assets/` directory is used by bgp-admin to store your app icon and splash screen source images. The bgp-admin panel will:
+> 1. Upload your source images (logo.png, splash.png, etc.) to the `assets/` folder via GitHub API
+> 2. Trigger the `generate-assets.yml` GitHub Action workflow
+> 3. The workflow runs `@capacitor/assets` to automatically generate all required sizes for iOS and Android
+> 4. The generated assets are committed and pushed back to your repository
+>
+> This two-step approach (upload source → trigger workflow) is necessary because bgp-admin runs on Cloudflare Workers (which doesn't support git clone or native binaries), while the asset generation requires Node.js and Sharp (a native image processing library).
+
+### Asset Generation Workflow
+
+The `.github/workflows/generate-assets.yml` workflow is automatically created when you set up your project. It:
+- Is triggered automatically by bgp-admin after uploading source images
+- Can also be triggered manually from GitHub Actions tab
+- Reads configuration from `assets/config.json` (background colors, etc.)
+- Uses `@capacitor/assets` to generate all platform-specific sizes
+- Commits and pushes the generated assets back to your repository
+
+No manual intervention is needed - just upload your icon or splash screen through the bgp-admin panel.
 
 ### Android build.gradle setup for signing
 
