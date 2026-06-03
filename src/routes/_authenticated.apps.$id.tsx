@@ -6,6 +6,7 @@ import { getApp, updateApp, deleteApp } from "@/lib/apps.functions";
 import { Button } from "@/components/ui/button";
 import { AppForm, type AppFormValues } from "@/components/AppForm";
 import { AppAssetUpload } from "@/components/AppAssetUpload";
+import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 
@@ -94,10 +95,11 @@ function AppDetailPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="general" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 mb-6">
+      <Tabs defaultValue="general" className="w-ful4 mb-6">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="icon">Icon</TabsTrigger>
+          <TabsTrigger value="splash">Splash</TabsTrigger>
+          <TabsTrigger value="environment">EnvironmentbsTrigger>
           <TabsTrigger value="splash">Splash</TabsTrigger>
         </TabsList>
 
@@ -150,6 +152,15 @@ function AppDetailPage() {
                 qc.invalidateQueries({ queryKey: ["app", id] });
               }}
             />
+
+        <TabsContent value="environment">
+          <AppEnvironmentEditor
+            appId={id}
+            onSuccess={() => {
+              qc.invalidateQueries({ queryKey: ["app", id] });
+            }}
+          />
+        </TabsContent>
           </div>
         </TabsContent>
       </Tabs>
