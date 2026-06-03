@@ -137,6 +137,20 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
       const log = await repoGit.log(["-1"]);
       const commitSha = log.latest?.hash;
 
+      // Cache icon as base64 data URL on apps row for fast list rendering.
+      // Only for icons, and only when payload is small enough (<= 500KB raw).
+      if (data.type === "icon" && data.imageData.length <= 500 * 1024) {
+        const base64 = Buffer.from(data.imageData).toString("base64");
+        const dataUrl = `data:image/png;base64,${base64}`;
+        const { error: updErr } = await context.supabase
+          .from("apps")
+          .update({ icon_data_url: dataUrl })
+          .eq("id", data.appId);
+        if (updErr) {
+          console.error("Failed to cache icon_data_url:", updErr.message);
+        }
+      }
+
       return {
         success: true,
         commitUrl: commitSha
