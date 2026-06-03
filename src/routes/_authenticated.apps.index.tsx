@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Boxes, Github } from "lucide-react";
+import { Plus, Boxes, Github, ImageIcon } from "lucide-react";
 import { listApps, createApp } from "@/lib/apps.functions";
 import { Button } from "@/components/ui/button";
 import {
