@@ -73,6 +73,16 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
     const branch = app.default_ref || "main";
 
     try {
+      // Helper to convert Uint8Array to base64 safely (without stack overflow)
+      const uint8ArrayToBase64 = (bytes: Uint8Array): string => {
+        let binary = '';
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+      };
+
       // Helper to upload a file via GitHub Contents API
       const uploadFile = async (path: string, content: Uint8Array) => {
         // First, try to get the existing file to obtain its SHA (required for updates)
@@ -85,8 +95,8 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
           sha = existing.sha;
         }
 
-        // Convert Uint8Array to base64
-        const base64 = btoa(String.fromCharCode(...content));
+        // Convert Uint8Array to base64 safely
+        const base64 = uint8ArrayToBase64(content);
 
         // Upload or update the file
         const putUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
@@ -108,7 +118,9 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
           throw new Error(`Failed to upload ${path}: ${putRes.status} ${errorText}`);
         }
 
-        return await putRes.json();
+        // Don't return the full response - just success
+        await putRes.json();
+        return true;
       };
 
       // Upload light mode image
@@ -159,7 +171,7 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
       // Cache icon as base64 data URL on apps row for fast list rendering.
       // Only for icons, and only when payload is small enough (<= 500KB raw).
       if (data.type === "icon" && data.imageData.length <= 500 * 1024) {
-        const base64 = btoa(String.fromCharCode(...data.imageData));
+        const base64 = uint8ArrayToBase64(data.imageData);
         const dataUrl = `data:image/png;base64,${base64}`;
         const { error: updErr } = await context.supabase
           .from("apps")
