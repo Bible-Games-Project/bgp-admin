@@ -371,7 +371,7 @@ function RevenuePage() {
                     outerRadius={90}
                     paddingAngle={2}
                   >
-                    {platQ.data!.rows.map((r, i) => (
+                    {platQ.data!.rows.map((r: any, i: number) => (
                       <Cell
                         key={r.platform}
                         fill={
