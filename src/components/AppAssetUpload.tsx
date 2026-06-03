@@ -181,6 +181,11 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
       if (lightInputRef.current) lightInputRef.current.value = "";
       if (darkInputRef.current) darkInputRef.current.value = "";
 
+      // Refresh current asset preview from GitHub (may need a moment to propagate)
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["app-asset-preview", appId, type] });
+      }, 1500);
+
       onSuccess();
     } catch (error) {
       console.error("Upload failed:", error);
