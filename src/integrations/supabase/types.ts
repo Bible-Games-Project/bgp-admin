@@ -35,6 +35,7 @@ export type Database = {
           default_ref: string
           github_owner: string
           github_repo: string
+          icon_data_url: string | null
           id: string
           is_active: boolean
           marketing_version: string | null
@@ -48,6 +49,7 @@ export type Database = {
           default_ref?: string
           github_owner: string
           github_repo: string
+          icon_data_url?: string | null
           id?: string
           is_active?: boolean
           marketing_version?: string | null
@@ -61,6 +63,7 @@ export type Database = {
           default_ref?: string
           github_owner?: string
           github_repo?: string
+          icon_data_url?: string | null
           id?: string
           is_active?: boolean
           marketing_version?: string | null
