@@ -143,15 +143,15 @@ jobs:
           sudo xcodebuild -license accept || true
           sudo xcodebuild -runFirstLaunch
 
-      - name: Install iOS platform (SDK + runtimes)
+      - name: Verify iOS SDK is available
         run: |
-          set -u
-          echo "== Installed SDKs (before) =="
-          xcodebuild -showsdks || true
-          echo "== Downloading iOS platform =="
-          sudo xcodebuild -downloadPlatform iOS || echo "downloadPlatform exited non-zero (often harmless when simulator runtime fails but platform is installed)"
-          echo "== Installed SDKs (after) =="
-          xcodebuild -showsdks || true
+          set -euo pipefail
+          xcodebuild -showsdks
+          if ! xcodebuild -showsdks 2>/dev/null | grep -q 'iphoneos'; then
+            echo "❌ No iOS SDK found. Aborting."
+            exit 1
+          fi
+          echo "✅ iOS SDK is available"
 
       # === VERSIONADO AUTOMÁTICO ===
       - name: Read marketing version from package.json (MAJOR.MINOR)
