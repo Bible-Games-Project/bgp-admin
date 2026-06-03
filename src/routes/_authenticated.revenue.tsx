@@ -216,7 +216,7 @@ function RevenuePage() {
   const totalPages = Math.max(1, Math.ceil((recentQ.data?.total ?? 0) / PAGE_SIZE));
 
   const setSearch = (patch: Partial<z.infer<typeof searchSchema>>) =>
-    navigate({ search: (prev) => ({ ...prev, ...patch, page: 1 }) });
+    (navigate as any)({ search: (prev: any) => ({ ...prev, ...patch, page: 1 }) });
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6">
