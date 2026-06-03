@@ -1,112 +1,106 @@
+# In-App Purchase Tracking Dashboard
 
-## Objetivo
+## 1. Database (Supabase migration)
 
-Centralizar en `bgp-admin` todo el orquestador de publicación: las apps se dan de alta desde la UI, se guardan en BD, y desde aquí se dispara el deploy de iOS/Android en el repo de cada app, que solo contiene un workflow "caller" mínimo apuntando a los reutilizables de `bgp-admin`.
+Two new tables in `public`, with enums, indexes, RLS and GRANTs.
 
-## 1) Base de datos (migración)
+**Enums**
+- `purchase_platform`: `ios`, `android`
+- `purchase_product_type`: `consumable`, `non_consumable`, `subscription`, `auto_renewable_subscription`
+- `purchase_status`: `active`, `cancelled`, `refunded`, `expired`
+- `purchase_environment`: `production`, `sandbox`
 
-Tabla `apps` (gestionada solo por admins):
+**Table `purchases`**
+- `id uuid pk default gen_random_uuid()`
+- `app_id uuid not null references public.apps(id) on delete cascade`
+- `transaction_id text not null unique`
+- `platform purchase_platform not null`
+- `product_id text not null`
+- `product_type purchase_product_type not null`
+- `purchase_date timestamptz not null`
+- `revenue_usd numeric(12,4) not null default 0`
+- `local_currency text`
+- `local_amount numeric(14,4)`
+- `user_id text` (app's user id, nullable)
+- `status purchase_status not null default 'active'`
+- `subscription_expires_at timestamptz`
+- `environment purchase_environment not null default 'production'`
+- `raw_payload jsonb not null default '{}'::jsonb`
+- `created_at`, `updated_at` (with `update_updated_at_column` trigger)
+- Indexes on `(app_id)`, `(purchase_date desc)`, `(platform)`, `(status)`, `(product_id)`
 
-- `id` uuid PK
-- `slug` text unique (p.ej. `eden`)
-- `name` text (p.ej. "Eden — Choice Chronicles")
-- `github_owner` text (`Bible-Games-Project`)
-- `github_repo` text (`eden-choice-chronicles`)
-- `default_ref` text default `main`
-- `ios_bundle_id` text nullable (`com.biblegames.eden`)
-- `ios_workflow_file` text default `deploy-ios.yml`
-- `android_package_name` text nullable
-- `android_workflow_file` text default `deploy-android.yml`
-- `android_play_track` text default `internal`
-- `notes` text nullable
-- `is_active` boolean default true
-- `created_at`, `updated_at` timestamptz
+**Table `purchase_events`**
+- `id uuid pk`
+- `purchase_id uuid not null references public.purchases(id) on delete cascade`
+- `event_type text not null`
+- `event_date timestamptz not null`
+- `platform purchase_platform not null`
+- `raw_data jsonb not null default '{}'::jsonb`
+- `created_at`
+- Indexes on `(purchase_id)`, `(event_date desc)`
 
-RLS: solo lectura/escritura para admins (vía `EXISTS (select 1 from admins where user_id = auth.uid())`). GRANTs a `authenticated` y `service_role`.
+**Access control**
+- RLS enabled on both tables.
+- Read-only for authenticated users (any signed-in admin can view all data — same pattern as `apps`, gated by `is_admin(auth.uid())`).
+- No INSERT/UPDATE/DELETE policies from clients (purchases come from webhooks → `service_role`).
+- GRANTs: `SELECT` to `authenticated`; `ALL` to `service_role`.
 
-## 2) Server functions (`src/lib/apps.functions.ts` + refactor `deploy.functions.ts`)
+> Note: webhook ingestion endpoint is **not** part of this scope — tables are read-only from the app for now. We can add `/api/public/webhooks/*` ingest routes in a follow-up.
 
-- `listApps`, `getApp(id)`, `createApp(input)`, `updateApp(id, input)`, `deleteApp(id)` — todas con `requireSupabaseAuth` + check admin.
-- `triggerDeploy({ appId, platform, ref? })`: lee el `app` de BD, construye la URL `…/repos/{owner}/{repo}/actions/workflows/{file}/dispatches` y dispara con `GITHUB_PAT` (ya existe en secrets).
-- `listWorkflowRuns({ appId, platform })`: igual, pero `…/workflows/{file}/runs`.
+## 2. Route `/_authenticated/revenue`
 
-## 3) UI admin
+New file `src/routes/_authenticated.revenue.tsx`. Gated by existing `_authenticated` layout + admin check (same pattern as dashboard).
 
-- `/_authenticated/apps` — listado de apps + botón "Nueva app".
-- `/_authenticated/apps/$id` — detalle/edición con todos los campos.
-- `/_authenticated/deploy` — refactor del panel actual: selector de app + tabs iOS/Android, botón Deploy, tabla de últimos runs (con link a GitHub).
-- Entrada en `AppSidebar`: "Apps" y "Deploy".
+### Layout
+- Header: title "Revenue" + filter bar (date range preset, app select, platform select).
+- Stats row (4 cards): Total Revenue, This Month (+ % vs last month), Active Subscriptions, MRR.
+- Charts grid:
+  - Revenue over time (line, last 90d by day)
+  - Revenue by platform (donut, iOS vs Android)
+  - Revenue by app (bar)
+  - Top products (table: product_id, count, revenue)
+- Recent transactions table with pagination (10/page) + row click → Dialog with raw_payload JSON.
 
-## 4) Documentación dentro de la app
+### Filters
+URL-driven via `validateSearch` (date preset, appId, platform, page). Date presets: `7d | 30d | 90d | all`.
 
-- `/_authenticated/docs` con una página Markdown-style que explique:
-  - cómo dar de alta una nueva app
-  - qué workflow caller pegar en su repo
-  - qué secretos hace falta configurar en GitHub
-  - permisos del `GITHUB_PAT`
+### Components (shadcn + recharts already present)
+- `Card`, `Select`, `Table`, `Badge`, `Dialog`, `Popover` — all already in repo.
+- Charts via `src/components/ui/chart.tsx` + `recharts`.
+- Date filter implemented as preset `Select` (no extra date picker dep needed for v1).
 
-## 5) Qué tienes que hacer en `eden-choice-chronicles`
+## 3. Server functions
 
-Crear **solo dos ficheros** en el repo de la app:
+New `src/lib/revenue.functions.ts` (all protected with `requireSupabaseAuth`, admin-checked inside handler):
 
-`.github/workflows/deploy-ios.yml`
-```yaml
-name: Deploy iOS
-on:
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: Branch/tag
-        required: false
-        default: main
-jobs:
-  ios:
-    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-ios.yml@main
-    with:
-      bundle-id: com.biblegames.eden
-    secrets: inherit
-```
+- `getRevenueStats({ filters })` → `{ totalUsd, monthUsd, prevMonthUsd, monthChangePct, activeSubs, mrrUsd }`
+- `getRevenueTimeseries({ filters })` → `[{ date, revenueUsd }]`
+- `getRevenueByPlatform({ filters })` → `[{ platform, revenueUsd }]`
+- `getRevenueByApp({ filters })` → `[{ appId, appName, revenueUsd }]`
+- `getTopProducts({ filters, limit })` → `[{ productId, count, revenueUsd }]`
+- `getRecentPurchases({ filters, limit, offset })` → `{ rows, total }`
 
-`.github/workflows/deploy-android.yml`
-```yaml
-name: Deploy Android
-on:
-  workflow_dispatch:
-    inputs:
-      ref:
-        required: false
-        default: main
-jobs:
-  android:
-    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@main
-    with:
-      package-name: com.biblegames.eden
-      play-track: internal
-    secrets: inherit
-```
+Aggregations done in SQL via RPC functions (created in the same migration) to avoid pulling raw rows:
+- `revenue_timeseries(p_app uuid, p_platform text, p_from timestamptz, p_to timestamptz)`
+- `revenue_by_platform(...)`, `revenue_by_app(...)`, `top_products(..., p_limit int)`
+- `revenue_stats(...)` returning a single row.
 
-Secrets a configurar en `Settings → Secrets and variables → Actions` del repo `eden-choice-chronicles` (los reutilizables los exigen):
+MRR = sum of latest active subscription revenue normalized to monthly (for v1, treat each active `auto_renewable_subscription` / `subscription` row's `revenue_usd` as its monthly value).
 
-- iOS: `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` (si aplica), certificados/perfiles según tu `deploy-ios.yml`.
-- Android: `ANDROID_KEYSTORE` (base64), `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`.
+All hooks use TanStack Query (`ensureQueryData` in loader for stats + timeseries; `useQuery` for the paginated table).
 
-Requisitos en GitHub para que los reutilizables sean accesibles:
+## 4. Navigation
 
-- Si `bgp-admin` es **privado**: en `bgp-admin` → Settings → Actions → General → "Access" → permitir acceso desde repos de la org.
-- `GITHUB_PAT` (ya guardado aquí) debe ser un fine-grained PAT con permiso **Actions: Read & Write** sobre los repos de las apps.
+Add a `Revenue` entry to `src/components/AppSidebar.tsx` with `DollarSign` icon from `lucide-react`, linking to `/revenue`.
 
-## 6) Plan de despliegue
+## 5. Types
 
-1. Migración BD (te paso el SQL para aprobar).
-2. Backend server fns.
-3. UI: listado/edición de apps + refactor pantalla de deploy + página docs.
-4. Sembrar Eden vía la UI (no en migración) para que pruebes el flujo.
+Supabase types are auto-regenerated after the migration; revenue DTOs typed in `revenue.functions.ts`.
 
-## Detalles técnicos relevantes
+## Open questions before I build
 
-- El `GITHUB_PAT` se sigue leyendo en `process.env` dentro del handler.
-- El repo y el workflow ya no se hardcodean en código: vienen de la fila `apps`.
-- Validación con Zod en todas las server fns.
-- Errores del API de GitHub se devuelven como `{ ok:false, error }` para mostrarlos en UI sin romper.
+1. **MRR definition** — OK with the simple v1 above (sum of `revenue_usd` of active subscription rows treated as monthly)? Or do you want yearly-vs-monthly product split (needs a `billing_period` field, not in your spec)?
+2. **Seed data** — Want me to insert a small set of fake purchases so the dashboard isn't empty on first load?
+3. **Webhook ingestion** — Confirm out of scope for this task (table will be empty until you wire Apple/Google webhooks).
 
-¿Apruebas el plan tal cual, o quieres ajustar algo (p. ej. campos extra en `apps`, otra ruta, dejar fuera la página de docs)?
+Reply with answers (or "go" to accept defaults: simple MRR, no seed, no webhooks) and I'll implement.
