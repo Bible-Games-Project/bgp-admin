@@ -3,9 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Loader2, ExternalLink } from "lucide-react";
+import { Loader2, ExternalLink, RefreshCw, ImageOff } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { uploadAndGenerateAsset } from "@/lib/asset-generation.functions";
+import { getAppAssetPreview } from "@/lib/app-assets.functions";
 
 type AssetType = "icon" | "splash";
 
@@ -32,6 +34,14 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
   const typeLabel = type === "icon" ? "Icon" : "Splash Screen";
 
   const uploadFn = useServerFn(uploadAndGenerateAsset);
+  const previewFn = useServerFn(getAppAssetPreview);
+  const qc = useQueryClient();
+
+  const previewQuery = useQuery({
+    queryKey: ["app-asset-preview", appId, type],
+    queryFn: () => previewFn({ data: { appId, type } }),
+    staleTime: 30_000,
+  });
 
   const validateImage = async (file: File): Promise<{ valid: boolean; error?: string }> => {
     // Check file size (max 5MB)
@@ -171,6 +181,11 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
       if (lightInputRef.current) lightInputRef.current.value = "";
       if (darkInputRef.current) darkInputRef.current.value = "";
 
+      // Refresh current asset preview from GitHub (may need a moment to propagate)
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["app-asset-preview", appId, type] });
+      }, 1500);
+
       onSuccess();
     } catch (error) {
       console.error("Upload failed:", error);
@@ -185,6 +200,70 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
 
   return (
     <div className="space-y-6">
+      <div className="rounded-lg border p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">Current {typeLabel}</h3>
+            <p className="text-xs text-muted-foreground font-mono mt-1">
+              {previewQuery.data
+                ? `${previewQuery.data.repo}@${previewQuery.data.ref}`
+                : "Loaded from GitHub"}
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              qc.invalidateQueries({
+                queryKey: ["app-asset-preview", appId, type],
+              })
+            }
+            disabled={previewQuery.isFetching}
+            className="gap-2"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${previewQuery.isFetching ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </Button>
+        </div>
+
+        {previewQuery.isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading current {typeLabel.toLowerCase()}…
+          </div>
+        ) : previewQuery.error ? (
+          <p className="text-sm text-destructive">
+            {(previewQuery.error as Error).message}
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { label: "Light", src: previewQuery.data?.light },
+              { label: "Dark", src: previewQuery.data?.dark },
+            ].map((slot) => (
+              <div key={slot.label} className="space-y-2">
+                <p className="text-xs font-mono text-muted-foreground">
+                  {slot.label}
+                </p>
+                {slot.src ? (
+                  <img
+                    src={slot.src}
+                    alt={`Current ${typeLabel} (${slot.label})`}
+                    className="w-32 h-32 object-cover rounded border bg-muted"
+                  />
+                ) : (
+                  <div className="w-32 h-32 rounded border border-dashed flex flex-col items-center justify-center text-muted-foreground gap-1">
+                    <ImageOff className="w-5 h-5" />
+                    <span className="text-[10px] font-mono">not uploaded</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="rounded-lg border p-6 space-y-4">
         <div>
           <h3 className="text-lg font-semibold mb-2">
