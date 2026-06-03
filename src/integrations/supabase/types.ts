@@ -71,15 +71,188 @@ export type Database = {
         }
         Relationships: []
       }
+      purchase_events: {
+        Row: {
+          created_at: string
+          event_date: string
+          event_type: string
+          id: string
+          platform: Database["public"]["Enums"]["purchase_platform"]
+          purchase_id: string
+          raw_data: Json
+        }
+        Insert: {
+          created_at?: string
+          event_date: string
+          event_type: string
+          id?: string
+          platform: Database["public"]["Enums"]["purchase_platform"]
+          purchase_id: string
+          raw_data?: Json
+        }
+        Update: {
+          created_at?: string
+          event_date?: string
+          event_type?: string
+          id?: string
+          platform?: Database["public"]["Enums"]["purchase_platform"]
+          purchase_id?: string
+          raw_data?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_events_purchase_id_fkey"
+            columns: ["purchase_id"]
+            isOneToOne: false
+            referencedRelation: "purchases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      purchases: {
+        Row: {
+          app_id: string
+          created_at: string
+          environment: Database["public"]["Enums"]["purchase_environment"]
+          id: string
+          local_amount: number | null
+          local_currency: string | null
+          platform: Database["public"]["Enums"]["purchase_platform"]
+          product_id: string
+          product_type: Database["public"]["Enums"]["purchase_product_type"]
+          purchase_date: string
+          raw_payload: Json
+          revenue_usd: number
+          status: Database["public"]["Enums"]["purchase_status"]
+          subscription_expires_at: string | null
+          transaction_id: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          app_id: string
+          created_at?: string
+          environment?: Database["public"]["Enums"]["purchase_environment"]
+          id?: string
+          local_amount?: number | null
+          local_currency?: string | null
+          platform: Database["public"]["Enums"]["purchase_platform"]
+          product_id: string
+          product_type: Database["public"]["Enums"]["purchase_product_type"]
+          purchase_date: string
+          raw_payload?: Json
+          revenue_usd?: number
+          status?: Database["public"]["Enums"]["purchase_status"]
+          subscription_expires_at?: string | null
+          transaction_id: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          app_id?: string
+          created_at?: string
+          environment?: Database["public"]["Enums"]["purchase_environment"]
+          id?: string
+          local_amount?: number | null
+          local_currency?: string | null
+          platform?: Database["public"]["Enums"]["purchase_platform"]
+          product_id?: string
+          product_type?: Database["public"]["Enums"]["purchase_product_type"]
+          purchase_date?: string
+          raw_payload?: Json
+          revenue_usd?: number
+          status?: Database["public"]["Enums"]["purchase_status"]
+          subscription_expires_at?: string | null
+          transaction_id?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchases_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "apps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      revenue_by_app: {
+        Args: {
+          p_from?: string
+          p_platform?: Database["public"]["Enums"]["purchase_platform"]
+          p_to?: string
+        }
+        Returns: {
+          app_id: string
+          app_name: string
+          revenue_usd: number
+        }[]
+      }
+      revenue_by_platform: {
+        Args: { p_app?: string; p_from?: string; p_to?: string }
+        Returns: {
+          platform: Database["public"]["Enums"]["purchase_platform"]
+          revenue_usd: number
+        }[]
+      }
+      revenue_stats: {
+        Args: {
+          p_app?: string
+          p_from?: string
+          p_platform?: Database["public"]["Enums"]["purchase_platform"]
+          p_to?: string
+        }
+        Returns: {
+          active_subs: number
+          month_usd: number
+          mrr_usd: number
+          prev_month_usd: number
+          total_usd: number
+        }[]
+      }
+      revenue_timeseries: {
+        Args: {
+          p_app?: string
+          p_from?: string
+          p_platform?: Database["public"]["Enums"]["purchase_platform"]
+          p_to?: string
+        }
+        Returns: {
+          day: string
+          revenue_usd: number
+        }[]
+      }
+      top_products: {
+        Args: {
+          p_app?: string
+          p_from?: string
+          p_limit?: number
+          p_platform?: Database["public"]["Enums"]["purchase_platform"]
+          p_to?: string
+        }
+        Returns: {
+          count: number
+          product_id: string
+          revenue_usd: number
+        }[]
+      }
     }
     Enums: {
-      [_ in never]: never
+      purchase_environment: "production" | "sandbox"
+      purchase_platform: "ios" | "android"
+      purchase_product_type:
+        | "consumable"
+        | "non_consumable"
+        | "subscription"
+        | "auto_renewable_subscription"
+      purchase_status: "active" | "cancelled" | "refunded" | "expired"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -206,6 +379,16 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      purchase_environment: ["production", "sandbox"],
+      purchase_platform: ["ios", "android"],
+      purchase_product_type: [
+        "consumable",
+        "non_consumable",
+        "subscription",
+        "auto_renewable_subscription",
+      ],
+      purchase_status: ["active", "cancelled", "refunded", "expired"],
+    },
   },
 } as const
