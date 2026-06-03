@@ -244,7 +244,22 @@ jobs:
             echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
           } >> $GITHUB_ENV
 
+      - name: Write App Store Connect API key
+        env:
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+        run: |
+          set -euo pipefail
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+          echo -n "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode > "$KEY_DIR/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          chmod 600 "$KEY_DIR/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          echo "ASC_API_KEY_PATH=$KEY_DIR/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8" >> $GITHUB_ENV
+
       - name: Build .xcarchive
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           set -euo pipefail
           xcodebuild \
@@ -253,26 +268,14 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_API_KEY_PATH" \
+            -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
             DEVELOPMENT_TEAM=${{ secrets.IOS_TEAM_ID }} \
-            CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
-            PROVISIONING_PROFILE="$PP_UUID" \
             archive
-
-      - name: Inject provisioning profile into .app
-        run: |
-          APP_PATH="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
-          PROFILE_PATH=~/Library/MobileDevice/Provisioning\ Profiles/$PP_UUID.mobileprovision
-
-          if [ -f "$PROFILE_PATH" ]; then
-            echo "✅ Inyectando profile dentro de App.app"
-            cp "$PROFILE_PATH" "$APP_PATH/embedded.mobileprovision"
-          else
-            echo "❌ No se encontró el profile en $PROFILE_PATH"
-            ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || true
-            exit 1
-          fi
 
       - name: Diagnose archive signing
         run: |
@@ -298,7 +301,11 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath $RUNNER_TEMP/App.xcarchive \
             -exportOptionsPlist "$EXPORT_OPTS_PATH" \
-            -exportPath $RUNNER_TEMP/build
+            -exportPath $RUNNER_TEMP/build \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_API_KEY_PATH" \
+            -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
 
           echo "== Exported files =="
           ls -la $RUNNER_TEMP/build
