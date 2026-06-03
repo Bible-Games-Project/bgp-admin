@@ -95,12 +95,12 @@ function AppDetailPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="general" className="w-ful4 mb-6">
+      <Tabs defaultValue="general" className="w-full mb-6">
+        <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="icon">Icon</TabsTrigger>
           <TabsTrigger value="splash">Splash</TabsTrigger>
-          <TabsTrigger value="environment">EnvironmentbsTrigger>
-          <TabsTrigger value="splash">Splash</TabsTrigger>
+          <TabsTrigger value="environment">Environment</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general">
@@ -152,6 +152,8 @@ function AppDetailPage() {
                 qc.invalidateQueries({ queryKey: ["app", id] });
               }}
             />
+          </div>
+        </TabsContent>
 
         <TabsContent value="environment">
           <AppEnvironmentEditor
@@ -160,8 +162,6 @@ function AppDetailPage() {
               qc.invalidateQueries({ queryKey: ["app", id] });
             }}
           />
-        </TabsContent>
-          </div>
         </TabsContent>
       </Tabs>
     </div>
