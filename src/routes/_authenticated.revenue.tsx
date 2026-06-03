@@ -439,7 +439,7 @@ function RevenuePage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  topQ.data!.rows.map((r) => (
+                  topQ.data!.rows.map((r: any) => (
                     <TableRow key={r.productId}>
                       <TableCell className="font-mono text-xs truncate max-w-[140px]">
                         {r.productId}
