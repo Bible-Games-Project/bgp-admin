@@ -34,6 +34,14 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
   const typeLabel = type === "icon" ? "Icon" : "Splash Screen";
 
   const uploadFn = useServerFn(uploadAndGenerateAsset);
+  const previewFn = useServerFn(getAppAssetPreview);
+  const qc = useQueryClient();
+
+  const previewQuery = useQuery({
+    queryKey: ["app-asset-preview", appId, type],
+    queryFn: () => previewFn({ data: { appId, type } }),
+    staleTime: 30_000,
+  });
 
   const validateImage = async (file: File): Promise<{ valid: boolean; error?: string }> => {
     // Check file size (max 5MB)
