@@ -470,7 +470,7 @@ function RevenuePage() {
               variant="outline"
               disabled={search.page <= 1}
               onClick={() =>
-                navigate({ search: (p) => ({ ...p, page: Math.max(1, p.page - 1) }) })
+                (navigate as any)({ search: (p: any) => ({ ...p, page: Math.max(1, p.page - 1) }) })
               }
             >
               <ChevronLeft className="h-4 w-4" />
@@ -480,8 +480,8 @@ function RevenuePage() {
               variant="outline"
               disabled={search.page >= totalPages}
               onClick={() =>
-                navigate({
-                  search: (p) => ({ ...p, page: Math.min(totalPages, p.page + 1) }),
+                (navigate as any)({
+                  search: (p: any) => ({ ...p, page: Math.min(totalPages, p.page + 1) }),
                 })
               }
             >
