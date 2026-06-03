@@ -515,7 +515,7 @@ function RevenuePage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                recentQ.data!.rows.map((r) => (
+                recentQ.data!.rows.map((r: any) => (
                   <TableRow
                     key={r.id}
                     className="cursor-pointer"
