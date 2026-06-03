@@ -140,21 +140,26 @@ base64 -i file.ext
 
 - [x] Go to GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens
 - [x] Create token with:
-  - [x] **Repository access**: Only `Bible-Games-Project/eden-choice-chronicles`
+  - [x] **Repository access**: All repositories under `Bible-Games-Project` organization (or select specific app repos)
   - [x] **Permissions**: 
-    - [x] **Actions** - Read and write (required for triggering asset generation workflows)
-    - [x] **Contents** - Read and write (required for uploading asset files via GitHub API)
+    - [x] **Actions** - Read and write (required for triggering centralized asset generation workflow)
+    - [x] **Contents** - Read and write (required for uploading asset files and cloning app repos)
   - [x] **Expiration**: Configured
 - [x] Token copied
 - [x] Configured in Lovable Cloud (Environment Variables → GITHUB_PAT)
+- [x] **Also configured as GitHub Secret in bgp-admin repository**: Go to https://github.com/Bible-Games-Project/bgp-admin/settings/secrets/actions → New repository secret → Name: `GITHUB_PAT`, Value: (paste token)
 
 **Note:** The asset management feature (icon and splash screen) works as follows:
-1. BGP Admin uploads the source images to `assets/` via GitHub Contents API
-2. BGP Admin triggers the `generate-assets.yml` workflow
-3. The GitHub Action runs `@capacitor/assets` to generate all required sizes
-4. The workflow commits and pushes the generated assets back to the repository
+1. BGP Admin uploads the source images to `assets/` via GitHub Contents API (to the app repo)
+2. BGP Admin triggers the centralized `generate-assets.yml` workflow in bgp-admin
+3. The workflow clones the app repository using GITHUB_PAT, runs `@capacitor/assets`, and pushes back
+4. ✅ All asset sizes are generated and committed to the app repository
 
-This approach works in Cloudflare Workers runtime (production) because it uses only HTTP APIs, unlike the git clone approach which requires Node.js child_process.
+This centralized approach means:
+- ✅ No workflow files needed in individual app repositories
+- ✅ All logic stays in bgp-admin
+- ✅ Works in Cloudflare Workers runtime (production) because it only uses HTTP APIs
+- ⚠️ The GITHUB_PAT must have access to both bgp-admin AND all app repositories
 
 ---
 

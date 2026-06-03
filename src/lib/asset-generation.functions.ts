@@ -146,15 +146,18 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
       console.log("Uploading assets configuration...");
       await uploadFile("assets/config.json", configBytes);
 
-      // Trigger the GitHub Action workflow to generate all asset sizes
-      console.log("Triggering asset generation workflow...");
-      const workflowUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/generate-assets.yml/dispatches`;
+      // Trigger the centralized GitHub Action workflow in bgp-admin to generate all asset sizes
+      console.log("Triggering centralized asset generation workflow...");
+      const workflowUrl = `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/workflows/generate-assets.yml/dispatches`;
       const workflowRes = await fetch(workflowUrl, {
         method: "POST",
         headers: githubHeaders(),
         body: JSON.stringify({
-          ref: branch,
+          ref: "main",
           inputs: {
+            github_owner: owner,
+            github_repo: repo,
+            branch: branch,
             asset_type: data.type,
           },
         }),
