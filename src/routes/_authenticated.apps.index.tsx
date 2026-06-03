@@ -86,9 +86,20 @@ function AppsPage() {
             key={a.id}
             to="/apps/$id"
             params={{ id: a.id }}
-            className="rounded-md border border-border bg-card p-4 hover:bg-accent/40 transition-colors flex items-center justify-between"
+            className="rounded-md border border-border bg-card p-4 hover:bg-accent/40 transition-colors flex items-center gap-4"
           >
-            <div className="min-w-0">
+            <div className="h-10 w-10 rounded-md border border-border bg-muted/40 flex items-center justify-center overflow-hidden shrink-0">
+              {a.icon_data_url ? (
+                <img
+                  src={a.icon_data_url}
+                  alt={`${a.name} icon`}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <ImageIcon className="h-4 w-4 text-muted-foreground" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="font-display font-semibold">{a.name}</span>
                 <span className="text-[10px] font-mono uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">
