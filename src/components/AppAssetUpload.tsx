@@ -3,9 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Loader2, ExternalLink } from "lucide-react";
+import { Loader2, ExternalLink, RefreshCw, ImageOff } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { uploadAndGenerateAsset } from "@/lib/asset-generation.functions";
+import { getAppAssetPreview } from "@/lib/app-assets.functions";
 
 type AssetType = "icon" | "splash";
 
