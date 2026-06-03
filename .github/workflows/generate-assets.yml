@@ -25,6 +25,8 @@ jobs:
   generate:
     name: Generate Assets with @capacitor/assets
     runs-on: ubuntu-latest
+    # Only run if required inputs are provided (prevents auto-trigger on push)
+    if: ${{ inputs.github_owner != '' && inputs.github_repo != '' && inputs.branch != '' }}
     
     steps:
       - name: Clone target app repository
