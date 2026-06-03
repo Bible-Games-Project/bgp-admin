@@ -267,6 +267,7 @@ jobs:
             -scheme "${{ inputs.ios-scheme }}" \
             -configuration Release \
             -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$ASC_API_KEY_PATH" \
