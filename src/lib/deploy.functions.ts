@@ -49,19 +49,17 @@ export const getRepoMarketingVersion = createServerFn({ method: "POST" })
     const app = await loadApp(context.supabase, data.appId);
     const ref = data.ref ?? app.default_ref ?? "main";
 
-    // Read versionName from android/app/build.gradle — this is the canonical
-    // marketing version for both iOS and Android. package.json stays at "0.0.0"
-    // (Vite scaffold default) and is never updated.
-    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/android/app/build.gradle?ref=${encodeURIComponent(ref)}`;
+    // Read version from package.json — this is the canonical source of truth
+    // updated via pre-deploy commit when the user triggers a deploy with a new version.
+    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/package.json?ref=${encodeURIComponent(ref)}`;
     const res = await fetch(url, { headers: githubHeaders() });
     if (!res.ok) return { version: null as string | null };
     try {
       const json: any = await res.json();
       const content = Buffer.from(json.content, "base64").toString("utf-8");
-      // Match: versionName "1.0" or versionName "1.2.3"
-      const match = content.match(/versionName\s+"([^"]+)"/);
-      if (match) {
-        return { version: match[1] };
+      const pkg = JSON.parse(content);
+      if (typeof pkg.version === "string") {
+        return { version: pkg.version };
       }
     } catch {
       // fall through
@@ -154,6 +152,51 @@ export const triggerDeploy = createServerFn({ method: "POST" })
     const app = await loadApp(context.supabase, data.appId);
     if (!app.is_active) throw new Error("App is disabled");
     const ref = data.ref ?? app.default_ref ?? "main";
+
+    // If marketing-version is provided, update package.json in the repo before deploy
+    const marketingVersion = data.inputs?.["marketing-version"];
+    if (marketingVersion && typeof marketingVersion === "string") {
+      try {
+        // Fetch current package.json
+        const pkgUrl = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/package.json?ref=${encodeURIComponent(ref)}`;
+        const pkgRes = await fetch(pkgUrl, { headers: githubHeaders() });
+        if (!pkgRes.ok) {
+          throw new Error(`Failed to fetch package.json: ${pkgRes.status}`);
+        }
+        const pkgJson: any = await pkgRes.json();
+        const pkgContent = Buffer.from(pkgJson.content, "base64").toString("utf-8");
+        const pkg = JSON.parse(pkgContent);
+        
+        // Update version field
+        const oldVersion = pkg.version;
+        pkg.version = marketingVersion;
+        
+        // Commit if changed
+        if (oldVersion !== marketingVersion) {
+          const newContent = JSON.stringify(pkg, null, 2) + "\n";
+          const base64Content = Buffer.from(newContent).toString("base64");
+          const commitRes = await fetch(pkgUrl.split("?")[0], {
+            method: "PUT",
+            headers: githubHeaders(),
+            body: JSON.stringify({
+              message: `chore: bump version to ${marketingVersion}`,
+              content: base64Content,
+              branch: ref,
+              sha: pkgJson.sha,
+            }),
+          });
+          if (!commitRes.ok) {
+            const errText = await commitRes.text();
+            throw new Error(`Failed to commit package.json: ${commitRes.status} ${errText.slice(0, 200)}`);
+          }
+          console.log(`Updated package.json version: ${oldVersion} → ${marketingVersion}`);
+        }
+      } catch (err) {
+        console.error("Failed to update package.json version:", err);
+        // Don't throw — allow deploy to proceed even if version update fails
+      }
+    }
+
     const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows/${encodeURIComponent(
       data.workflowFile,
     )}/dispatches`;
