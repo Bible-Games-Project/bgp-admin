@@ -99,6 +99,14 @@ function DeployPanel({
   });
   const repoVersion = repoVersionData?.version ?? null;
 
+  const fetchCommitsAhead = useServerFn(getCommitsAheadOfLatestTag);
+  const { data: aheadData, isFetching: aheadFetching, refetch: refetchAhead } = useQuery({
+    queryKey: ["commitsAhead", appId, ref],
+    queryFn: () => fetchCommitsAhead({ data: { appId, ref } }),
+    enabled: !!appId && !!ref,
+    staleTime: 60_000,
+  });
+
   useEffect(
     () => setMarketingVersion(currentVersion || repoVersion || ""),
     [currentVersion, repoVersion],
