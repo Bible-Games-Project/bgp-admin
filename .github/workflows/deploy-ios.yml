@@ -174,18 +174,17 @@ jobs:
       - name: Compute version strings
         run: |
           if [ -n "${{ inputs.marketing-version }}" ]; then
-            BASE_VER="${{ inputs.marketing-version }}"
+            MARKETING_VERSION="${{ inputs.marketing-version }}"
           else
-            BASE_VER=$(node -e "const v=require('./package.json').version.split('.'); console.log(\`\${v[0]}.\${v[1]}\`)") \
+            MARKETING_VERSION=$(node -e "console.log(require('./package.json').version)") \
               || { echo 'Could not read package.json version'; exit 1; }
           fi
-          # Full version shown to users: MAJOR.MINOR.PATCH.RUN — matches Android versionName format
-          FULL_VERSION="${BASE_VER}.${GITHUB_RUN_NUMBER}"
-          # CFBundleVersion must be a numeric-only string for App Store Connect
+          # CFBundleShortVersionString: max 3 segments (Apple requirement) e.g. "0.0.1"
+          # CFBundleVersion: build number only (integer) e.g. "51"
           BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
-          echo "FULL_VERSION=$FULL_VERSION" >> $GITHUB_ENV
+          echo "MARKETING_VERSION=$MARKETING_VERSION" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
-          echo "FULL_VERSION=$FULL_VERSION, BUILD_NUMBER=$BUILD_NUMBER"
+          echo "iOS version: $MARKETING_VERSION ($BUILD_NUMBER)"
 
       - name: Patch Info.plist (version, build, export compliance)
         working-directory: ${{ inputs.ios-project-dir }}
@@ -195,21 +194,21 @@ jobs:
           /usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$PLIST" || true
           /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool NO" "$PLIST"
 
-          # CFBundleShortVersionString = full version e.g. "0.0.1.50" (matches Android versionName)
-          # CFBundleVersion            = run number only e.g. "50" (App Store Connect requirement: numeric)
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $FULL_VERSION" "$PLIST" || \
-            /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $FULL_VERSION" "$PLIST"
+          # Apple requirement: CFBundleShortVersionString must be max 3 segments (X.Y.Z)
+          # Format shown to users: "X.Y.Z (BUILD)" e.g. "0.0.1 (51)"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKETING_VERSION" "$PLIST" || \
+            /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $MARKETING_VERSION" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST" || \
             /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$PLIST"
-          echo "Patched $PLIST → CFBundleShortVersionString=$FULL_VERSION, CFBundleVersion=$BUILD_NUMBER"
+          echo "Patched $PLIST → CFBundleShortVersionString=$MARKETING_VERSION, CFBundleVersion=$BUILD_NUMBER"
 
           # Extensions (if any)
           while IFS= read -r p; do
             [ "$p" = "$PLIST" ] && continue
             /usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$p" || true
             /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool NO" "$p"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $FULL_VERSION" "$p" || \
-              /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $FULL_VERSION" "$p"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKETING_VERSION" "$p" || \
+              /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $MARKETING_VERSION" "$p"
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$p" || \
               /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$p"
             echo "Patched $p"
