@@ -67,6 +67,52 @@ export const getRepoMarketingVersion = createServerFn({ method: "POST" })
     return { version: null as string | null };
   });
 
+export const getCommitsAheadOfLatestTag = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        appId: z.string().uuid(),
+        ref: z.string().min(1).max(255).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const ref = data.ref ?? app.default_ref ?? "main";
+    const repo = `${app.github_owner}/${app.github_repo}`;
+
+    const tagsRes = await fetch(
+      `https://api.github.com/repos/${repo}/tags?per_page=1`,
+      { headers: githubHeaders() },
+    );
+    if (!tagsRes.ok) {
+      return { tag: null as string | null, ahead: 0, behind: 0, compareUrl: null as string | null, error: `GitHub API ${tagsRes.status}` };
+    }
+    const tags: any = await tagsRes.json();
+    if (!Array.isArray(tags) || tags.length === 0) {
+      return { tag: null, ahead: 0, behind: 0, compareUrl: null, error: null as string | null };
+    }
+    const tag = tags[0].name as string;
+
+    const cmpRes = await fetch(
+      `https://api.github.com/repos/${repo}/compare/${encodeURIComponent(tag)}...${encodeURIComponent(ref)}`,
+      { headers: githubHeaders() },
+    );
+    if (!cmpRes.ok) {
+      return { tag, ahead: 0, behind: 0, compareUrl: null, error: `GitHub API ${cmpRes.status}` };
+    }
+    const cmp: any = await cmpRes.json();
+    return {
+      tag,
+      ahead: cmp.ahead_by ?? 0,
+      behind: cmp.behind_by ?? 0,
+      compareUrl: `https://github.com/${repo}/compare/${tag}...${ref}` as string | null,
+      error: null as string | null,
+    };
+  });
+
 export const isCurrentUserAdmin = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
