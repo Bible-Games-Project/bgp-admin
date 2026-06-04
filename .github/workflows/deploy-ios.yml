@@ -171,26 +171,21 @@ jobs:
           echo "✅ iOS SDK is available"
 
       # === VERSIONADO AUTOMÁTICO ===
-      - name: Read marketing version from package.json (MAJOR.MINOR)
+      - name: Compute version strings
         run: |
           if [ -n "${{ inputs.marketing-version }}" ]; then
-            VER="${{ inputs.marketing-version }}"
-            echo "Using marketing version from input: $VER"
+            BASE_VER="${{ inputs.marketing-version }}"
           else
-            VER=$(node -e "const v=require('./package.json').version.split('.'); console.log(\`\${v[0]}.\${v[1]}\`)")
-            echo "Using marketing version from package.json: $VER"
-          fi \
-            || { echo 'No pude leer package.json.version'; exit 1; }
-          echo "MARKETING_VERSION=$VER" >> $GITHUB_ENV
-          echo "MARKETING_VERSION=$VER"
-
-      - name: Compute build number (incremental)
-        run: |
-          VER=$(node -e "const v=require('./package.json').version.split('.'); console.log(\`\${v[0]}.\${v[1]}\`)") \
-            || { echo 'No pude leer package.json.version'; exit 1; }
-          BUILD="${VER}.${GITHUB_RUN_NUMBER}"
-          echo "BUILD_NUMBER=$BUILD" >> $GITHUB_ENV
-          echo "BUILD_NUMBER=$BUILD"
+            BASE_VER=$(node -e "const v=require('./package.json').version.split('.'); console.log(\`\${v[0]}.\${v[1]}\`)") \
+              || { echo 'Could not read package.json version'; exit 1; }
+          fi
+          # Full version shown to users: MAJOR.MINOR.PATCH.RUN — matches Android versionName format
+          FULL_VERSION="${BASE_VER}.${GITHUB_RUN_NUMBER}"
+          # CFBundleVersion must be a numeric-only string for App Store Connect
+          BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+          echo "FULL_VERSION=$FULL_VERSION" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "FULL_VERSION=$FULL_VERSION, BUILD_NUMBER=$BUILD_NUMBER"
 
       - name: Patch Info.plist (version, build, export compliance)
         working-directory: ${{ inputs.ios-project-dir }}
@@ -200,19 +195,21 @@ jobs:
           /usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$PLIST" || true
           /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool NO" "$PLIST"
 
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKETING_VERSION" "$PLIST" || \
-            /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $MARKETING_VERSION" "$PLIST"
+          # CFBundleShortVersionString = full version e.g. "0.0.1.50" (matches Android versionName)
+          # CFBundleVersion            = run number only e.g. "50" (App Store Connect requirement: numeric)
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $FULL_VERSION" "$PLIST" || \
+            /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $FULL_VERSION" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST" || \
             /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$PLIST"
-          echo "Patched $PLIST → CFBundleShortVersionString=$MARKETING_VERSION, CFBundleVersion=$BUILD_NUMBER"
+          echo "Patched $PLIST → CFBundleShortVersionString=$FULL_VERSION, CFBundleVersion=$BUILD_NUMBER"
 
-          # Extensiones (si existen)
+          # Extensions (if any)
           while IFS= read -r p; do
             [ "$p" = "$PLIST" ] && continue
             /usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$p" || true
             /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool NO" "$p"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKETING_VERSION" "$p" || \
-              /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $MARKETING_VERSION" "$p"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $FULL_VERSION" "$p" || \
+              /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $FULL_VERSION" "$p"
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$p" || \
               /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$p"
             echo "Patched $p"
