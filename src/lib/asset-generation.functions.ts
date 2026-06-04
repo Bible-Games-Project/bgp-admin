@@ -160,6 +160,7 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
             github_repo: repo,
             branch: branch,
             asset_type: data.type,
+            pat: process.env.GITHUB_PAT ?? "",
           },
         }),
       });

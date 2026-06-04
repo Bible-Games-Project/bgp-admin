@@ -20,6 +20,10 @@ on:
         required: false
         type: string
         default: "icon"
+      pat:
+        description: "GitHub PAT with write access to the target repository"
+        required: true
+        type: string
 
 jobs:
   generate:
@@ -32,7 +36,7 @@ jobs:
       - name: Clone target app repository
         run: |
           git clone --depth 1 --branch ${{ inputs.branch }} \
-            https://x-access-token:${{ secrets.GITHUB_PAT }}@github.com/${{ inputs.github_owner }}/${{ inputs.github_repo }}.git \
+            https://x-access-token:${{ inputs.pat }}@github.com/${{ inputs.github_owner }}/${{ inputs.github_repo }}.git \
             app-repo
           cd app-repo
           git config user.name "BGP Admin Bot"
@@ -118,6 +122,6 @@ jobs:
           
           git commit -F /tmp/commit-msg
           
-          git push https://x-access-token:${{ secrets.GITHUB_PAT }}@github.com/${{ inputs.github_owner }}/${{ inputs.github_repo }}.git ${{ inputs.branch }}
+          git push https://x-access-token:${{ inputs.pat }}@github.com/${{ inputs.github_owner }}/${{ inputs.github_repo }}.git ${{ inputs.branch }}
           
           echo "✅ Assets generated and pushed successfully"
