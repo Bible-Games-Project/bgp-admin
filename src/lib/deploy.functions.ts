@@ -48,15 +48,20 @@ export const getRepoMarketingVersion = createServerFn({ method: "POST" })
     await assertAdmin(context.supabase, context.userId);
     const app = await loadApp(context.supabase, data.appId);
     const ref = data.ref ?? app.default_ref ?? "main";
-    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/package.json?ref=${encodeURIComponent(ref)}`;
-    const res = await fetch(url, {
-      headers: { ...githubHeaders(), Accept: "application/vnd.github.raw" },
-    });
+
+    // Read versionName from android/app/build.gradle — this is the canonical
+    // marketing version for both iOS and Android. package.json stays at "0.0.0"
+    // (Vite scaffold default) and is never updated.
+    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/android/app/build.gradle?ref=${encodeURIComponent(ref)}`;
+    const res = await fetch(url, { headers: githubHeaders() });
     if (!res.ok) return { version: null as string | null };
     try {
-      const pkg: any = await res.json();
-      if (typeof pkg.version === "string") {
-        return { version: pkg.version };
+      const json: any = await res.json();
+      const content = Buffer.from(json.content, "base64").toString("utf-8");
+      // Match: versionName "1.0" or versionName "1.2.3"
+      const match = content.match(/versionName\s+"([^"]+)"/);
+      if (match) {
+        return { version: match[1] };
       }
     } catch {
       // fall through
