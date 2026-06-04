@@ -213,15 +213,26 @@ function DeployPanel({
             />
           </div>
 
-          <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 h-9">
-            <span className="text-xs text-muted-foreground font-mono">v</span>
+          <div className="flex items-center gap-1 rounded-md border border-border bg-background px-2.5 h-9" title="Marketing version: Major.Minor. The build number is appended automatically by CI (GITHUB_RUN_NUMBER).">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground mr-1">Major</span>
             <input
-              value={marketingVersion}
-              onChange={(e) => setMarketingVersion(e.target.value)}
-              className="bg-transparent text-sm font-mono w-16 outline-none"
-              placeholder={repoVersion || "1.0"}
-              title={`Marketing version (e.g., 1.0, 2.1). ${repoVersion ? `Current repo version: ${repoVersion}` : "If empty, uses package.json"}`}
+              value={major}
+              onChange={(e) => setMajor(e.target.value.replace(/\D/g, ""))}
+              className="bg-transparent text-sm font-mono w-8 outline-none text-center"
+              placeholder="0"
+              inputMode="numeric"
             />
+            <span className="text-muted-foreground">.</span>
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground mx-1">Minor</span>
+            <input
+              value={minor}
+              onChange={(e) => setMinor(e.target.value.replace(/\D/g, ""))}
+              className="bg-transparent text-sm font-mono w-8 outline-none text-center"
+              placeholder="0"
+              inputMode="numeric"
+            />
+            <span className="text-muted-foreground">.</span>
+            <span className="text-xs font-mono text-muted-foreground italic" title="Auto-incremented by CI on every deploy">auto</span>
           </div>
 
           <Button
