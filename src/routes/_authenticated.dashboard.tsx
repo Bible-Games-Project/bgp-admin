@@ -85,7 +85,15 @@ function DeployPanel({
   const deployFn = useServerFn(triggerDeploy);
   const fetchRepoVersion = useServerFn(getRepoMarketingVersion);
   const [ref, setRef] = useState(defaultRef);
-  const [marketingVersion, setMarketingVersion] = useState(currentVersion || "");
+  const parseVersion = (v: string | null | undefined): [string, string] => {
+    if (!v) return ["0", "0"];
+    const parts = v.split(".");
+    return [parts[0] ?? "0", parts[1] ?? "0"];
+  };
+  const [initMajor, initMinor] = parseVersion(currentVersion);
+  const [major, setMajor] = useState(initMajor);
+  const [minor, setMinor] = useState(initMinor);
+  const marketingVersion = `${major || "0"}.${minor || "0"}`;
   const [deployIos, setDeployIos] = useState(true);
   const [deployAndroid, setDeployAndroid] = useState(true);
 
@@ -107,10 +115,11 @@ function DeployPanel({
     staleTime: 60_000,
   });
 
-  useEffect(
-    () => setMarketingVersion(currentVersion || repoVersion || ""),
-    [currentVersion, repoVersion],
-  );
+  useEffect(() => {
+    const [maj, min] = parseVersion(currentVersion || repoVersion);
+    setMajor(maj);
+    setMinor(min);
+  }, [currentVersion, repoVersion]);
 
   const deployM = useMutation({
     mutationFn: () => {
