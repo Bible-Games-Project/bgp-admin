@@ -174,17 +174,18 @@ jobs:
       - name: Compute version strings
         run: |
           if [ -n "${{ inputs.marketing-version }}" ]; then
-            MARKETING_VERSION="${{ inputs.marketing-version }}"
+            BASE_VER="${{ inputs.marketing-version }}"
           else
-            MARKETING_VERSION=$(node -e "console.log(require('./package.json').version)") \
+            BASE_VER=$(node -e "console.log(require('./package.json').version)") \
               || { echo 'Could not read package.json version'; exit 1; }
           fi
-          # CFBundleShortVersionString: max 3 segments (Apple requirement) e.g. "0.0.1"
-          # CFBundleVersion: build number only (integer) e.g. "51"
+          # Version format: MAJOR.MINOR.BUILD (e.g. "0.0.51")
+          # CFBundleShortVersionString accepts up to 3 segments, so this is valid
+          MARKETING_VERSION="${BASE_VER}.${GITHUB_RUN_NUMBER}"
           BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
           echo "MARKETING_VERSION=$MARKETING_VERSION" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
-          echo "iOS version: $MARKETING_VERSION ($BUILD_NUMBER)"
+          echo "iOS version: $MARKETING_VERSION (build $BUILD_NUMBER)"
 
       - name: Patch Info.plist (version, build, export compliance)
         working-directory: ${{ inputs.ios-project-dir }}
@@ -194,8 +195,8 @@ jobs:
           /usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$PLIST" || true
           /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool NO" "$PLIST"
 
-          # Apple requirement: CFBundleShortVersionString must be max 3 segments (X.Y.Z)
-          # Format shown to users: "X.Y.Z (BUILD)" e.g. "0.0.1 (51)"
+          # CFBundleShortVersionString: MAJOR.MINOR.BUILD e.g. "0.0.51" (matches Android)
+          # CFBundleVersion: build number only e.g. "51"
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKETING_VERSION" "$PLIST" || \
             /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $MARKETING_VERSION" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST" || \
