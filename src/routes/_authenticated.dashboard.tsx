@@ -15,6 +15,7 @@ import {
   listRepoRuns,
   triggerDeploy,
   getRepoMarketingVersion,
+  getCommitsAheadOfLatestTag,
 } from "@/lib/deploy.functions";
 import { listApps } from "@/lib/apps.functions";
 import { Button } from "@/components/ui/button";
@@ -98,6 +99,14 @@ function DeployPanel({
   });
   const repoVersion = repoVersionData?.version ?? null;
 
+  const fetchCommitsAhead = useServerFn(getCommitsAheadOfLatestTag);
+  const { data: aheadData, isFetching: aheadFetching, refetch: refetchAhead } = useQuery({
+    queryKey: ["commitsAhead", appId, ref],
+    queryFn: () => fetchCommitsAhead({ data: { appId, ref } }),
+    enabled: !!appId && !!ref,
+    staleTime: 60_000,
+  });
+
   useEffect(
     () => setMarketingVersion(currentVersion || repoVersion || ""),
     [currentVersion, repoVersion],
@@ -139,25 +148,49 @@ function DeployPanel({
       </div>
 
       <div className="rounded-md border border-border bg-card p-5 space-y-4">
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={deployIos}
-              onChange={(e) => setDeployIos(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            <span className="text-sm font-medium">iOS</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={deployAndroid}
-              onChange={(e) => setDeployAndroid(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            <span className="text-sm font-medium">Android</span>
-          </label>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deployIos}
+                onChange={(e) => setDeployIos(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <span className="text-sm font-medium">iOS</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deployAndroid}
+                onChange={(e) => setDeployAndroid(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <span className="text-sm font-medium">Android</span>
+            </label>
+          </div>
+
+          {aheadData?.tag ? (
+            <a
+              href={aheadData.compareUrl ?? `https://github.com/${githubOwner}/${githubRepo}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
+              title={`Compare ${aheadData.tag}...${ref}`}
+            >
+              <RefreshCw className={`h-3 w-3 ${aheadFetching ? "animate-spin" : ""}`} onClick={(e) => { e.preventDefault(); refetchAhead(); }} />
+              {aheadData.ahead === 0 ? (
+                <span>up to date with <span className="text-foreground">{aheadData.tag}</span></span>
+              ) : (
+                <span>
+                  <span className="text-foreground font-semibold">{aheadData.ahead}</span> commit{aheadData.ahead === 1 ? "" : "s"} ahead of <span className="text-foreground">{aheadData.tag}</span>
+                </span>
+              )}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          ) : aheadData && !aheadData.tag ? (
+            <span className="text-xs font-mono text-muted-foreground">no tags yet</span>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
