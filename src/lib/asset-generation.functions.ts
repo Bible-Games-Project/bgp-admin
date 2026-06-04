@@ -148,6 +148,7 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
 
       // Trigger the centralized GitHub Action workflow in bgp-admin to generate all asset sizes
       console.log("Triggering centralized asset generation workflow...");
+      const dispatchedAt = new Date().toISOString();
       const workflowUrl = `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/workflows/generate-assets.yml/dispatches`;
       const workflowRes = await fetch(workflowUrl, {
         method: "POST",
@@ -165,9 +166,80 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
 
       if (!workflowRes.ok) {
         const errorText = await workflowRes.text();
-        console.warn(`Failed to trigger workflow: ${workflowRes.status} ${errorText}`);
-        // Don't throw - files are uploaded, workflow can be triggered manually
+        throw new Error(`Failed to trigger asset generation workflow: ${workflowRes.status} ${errorText}`);
       }
+
+      // Wait for GitHub to register the run (usually takes 2-3s after dispatch)
+      await new Promise((r) => setTimeout(r, 4000));
+
+      // Find the workflow run that was just created
+      const runsUrl = `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/workflows/generate-assets.yml/runs?per_page=5&created=>=${dispatchedAt.substring(0, 19)}Z`;
+      let runId: number | null = null;
+
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const runsRes = await fetch(runsUrl, { headers: githubHeaders() });
+        if (runsRes.ok) {
+          const runsData = await runsRes.json() as any;
+          const match = (runsData.workflow_runs ?? []).find(
+            (r: any) => new Date(r.created_at) >= new Date(dispatchedAt)
+          );
+          if (match) {
+            runId = match.id;
+            break;
+          }
+        }
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+
+      if (!runId) {
+        throw new Error("Asset generation workflow was triggered but could not locate the run. Check GitHub Actions for status.");
+      }
+
+      // Poll until the run completes (timeout: 3 minutes)
+      const pollTimeoutMs = 3 * 60 * 1000;
+      const pollIntervalMs = 6000;
+      const pollStart = Date.now();
+      let conclusion: string | null = null;
+
+      while (Date.now() - pollStart < pollTimeoutMs) {
+        await new Promise((r) => setTimeout(r, pollIntervalMs));
+        const runRes = await fetch(
+          `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/runs/${runId}`,
+          { headers: githubHeaders() }
+        );
+        if (!runRes.ok) continue;
+        const runData = await runRes.json() as any;
+        if (runData.status === "completed") {
+          conclusion = runData.conclusion;
+          break;
+        }
+      }
+
+      if (!conclusion) {
+        throw new Error(`Asset generation workflow timed out after 3 minutes. Check run: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`);
+      }
+
+      if (conclusion !== "success") {
+        // Fetch job logs URL for a helpful error message
+        const jobsRes = await fetch(
+          `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/runs/${runId}/jobs`,
+          { headers: githubHeaders() }
+        );
+        let failedStep = "";
+        if (jobsRes.ok) {
+          const jobsData = await jobsRes.json() as any;
+          const failedJob = (jobsData.jobs ?? []).find((j: any) => j.conclusion !== "success");
+          if (failedJob) {
+            const failedStepObj = (failedJob.steps ?? []).find((s: any) => s.conclusion !== "success" && s.conclusion !== null);
+            if (failedStepObj) failedStep = ` Failed step: "${failedStepObj.name}".`;
+          }
+        }
+        throw new Error(
+          `Asset generation workflow failed (${conclusion}).${failedStep} See: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`
+        );
+      }
+
+      console.log(`Asset generation workflow completed successfully (run ${runId})`);
 
       const assetType = data.type === "icon" ? "app icon" : "splash screen";
       
@@ -188,7 +260,7 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
       return {
         success: true,
         commitUrl: `https://github.com/${owner}/${repo}/tree/${branch}/assets`,
-        message: `${assetType.charAt(0).toUpperCase() + assetType.slice(1)} uploaded successfully. Asset generation workflow has been triggered.`,
+        message: `${assetType.charAt(0).toUpperCase() + assetType.slice(1)} generated and deployed successfully for iOS and Android.`,
       };
     } catch (error) {
       console.error("Asset upload failed:", error);
