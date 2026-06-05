@@ -200,7 +200,8 @@ export const triggerDeploy = createServerFn({ method: "POST" })
     const ref = data.ref ?? app.default_ref ?? "main";
 
     // If marketing-version is provided, update package.json in the repo before deploy
-    const marketingVersion = data.inputs?.["marketing-version"];
+    // Accept both snake_case (dashboard) and kebab-case (workflow) naming for compatibility
+    const marketingVersion = data.inputs?.["marketing_version"] ?? data.inputs?.["marketing-version"];
     if (marketingVersion && typeof marketingVersion === "string") {
       try {
         // Fetch current package.json
