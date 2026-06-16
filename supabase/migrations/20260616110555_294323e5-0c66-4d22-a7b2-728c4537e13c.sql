@@ -1,0 +1,2 @@
+ALTER TABLE public.apps ADD COLUMN IF NOT EXISTS revenuecat_app_id text;
+CREATE UNIQUE INDEX IF NOT EXISTS apps_revenuecat_app_id_key ON public.apps (revenuecat_app_id) WHERE revenuecat_app_id IS NOT NULL;
