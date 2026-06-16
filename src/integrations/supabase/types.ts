@@ -31,6 +31,7 @@ export type Database = {
       }
       apps: {
         Row: {
+          bundle_id: string | null
           created_at: string
           default_ref: string
           github_owner: string
@@ -45,6 +46,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          bundle_id?: string | null
           created_at?: string
           default_ref?: string
           github_owner: string
@@ -59,6 +61,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          bundle_id?: string | null
           created_at?: string
           default_ref?: string
           github_owner?: string
