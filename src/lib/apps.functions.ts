@@ -10,6 +10,7 @@ const appInputSchema = z.object({
   default_ref: z.string().min(1).max(255).default("main"),
   marketing_version: z.string().regex(/^\d+\.\d+$/, "must be in format X.Y (e.g., 1.0, 2.1)").nullable().optional(),
   bundle_id: z.string().max(255).nullable().optional(),
+  revenuecat_app_id: z.string().max(255).nullable().optional(),
   notes: z.string().max(4000).nullable().optional(),
   is_active: z.boolean().default(true),
 });
