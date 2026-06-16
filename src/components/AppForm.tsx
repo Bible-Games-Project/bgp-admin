@@ -11,6 +11,7 @@ export type AppFormValues = {
   github_owner: string;
   github_repo: string;
   default_ref: string;
+  bundle_id: string;
   notes: string;
   is_active: boolean;
 };
@@ -21,6 +22,7 @@ export const emptyAppForm: AppFormValues = {
   github_owner: "Bible-Games-Project",
   github_repo: "",
   default_ref: "main",
+  bundle_id: "",
   notes: "",
   is_active: true,
 };
@@ -90,6 +92,13 @@ export function AppForm({
         </Field>
         <Field label="Default branch">
           <Input value={v.default_ref} onChange={(e) => upd("default_ref", e.target.value)} required />
+        </Field>
+        <Field label="Bundle ID" hint="RevenueCat app_id / iOS bundle / Android package (e.g. com.acme.app)">
+          <Input
+            value={v.bundle_id}
+            onChange={(e) => upd("bundle_id", e.target.value)}
+            placeholder="com.acme.app"
+          />
         </Field>
         <Field label="Active">
           <div className="h-9 flex items-center">
