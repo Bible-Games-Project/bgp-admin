@@ -224,7 +224,7 @@ export const triggerDeploy = createServerFn({ method: "POST" })
           const base64Content = Buffer.from(newContent).toString("base64");
           const commitRes = await fetch(pkgUrl.split("?")[0], {
             method: "PUT",
-            headers: githubHeaders(),
+            headers: { ...githubHeaders(), "Content-Type": "application/json" },
             body: JSON.stringify({
               message: `chore: bump version to ${marketingVersion}`,
               content: base64Content,
