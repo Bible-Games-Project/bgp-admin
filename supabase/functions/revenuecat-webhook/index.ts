@@ -163,13 +163,14 @@ Deno.serve(async (req) => {
     return ok({ ignored: "missing_fields" });
   }
 
-  // Resolve internal app via bundle_id == RevenueCat event.app_id.
+  // Resolve internal app via revenuecat_app_id == RevenueCat event.app_id.
+  // Falls back to bundle_id for backward compatibility with older configs.
   let appId: string | null = null;
   if (rcAppId) {
     const { data: appRow, error: appErr } = await supabase
       .from("apps")
       .select("id")
-      .eq("bundle_id", rcAppId)
+      .or(`revenuecat_app_id.eq.${rcAppId},bundle_id.eq.${rcAppId}`)
       .maybeSingle();
     if (appErr) {
       console.error("App lookup failed", appErr);
@@ -178,8 +179,8 @@ Deno.serve(async (req) => {
   }
 
   if (!appId) {
-    console.warn("No matching app for bundle_id", rcAppId);
-    return ok({ ignored: "unknown_app", bundle_id: rcAppId ?? null });
+    console.warn("No matching app for RevenueCat app_id", rcAppId);
+    return ok({ ignored: "unknown_app", revenuecat_app_id: rcAppId ?? null });
   }
 
   const purchaseRow = {

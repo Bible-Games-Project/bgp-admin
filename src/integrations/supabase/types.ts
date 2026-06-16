@@ -42,6 +42,7 @@ export type Database = {
           marketing_version: string | null
           name: string
           notes: string | null
+          revenuecat_app_id: string | null
           slug: string
           updated_at: string
         }
@@ -57,6 +58,7 @@ export type Database = {
           marketing_version?: string | null
           name: string
           notes?: string | null
+          revenuecat_app_id?: string | null
           slug: string
           updated_at?: string
         }
@@ -72,6 +74,7 @@ export type Database = {
           marketing_version?: string | null
           name?: string
           notes?: string | null
+          revenuecat_app_id?: string | null
           slug?: string
           updated_at?: string
         }
