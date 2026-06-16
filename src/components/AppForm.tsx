@@ -12,6 +12,7 @@ export type AppFormValues = {
   github_repo: string;
   default_ref: string;
   bundle_id: string;
+  revenuecat_app_id: string;
   notes: string;
   is_active: boolean;
 };
@@ -23,6 +24,7 @@ export const emptyAppForm: AppFormValues = {
   github_repo: "",
   default_ref: "main",
   bundle_id: "",
+  revenuecat_app_id: "",
   notes: "",
   is_active: true,
 };
