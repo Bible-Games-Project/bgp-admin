@@ -95,11 +95,18 @@ export function AppForm({
         <Field label="Default branch">
           <Input value={v.default_ref} onChange={(e) => upd("default_ref", e.target.value)} required />
         </Field>
-        <Field label="Bundle ID" hint="RevenueCat app_id / iOS bundle / Android package (e.g. com.acme.app)">
+        <Field label="Bundle ID" hint="Store identifier (e.g. com.acme.app)">
           <Input
             value={v.bundle_id}
             onChange={(e) => upd("bundle_id", e.target.value)}
             placeholder="com.acme.app"
+          />
+        </Field>
+        <Field label="RevenueCat App ID" hint="Starts with 'app' — RevenueCat → Project Settings → Apps">
+          <Input
+            value={v.revenuecat_app_id}
+            onChange={(e) => upd("revenuecat_app_id", e.target.value)}
+            placeholder="app163ea91532"
           />
         </Field>
         <Field label="Active">
