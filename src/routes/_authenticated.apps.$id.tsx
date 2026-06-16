@@ -62,6 +62,7 @@ function AppDetailPage() {
     github_owner: app.github_owner,
     github_repo: app.github_repo,
     default_ref: app.default_ref,
+    bundle_id: (app as any).bundle_id ?? "",
     notes: app.notes ?? "",
     is_active: app.is_active,
   };
