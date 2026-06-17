@@ -64,6 +64,147 @@ export const checkCapacitorStatus = createServerFn({ method: "POST" })
     };
   });
 
+export const checkDeployWorkflow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const branch = app.default_ref || "main";
+    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/.github/workflows/deploy.yml?ref=${encodeURIComponent(branch)}`;
+    const res = await fetch(url, { headers: githubHeaders() });
+    return { exists: res.ok };
+  });
+
+export const createDeployWorkflow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+
+    if (!app.bundle_id) {
+      throw new Error("Bundle ID is required. Set it in the General tab first.");
+    }
+
+    const branch = app.default_ref || "main";
+    const bundleId = app.bundle_id as string;
+    const appName = app.name as string;
+
+    const content = [
+      "name: Deploy",
+      "",
+      "on:",
+      "  push:",
+      "    branches: [deploy-app]",
+      "  pull_request:",
+      "    branches: [main]",
+      "    types: [closed]",
+      "  workflow_dispatch:",
+      "    inputs:",
+      "      deploy_ios:",
+      '        description: "Deploy iOS"',
+      "        type: boolean",
+      "        default: false",
+      "      deploy_android:",
+      '        description: "Deploy Android"',
+      "        type: boolean",
+      "        default: false",
+      "      marketing_version:",
+      '        description: "Marketing version (e.g. 1.0). Leave empty to use package.json"',
+      "        type: string",
+      '        default: ""',
+      "",
+      "jobs:",
+      "  ios:",
+      "    if: |",
+      "      github.ref == 'refs/heads/deploy-app' ||",
+      "      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||",
+      "      (github.event_name == 'workflow_dispatch' && inputs.deploy_ios == true)",
+      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-ios.yml@main",
+      "    with:",
+      "      marketing-version: ${{ inputs.marketing_version }}",
+      "    secrets:",
+      "      IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}",
+      "      IOS_BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}",
+      "      IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}",
+      "      IOS_BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_BUILD_PROVISION_PROFILE_BASE64 }}",
+      "      IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}",
+      "      IOS_EXPORT_OPTIONS_PLIST: ${{ secrets.IOS_EXPORT_OPTIONS_PLIST }}",
+      "      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}",
+      "      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}",
+      "      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}",
+      "",
+      "  android:",
+      "    if: |",
+      "      github.ref == 'refs/heads/deploy-app' ||",
+      "      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||",
+      "      (github.event_name == 'workflow_dispatch' && inputs.deploy_android == true)",
+      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@main",
+      "    with:",
+      `      package-name: ${bundleId}`,
+      "      marketing-version: ${{ inputs.marketing_version }}",
+      "    secrets:",
+      "      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}",
+      "      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}",
+      "      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}",
+      "      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}",
+      "",
+      "  notify:",
+      "    needs: [ios, android]",
+      "    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')",
+      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/notify-telegram.yml@main",
+      "    with:",
+      `      app-name: ${JSON.stringify(appName)}`,
+      "    secrets:",
+      "      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}",
+      "      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}",
+      "",
+      "  tag:",
+      "    needs: [ios, android]",
+      "    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')",
+      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/tag-release.yml@main",
+      "",
+    ].join("\n");
+
+    const filePath = ".github/workflows/deploy.yml";
+    const apiUrl = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/${filePath}`;
+
+    // Fetch existing SHA if the file already exists (needed for updates)
+    const getRes = await fetch(`${apiUrl}?ref=${encodeURIComponent(branch)}`, {
+      headers: githubHeaders(),
+    });
+    let sha: string | undefined;
+    if (getRes.ok) {
+      const existing = (await getRes.json()) as any;
+      sha = existing.sha;
+    }
+
+    const base64Content = Buffer.from(content).toString("base64");
+    const putRes = await fetch(apiUrl, {
+      method: "PUT",
+      headers: { ...githubHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "chore: add deploy workflow via bgp-admin",
+        content: base64Content,
+        branch,
+        ...(sha && { sha }),
+      }),
+    });
+
+    if (!putRes.ok) {
+      const text = await putRes.text();
+      throw new Error(`Failed to create deploy workflow: ${putRes.status} ${text.slice(0, 200)}`);
+    }
+
+    const result = (await putRes.json()) as any;
+    return {
+      success: true,
+      commitUrl: result.commit?.html_url as string | undefined,
+      message: "deploy.yml created successfully.",
+    };
+  });
+
 export const setupCapacitor = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))

@@ -1,0 +1,279 @@
+import { useServerFn } from "@tanstack/react-start";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import {
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  AlertTriangle,
+  ExternalLink,
+  RefreshCw,
+} from "lucide-react";
+import {
+  checkCapacitorStatus,
+  setupCapacitor,
+  checkDeployWorkflow,
+  createDeployWorkflow,
+} from "@/lib/capacitor.functions";
+
+interface AppSetupTabProps {
+  appId: string;
+  bundleId: string | null | undefined;
+  appName: string;
+  onSuccess: () => void;
+}
+
+export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTabProps) {
+  const qc = useQueryClient();
+
+  const checkCapacitorFn = useServerFn(checkCapacitorStatus);
+  const setupCapacitorFn = useServerFn(setupCapacitor);
+  const checkDeployFn = useServerFn(checkDeployWorkflow);
+  const createDeployFn = useServerFn(createDeployWorkflow);
+
+  const capacitorQ = useQuery({
+    queryKey: ["capacitor-status", appId],
+    queryFn: () => checkCapacitorFn({ data: { appId } }),
+  });
+
+  const deployQ = useQuery({
+    queryKey: ["deploy-workflow", appId],
+    queryFn: () => checkDeployFn({ data: { appId } }),
+  });
+
+  const capacitorM = useMutation({
+    mutationFn: () => setupCapacitorFn({ data: { appId } }),
+    onSuccess: (result) => {
+      toast.success(
+        <div className="flex items-center gap-2">
+          <span>{result.message}</span>
+          <a
+            href={result.runUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-primary hover:underline"
+          >
+            View run <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>,
+        { duration: 10000 },
+      );
+      qc.invalidateQueries({ queryKey: ["capacitor-status", appId] });
+      onSuccess();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deployM = useMutation({
+    mutationFn: () => createDeployFn({ data: { appId } }),
+    onSuccess: (result) => {
+      toast.success(
+        <div className="flex items-center gap-2">
+          <span>{result.message}</span>
+          {result.commitUrl && (
+            <a
+              href={result.commitUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              View commit <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>,
+        { duration: 8000 },
+      );
+      qc.invalidateQueries({ queryKey: ["deploy-workflow", appId] });
+      onSuccess();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const cs = capacitorQ.data;
+  const capacitorDone = cs?.hasConfig && cs?.hasIos && cs?.hasAndroid;
+  const deployDone = deployQ.data?.exists ?? false;
+
+  return (
+    <div className="space-y-1">
+      {!bundleId && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 mb-4">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            Bundle ID is not set. Configure it in the{" "}
+            <span className="font-semibold">General</span> tab before running setup.
+          </span>
+        </div>
+      )}
+
+      <SetupStep
+        number={1}
+        title="Capacitor"
+        description="Install @capacitor/core, @capacitor/ios and @capacitor/android, create capacitor.config.ts, and scaffold the native ios/ and android/ project directories."
+        done={!!capacitorDone}
+        isLast={false}
+        statusContent={
+          capacitorQ.isLoading ? (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" /> Checking…
+            </span>
+          ) : capacitorQ.error ? (
+            <span className="text-xs text-destructive">{(capacitorQ.error as Error).message}</span>
+          ) : (
+            <div className="flex flex-col gap-1.5 mt-2">
+              <StatusRow label="capacitor.config.ts" ok={cs?.hasConfig ?? false} />
+              <StatusRow label="ios/" ok={cs?.hasIos ?? false} />
+              <StatusRow label="android/" ok={cs?.hasAndroid ?? false} />
+            </div>
+          )
+        }
+        actionContent={
+          <div className="flex items-center gap-3 mt-3">
+            <Button
+              size="sm"
+              variant={capacitorDone ? "outline" : "default"}
+              disabled={capacitorM.isPending || !bundleId}
+              onClick={() => capacitorM.mutate()}
+            >
+              {capacitorM.isPending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Setting up…
+                </>
+              ) : capacitorDone ? (
+                "Re-run"
+              ) : (
+                "Setup Capacitor"
+              )}
+            </Button>
+            <button
+              onClick={() => qc.invalidateQueries({ queryKey: ["capacitor-status", appId] })}
+              disabled={capacitorQ.isFetching}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Refresh"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${capacitorQ.isFetching ? "animate-spin" : ""}`} />
+            </button>
+            {capacitorM.isPending && (
+              <span className="text-xs text-muted-foreground">
+                Running via GitHub Actions (5–10 min)…
+              </span>
+            )}
+          </div>
+        }
+      />
+
+      <SetupStep
+        number={2}
+        title="Deploy Workflow"
+        description={
+          bundleId
+            ? `Create .github/workflows/deploy.yml with bundle ID ${bundleId} and app name "${appName}". This file calls the centralized bgp-admin workflows for iOS and Android.`
+            : "Create the deploy.yml workflow that wires iOS and Android deploys to the centralized bgp-admin CI."
+        }
+        done={deployDone}
+        isLast={true}
+        statusContent={
+          deployQ.isLoading ? (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" /> Checking…
+            </span>
+          ) : (
+            <div className="flex flex-col gap-1.5 mt-2">
+              <StatusRow label=".github/workflows/deploy.yml" ok={deployDone} />
+            </div>
+          )
+        }
+        actionContent={
+          <div className="flex items-center gap-3 mt-3">
+            <Button
+              size="sm"
+              variant={deployDone ? "outline" : "default"}
+              disabled={deployM.isPending || !bundleId}
+              onClick={() => deployM.mutate()}
+            >
+              {deployM.isPending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Creating…
+                </>
+              ) : deployDone ? (
+                "Re-create"
+              ) : (
+                "Create Deploy Workflow"
+              )}
+            </Button>
+            <button
+              onClick={() => qc.invalidateQueries({ queryKey: ["deploy-workflow", appId] })}
+              disabled={deployQ.isFetching}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Refresh"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${deployQ.isFetching ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+        }
+      />
+    </div>
+  );
+}
+
+function SetupStep({
+  number,
+  title,
+  description,
+  done,
+  isLast,
+  statusContent,
+  actionContent,
+}: {
+  number: number;
+  title: string;
+  description: string;
+  done: boolean;
+  isLast: boolean;
+  statusContent: React.ReactNode;
+  actionContent: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-4">
+      <div className="flex flex-col items-center">
+        <div
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold transition-colors ${
+            done
+              ? "border-green-500 bg-green-500 text-white"
+              : "border-border bg-background text-muted-foreground"
+          }`}
+        >
+          {done ? <CheckCircle2 className="w-4 h-4" /> : number}
+        </div>
+        {!isLast && <div className="mt-1 w-px flex-1 bg-border" />}
+      </div>
+
+      <div className={`pb-8 min-w-0 flex-1 ${isLast ? "pb-0" : ""}`}>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="font-medium text-sm">{title}</span>
+          {done && (
+            <span className="text-[10px] font-mono text-green-600 dark:text-green-400 uppercase tracking-wide">
+              done
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+        {statusContent}
+        {actionContent}
+      </div>
+    </div>
+  );
+}
+
+function StatusRow({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      {ok ? (
+        <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+      ) : (
+        <XCircle className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
+      )}
+      <span className="font-mono text-xs text-muted-foreground">{label}</span>
+    </div>
+  );
+}

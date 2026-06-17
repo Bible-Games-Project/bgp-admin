@@ -8,7 +8,7 @@ import { AppForm, type AppFormValues } from "@/components/AppForm";
 import { AppAssetUpload } from "@/components/AppAssetUpload";
 import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
 import { AppNameEditor } from "@/components/AppNameEditor";
-import { CapacitorSetup } from "@/components/CapacitorSetup";
+import { AppSetupTab } from "@/components/AppSetupTab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 
@@ -106,7 +106,7 @@ function AppDetailPage() {
           <TabsTrigger value="icon">Icon</TabsTrigger>
           <TabsTrigger value="splash">Splash</TabsTrigger>
           <TabsTrigger value="environment">Environment</TabsTrigger>
-          <TabsTrigger value="capacitor">Capacitor</TabsTrigger>
+          <TabsTrigger value="setup">Setup</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general">
@@ -179,18 +179,19 @@ function AppDetailPage() {
           />
         </TabsContent>
 
-        <TabsContent value="capacitor">
-          <div className="space-y-4">
+        <TabsContent value="setup">
+          <div className="space-y-6">
             <div>
-              <h2 className="text-xl font-semibold mb-2">Capacitor Setup</h2>
+              <h2 className="text-xl font-semibold mb-1">App Setup</h2>
               <p className="text-sm text-muted-foreground">
-                Install Capacitor and scaffold the native iOS and Android projects in the app repository.
-                Only needed once per app — re-run to update the config if the bundle ID changes.
+                One-time steps to wire up a new app repo. Run these in order the first time, then
+                configure the repository secrets manually.
               </p>
             </div>
-            <CapacitorSetup
+            <AppSetupTab
               appId={id}
               bundleId={(app as any).bundle_id ?? null}
+              appName={app.name}
               onSuccess={() => {
                 qc.invalidateQueries({ queryKey: ["app", id] });
               }}
