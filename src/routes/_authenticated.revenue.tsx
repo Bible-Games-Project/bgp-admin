@@ -650,3 +650,49 @@ function EmptyChart() {
     </div>
   );
 }
+
+function PlatformBreakdown({ rows }: { rows: Array<{ platform: string; revenueUsd: number; count?: number }> }) {
+  const total = rows.reduce((s, r) => s + (r.revenueUsd || 0), 0) || 1;
+  const colors: Record<string, string> = {
+    ios: "var(--primary)",
+    android: "var(--success)",
+  };
+  return (
+    <div className="h-full w-full flex flex-col justify-center gap-4 px-2">
+      {rows.map((r) => {
+        const pct = (r.revenueUsd / total) * 100;
+        const color = colors[r.platform] ?? "var(--accent)";
+        return (
+          <div key={r.platform} className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{ background: color }}
+                />
+                <span className="font-medium">
+                  {r.platform === "ios" ? "iOS" : "Android"}
+                </span>
+                {r.count != null && (
+                  <span className="text-muted-foreground">· {r.count}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 font-mono">
+                <span>{fmtUSD(r.revenueUsd)}</span>
+                <span className="text-muted-foreground w-12 text-right">
+                  {pct.toFixed(1)}%
+                </span>
+              </div>
+            </div>
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${pct}%`, background: color }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
