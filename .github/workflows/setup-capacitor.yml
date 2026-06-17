@@ -1,0 +1,119 @@
+name: Setup Capacitor (Centralized)
+
+on:
+  workflow_dispatch:
+    inputs:
+      github_owner:
+        description: "GitHub repository owner"
+        required: true
+        type: string
+      github_repo:
+        description: "GitHub repository name"
+        required: true
+        type: string
+      branch:
+        description: "Branch to work on"
+        required: true
+        type: string
+      bundle_id:
+        description: "App bundle ID (e.g., com.example.myapp)"
+        required: true
+        type: string
+      app_name:
+        description: "App display name"
+        required: true
+        type: string
+      pat:
+        description: "GitHub PAT with write access to the target repository"
+        required: true
+        type: string
+
+jobs:
+  setup:
+    name: Setup Capacitor
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.github_owner != '' && inputs.github_repo != '' && inputs.bundle_id != '' }}
+
+    steps:
+      - name: Clone target app repository
+        run: |
+          git clone --depth 1 --branch ${{ inputs.branch }} \
+            https://x-access-token:${{ inputs.pat }}@github.com/${{ inputs.github_owner }}/${{ inputs.github_repo }}.git \
+            app-repo
+          cd app-repo
+          git config user.name "BGP Admin Bot"
+          git config user.email "admin@biblegames.dev"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install existing dependencies
+        run: |
+          cd app-repo
+          bun install --frozen-lockfile || bun install
+
+      - name: Add Capacitor packages
+        run: |
+          cd app-repo
+          bun add @capacitor/core @capacitor/cli @capacitor/ios @capacitor/android
+
+      - name: Create capacitor.config.ts
+        env:
+          BUNDLE_ID: ${{ inputs.bundle_id }}
+          APP_NAME: ${{ inputs.app_name }}
+        run: |
+          cd app-repo
+          node - << 'EOF'
+          const fs = require('fs');
+          const bundleId = process.env.BUNDLE_ID;
+          const appName = process.env.APP_NAME;
+          const lines = [
+            "import type { CapacitorConfig } from '@capacitor/cli';",
+            "",
+            "const config: CapacitorConfig = {",
+            `  appId: ${JSON.stringify(bundleId)},`,
+            `  appName: ${JSON.stringify(appName)},`,
+            "  webDir: 'dist',",
+            "};",
+            "",
+            "export default config;",
+            "",
+          ];
+          fs.writeFileSync('capacitor.config.ts', lines.join('\n'));
+          console.log('Written capacitor.config.ts:');
+          console.log(lines.join('\n'));
+          EOF
+
+      - name: Add iOS native project
+        run: |
+          cd app-repo
+          if [ -d "ios" ]; then
+            echo "ios/ already exists, skipping"
+          else
+            bunx cap add ios
+            echo "Created ios/ native project"
+          fi
+
+      - name: Add Android native project
+        run: |
+          cd app-repo
+          if [ -d "android" ]; then
+            echo "android/ already exists, skipping"
+          else
+            bunx cap add android
+            echo "Created android/ native project"
+          fi
+
+      - name: Commit and push changes
+        run: |
+          cd app-repo
+          git add .
+          if git diff --staged --quiet; then
+            echo "No changes to commit — Capacitor was already configured"
+          else
+            git commit -m "chore: set up Capacitor via bgp-admin"
+            git push https://x-access-token:${{ inputs.pat }}@github.com/${{ inputs.github_owner }}/${{ inputs.github_repo }}.git ${{ inputs.branch }}
+            echo "Capacitor setup committed and pushed successfully"
+          fi

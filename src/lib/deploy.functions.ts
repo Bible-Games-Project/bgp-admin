@@ -134,6 +134,9 @@ export const listWorkflows = createServerFn({ method: "POST" })
     const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows?per_page=100`;
     const res = await fetch(url, { headers: githubHeaders() });
     if (!res.ok) {
+      if (res.status === 404) {
+        return { workflows: [], error: `GitHub returned 404 for ${app.github_owner}/${app.github_repo}. Most likely the repository is private — repos must be public. Also check for typos in owner/repo name (General tab).` };
+      }
       const text = await res.text();
       return { workflows: [], error: `GitHub API ${res.status}: ${text.slice(0, 200)}` };
     }
@@ -160,6 +163,9 @@ export const listRepoRuns = createServerFn({ method: "POST" })
     const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/runs?per_page=15`;
     const res = await fetch(url, { headers: githubHeaders() });
     if (!res.ok) {
+      if (res.status === 404) {
+        return { runs: [], error: `GitHub returned 404 for ${app.github_owner}/${app.github_repo}. Most likely the repository is private — repos must be public. Also check for typos in owner/repo name (General tab).` };
+      }
       const text = await res.text();
       return { runs: [], error: `GitHub API ${res.status}: ${text.slice(0, 200)}` };
     }

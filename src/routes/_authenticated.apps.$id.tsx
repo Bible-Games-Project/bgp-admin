@@ -8,6 +8,7 @@ import { AppForm, type AppFormValues } from "@/components/AppForm";
 import { AppAssetUpload } from "@/components/AppAssetUpload";
 import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
 import { AppNameEditor } from "@/components/AppNameEditor";
+import { CapacitorSetup } from "@/components/CapacitorSetup";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 
@@ -105,6 +106,7 @@ function AppDetailPage() {
           <TabsTrigger value="icon">Icon</TabsTrigger>
           <TabsTrigger value="splash">Splash</TabsTrigger>
           <TabsTrigger value="environment">Environment</TabsTrigger>
+          <TabsTrigger value="capacitor">Capacitor</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general">
@@ -175,6 +177,25 @@ function AppDetailPage() {
               qc.invalidateQueries({ queryKey: ["app", id] });
             }}
           />
+        </TabsContent>
+
+        <TabsContent value="capacitor">
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Capacitor Setup</h2>
+              <p className="text-sm text-muted-foreground">
+                Install Capacitor and scaffold the native iOS and Android projects in the app repository.
+                Only needed once per app — re-run to update the config if the bundle ID changes.
+              </p>
+            </div>
+            <CapacitorSetup
+              appId={id}
+              bundleId={(app as any).bundle_id ?? null}
+              onSuccess={() => {
+                qc.invalidateQueries({ queryKey: ["app", id] });
+              }}
+            />
+          </div>
         </TabsContent>
       </Tabs>
     </div>
