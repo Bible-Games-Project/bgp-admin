@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, Copy, MousePointerClick } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/docs")({
   component: DocsPage,
@@ -30,31 +30,6 @@ function CodeBlock({ children, copyable }: { children: string; copyable?: boolea
           {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
         </Button>
       )}
-    </div>
-  );
-}
-
-function SecretList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="rounded-md border border-border bg-card p-3">
-      <div className="label-mono mb-2">{title}</div>
-      <ul className="space-y-1 font-mono text-xs text-muted-foreground">
-        {items.map((s) => (
-          <li key={s}>{s}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function AutomatedStep({ label, where }: { label: string; where: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
-      <MousePointerClick className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
-      <div className="min-w-0">
-        <span className="text-xs font-medium">{label}</span>
-        <span className="ml-2 text-[10px] font-mono text-muted-foreground">{where}</span>
-      </div>
     </div>
   );
 }
@@ -214,7 +189,7 @@ const handleClick = () => {
 // ──────────────────────────────────────────────────────────────────────────────
 
 type TopSection = "setup" | "iap";
-type SetupSection = "prerequisites" | "new-app" | "reference";
+type SetupSection = "prerequisites" | "reference";
 
 function SubTabs<T extends string>({
   value,
@@ -278,13 +253,11 @@ function DocsPage() {
             onChange={setSetupSection}
             tabs={[
               { id: "prerequisites", label: "Prerequisites" },
-              { id: "new-app", label: "New App" },
               { id: "reference", label: "Reference" },
             ]}
           />
 
           {setupSection === "prerequisites" && <SetupPrerequisites />}
-          {setupSection === "new-app" && <SetupNewApp />}
           {setupSection === "reference" && <SetupReference />}
         </>
       )}
@@ -421,123 +394,9 @@ function SetupPrerequisites() {
 
       <div className="rounded-md bg-green-500/10 border border-green-500/20 p-3">
         <p className="text-xs text-muted-foreground">
-          <strong>Done.</strong> These 3 steps cover the full organization. Adding a new app
-          only needs the per-app steps in the{" "}
-          <strong>New App</strong> tab.
+          <strong>Done.</strong> These 3 steps cover the full organization. For each new app,
+          create it in <strong>Apps → New App</strong> and follow the Setup tab steps.
         </p>
-      </div>
-    </div>
-  );
-}
-
-// ─── New App ──────────────────────────────────────────────────────────────────
-
-function AdminBadge() {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-      bgp-admin
-    </span>
-  );
-}
-
-function SetupNewApp() {
-  return (
-    <div className="space-y-4 text-sm">
-      <p className="text-muted-foreground">
-        Follow these steps in order the first time you add a new app.
-      </p>
-
-      <div className="rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
-        <p className="text-xs text-muted-foreground">
-          <strong>The repository must be public.</strong> The deploy system uses the GitHub
-          Actions API, which requires public repos.
-        </p>
-      </div>
-
-      <div className="space-y-3">
-
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="font-display font-semibold text-base">1</span>
-            <span className="font-medium">Create the app</span>
-            <AdminBadge />
-          </div>
-          <p className="text-muted-foreground text-xs">
-            Go to <strong>Apps → New App</strong> and fill in the slug, name, GitHub
-            owner/repo, default branch, and bundle ID. The bundle ID is required for the next
-            step.
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="font-display font-semibold text-base">2</span>
-            <span className="font-medium">Run Setup tab</span>
-            <AdminBadge />
-          </div>
-          <p className="text-muted-foreground text-xs">
-            Go to <strong>Apps → [app] → Setup tab</strong> and run all the steps there in
-            order. This installs Capacitor, scaffolds <code>ios/</code> and{" "}
-            <code>android/</code>, configures Android signing, and creates the deploy
-            workflow.
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="font-display font-semibold text-base">3</span>
-            <span className="font-medium">Generate iOS provisioning profile</span>
-          </div>
-          <ol className="list-decimal pl-5 space-y-2 text-muted-foreground text-xs">
-            <li>
-              Go to{" "}
-              <a
-                href="https://developer.apple.com/account/resources/profiles/list"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                Apple Developer → Profiles
-              </a>
-            </li>
-            <li>Create new → App Store distribution</li>
-            <li>Choose your App ID (or create one for this bundle ID)</li>
-            <li>Select your distribution certificate → Download</li>
-            <li>
-              Convert: <code>base64 -i YourApp.mobileprovision | pbcopy</code>
-            </li>
-          </ol>
-        </div>
-
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="font-display font-semibold text-base">4</span>
-            <span className="font-medium">Set iOS secrets</span>
-            <AdminBadge />
-          </div>
-          <p className="text-muted-foreground text-xs">
-            Go to <strong>Apps → [app] → Setup tab → "Set iOS Secrets"</strong>. Upload your{" "}
-            <code>.mobileprovision</code> file (downloaded from Apple Developer Portal in step
-            3). We parse the profile name and team ID, generate{" "}
-            <code>ExportOptions.plist</code> automatically, and set{" "}
-            <code>IOS_BUILD_PROVISION_PROFILE_BASE64</code> and{" "}
-            <code>IOS_EXPORT_OPTIONS_PLIST</code> as repository secrets.
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="font-display font-semibold text-base">6</span>
-            <span className="font-medium">Upload icon and splash screen</span>
-            <AdminBadge />
-          </div>
-          <p className="text-muted-foreground text-xs">
-            Go to <strong>Apps → [app] → Icon tab</strong> and{" "}
-            <strong>Splash tab</strong> to upload your assets. All platform sizes are
-            generated automatically and committed to the repo.
-          </p>
-        </div>
-
       </div>
     </div>
   );

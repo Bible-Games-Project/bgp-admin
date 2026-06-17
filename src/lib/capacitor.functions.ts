@@ -310,7 +310,7 @@ export const checkAndroidSigning = createServerFn({ method: "POST" })
     if (!res.ok) return { configured: false, fileExists: false };
     const json = (await res.json()) as any;
     const content = Buffer.from(json.content, "base64").toString("utf-8");
-    return { configured: content.includes("keystorePropertiesFile"), fileExists: true };
+    return { configured: content.includes("signingConfigs"), fileExists: true };
   });
 
 export const configureAndroidSigning = createServerFn({ method: "POST" })
@@ -332,7 +332,7 @@ export const configureAndroidSigning = createServerFn({ method: "POST" })
     const existing = (await getRes.json()) as any;
     const original = Buffer.from(existing.content, "base64").toString("utf-8");
 
-    if (original.includes("keystorePropertiesFile")) {
+    if (original.includes("signingConfigs")) {
       return { success: true, message: "Android signing was already configured.", commitUrl: undefined as string | undefined };
     }
 
