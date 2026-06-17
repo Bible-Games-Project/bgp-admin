@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 async function assertAdmin(supabase: any, userId: string) {
@@ -61,6 +62,203 @@ export const checkCapacitorStatus = createServerFn({ method: "POST" })
       hasConfig: hasTsConfig || hasJsonConfig,
       hasIos,
       hasAndroid,
+    };
+  });
+
+export const checkAndroidKeystoreSecrets = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const base = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/secrets`;
+    const [r1, r2, r3] = await Promise.all([
+      fetch(`${base}/ANDROID_KEYSTORE`, { headers: githubHeaders() }),
+      fetch(`${base}/KEYSTORE_PASSWORD`, { headers: githubHeaders() }),
+      fetch(`${base}/KEY_ALIAS`, { headers: githubHeaders() }),
+    ]);
+    return { configured: r1.ok && r2.ok && r3.ok };
+  });
+
+export const generateAndroidKeystoreSecrets = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+
+    const password = randomBytes(16).toString("hex");
+    const alias = "release";
+    const dispatchedAt = new Date().toISOString();
+
+    const workflowUrl = `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/workflows/generate-android-keystore.yml/dispatches`;
+    const workflowRes = await fetch(workflowUrl, {
+      method: "POST",
+      headers: { ...githubHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ref: "main",
+        inputs: {
+          github_owner: app.github_owner,
+          github_repo: app.github_repo,
+          app_name: app.name,
+          pat: process.env.GITHUB_PAT ?? "",
+          password,
+          alias,
+        },
+      }),
+    });
+
+    if (!workflowRes.ok) {
+      const text = await workflowRes.text();
+      throw new Error(`Failed to trigger keystore workflow: ${workflowRes.status} ${text}`);
+    }
+
+    await new Promise((r) => setTimeout(r, 4000));
+
+    const runsUrl = `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/workflows/generate-android-keystore.yml/runs?per_page=5&created=>=${dispatchedAt.substring(0, 19)}Z`;
+    let runId: number | null = null;
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const runsRes = await fetch(runsUrl, { headers: githubHeaders() });
+      if (runsRes.ok) {
+        const runsData = (await runsRes.json()) as any;
+        const match = (runsData.workflow_runs ?? []).find(
+          (r: any) => new Date(r.created_at) >= new Date(dispatchedAt),
+        );
+        if (match) { runId = match.id; break; }
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+
+    if (!runId) {
+      throw new Error("Keystore workflow triggered but run not found. Check GitHub Actions.");
+    }
+
+    const pollTimeoutMs = 5 * 60 * 1000;
+    const pollStart = Date.now();
+    let conclusion: string | null = null;
+
+    while (Date.now() - pollStart < pollTimeoutMs) {
+      await new Promise((r) => setTimeout(r, 8000));
+      const runRes = await fetch(
+        `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/runs/${runId}`,
+        { headers: githubHeaders() },
+      );
+      if (!runRes.ok) continue;
+      const runData = (await runRes.json()) as any;
+      if (runData.status === "completed") { conclusion = runData.conclusion; break; }
+    }
+
+    if (!conclusion) {
+      throw new Error(`Keystore workflow timed out. Check: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`);
+    }
+    if (conclusion !== "success") {
+      throw new Error(`Keystore workflow failed (${conclusion}). See: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`);
+    }
+
+    return {
+      success: true,
+      password,
+      alias,
+      runUrl: `https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`,
+      message: `Android keystore generated. ANDROID_KEYSTORE, KEYSTORE_PASSWORD and KEY_ALIAS have been set in ${app.github_owner}/${app.github_repo}.`,
+    };
+  });
+
+export const checkAndroidSigning = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const branch = app.default_ref || "main";
+    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/android/app/build.gradle?ref=${encodeURIComponent(branch)}`;
+    const res = await fetch(url, { headers: githubHeaders() });
+    if (!res.ok) return { configured: false, fileExists: false };
+    const json = (await res.json()) as any;
+    const content = Buffer.from(json.content, "base64").toString("utf-8");
+    return { configured: content.includes("keystorePropertiesFile"), fileExists: true };
+  });
+
+export const configureAndroidSigning = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const branch = app.default_ref || "main";
+    const apiUrl = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/android/app/build.gradle`;
+    const getRes = await fetch(`${apiUrl}?ref=${encodeURIComponent(branch)}`, {
+      headers: githubHeaders(),
+    });
+    if (!getRes.ok) {
+      throw new Error(
+        "android/app/build.gradle not found. Run Capacitor setup first (Step 1).",
+      );
+    }
+    const existing = (await getRes.json()) as any;
+    const original = Buffer.from(existing.content, "base64").toString("utf-8");
+
+    if (original.includes("keystorePropertiesFile")) {
+      return { success: true, message: "Android signing was already configured.", commitUrl: undefined as string | undefined };
+    }
+
+    const KEYSTORE_BLOCK = [
+      'def keystorePropertiesFile = rootProject.file("key.properties")',
+      "def keystoreProperties = new Properties()",
+      "if (keystorePropertiesFile.exists()) {",
+      "    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))",
+      "}",
+      "",
+    ].join("\n");
+
+    const SIGNING_CONFIGS = [
+      "    signingConfigs {",
+      "        release {",
+      "            if (keystorePropertiesFile.exists()) {",
+      "                keyAlias keystoreProperties['keyAlias']",
+      "                keyPassword keystoreProperties['keyPassword']",
+      "                storeFile file(keystoreProperties['storeFile'])",
+      "                storePassword keystoreProperties['storePassword']",
+      "            }",
+      "        }",
+      "    }",
+    ].join("\n");
+
+    // Insert keystore block before `android {`
+    let modified = original.replace(/(android\s*\{)/, `${KEYSTORE_BLOCK}\n$1`);
+
+    // Insert signingConfigs block before `buildTypes {`
+    modified = modified.replace(/(\s+buildTypes\s*\{)/, `\n${SIGNING_CONFIGS}\n$1`);
+
+    // Add signingConfig inside the release block (first occurrence)
+    modified = modified.replace(
+      /(buildTypes[\s\S]*?release\s*\{)/,
+      "$1\n            signingConfig signingConfigs.release",
+    );
+
+    const base64Content = Buffer.from(modified).toString("base64");
+    const putRes = await fetch(apiUrl, {
+      method: "PUT",
+      headers: { ...githubHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "chore: configure Android signing via bgp-admin",
+        content: base64Content,
+        branch,
+        sha: existing.sha,
+      }),
+    });
+
+    if (!putRes.ok) {
+      const text = await putRes.text();
+      throw new Error(`Failed to update build.gradle: ${putRes.status} ${text.slice(0, 200)}`);
+    }
+
+    const result = (await putRes.json()) as any;
+    return {
+      success: true,
+      message: "Android signing configured in android/app/build.gradle.",
+      commitUrl: result.commit?.html_url as string | undefined,
     };
   });
 

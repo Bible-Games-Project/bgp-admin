@@ -1,77 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, MousePointerClick } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/docs")({
   component: DocsPage,
 });
-
-const deployYml = `name: Deploy App
-
-on:
-  push:
-    branches: [deploy-app]
-  pull_request:
-    branches: [main]
-    types: [closed]
-  workflow_dispatch:
-    inputs:
-      deploy_ios:
-        description: "Deploy iOS"
-        type: boolean
-        default: false
-      deploy_android:
-        description: "Deploy Android"
-        type: boolean
-        default: false
-
-jobs:
-  ios:
-    if: |
-      github.ref == 'refs/heads/deploy-app' ||
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy_ios == true)
-    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-ios.yml@main
-    secrets:
-      IOS_BUILD_CERTIFICATE_BASE64: \${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}
-      IOS_P12_PASSWORD: \${{ secrets.IOS_P12_PASSWORD }}
-      IOS_BUILD_PROVISION_PROFILE_BASE64: \${{ secrets.IOS_BUILD_PROVISION_PROFILE_BASE64 }}
-      IOS_KEYCHAIN_PASSWORD: \${{ secrets.IOS_KEYCHAIN_PASSWORD }}
-      IOS_EXPORT_OPTIONS_PLIST: \${{ secrets.IOS_EXPORT_OPTIONS_PLIST }}
-      APP_STORE_CONNECT_API_KEY_ID: \${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-      APP_STORE_CONNECT_ISSUER_ID: \${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      APP_STORE_CONNECT_API_KEY_BASE64: \${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
-
-  android:
-    if: |
-      github.ref == 'refs/heads/deploy-app' ||
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy_android == true)
-    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@main
-    with:
-      package-name: com.your.package.name    # ← CHANGE THIS
-    secrets:
-      ANDROID_KEYSTORE: \${{ secrets.ANDROID_KEYSTORE }}
-      KEYSTORE_PASSWORD: \${{ secrets.KEYSTORE_PASSWORD }}
-      KEY_ALIAS: \${{ secrets.KEY_ALIAS }}
-      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: \${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-
-  notify:
-    needs: [ios, android]
-    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')
-    uses: Bible-Games-Project/bgp-admin/.github/workflows/notify-telegram.yml@main
-    with:
-      app-name: "Your App Name"              # ← CHANGE THIS
-    secrets:
-      TELEGRAM_BOT_TOKEN: \${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: \${{ secrets.TELEGRAM_CHAT_ID }}
-
-  tag:
-    needs: [ios, android]
-    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')
-    uses: Bible-Games-Project/bgp-admin/.github/workflows/tag-release.yml@main
-`;
 
 function CodeBlock({ children, copyable }: { children: string; copyable?: boolean }) {
   const [copied, setCopied] = useState(false);
@@ -113,7 +47,19 @@ function SecretList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-// ─── IAP code strings (displayed in docs) ─────────────────────────────────────
+function AutomatedStep({ label, where }: { label: string; where: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
+      <MousePointerClick className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
+      <div className="min-w-0">
+        <span className="text-xs font-medium">{label}</span>
+        <span className="ml-2 text-[10px] font-mono text-muted-foreground">{where}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── IAP code strings ─────────────────────────────────────────────────────────
 
 const useIAPCode = `import { useState, useEffect, useCallback, useRef } from "react";
 import { Capacitor } from "@capacitor/core";
@@ -149,7 +95,7 @@ export function useIAP(): IAPState {
   }, []);
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return; // no-op in browser
+    if (!Capacitor.isNativePlatform()) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -196,8 +142,8 @@ const paywallCode = `// src/components/Paywall.tsx
 // Style to match your app. The Restore button is MANDATORY for iOS.
 
 interface PaywallProps {
-  freeLimit:      number;           // how many items are free
-  totalStories?:  number;           // optional total count for sales copy
+  freeLimit:      number;
+  totalStories?:  number;
   onClose:        () => void;
   onPurchase:     () => Promise<void>;
   onRestore:      () => Promise<void>; // ⚠️ Required by Apple App Store Guidelines
@@ -236,7 +182,7 @@ import { useIAP } from "@/hooks/useIAP";
 import { Paywall } from "@/components/Paywall";
 import { useState } from "react";
 
-export const FREE_LIMIT = 3; // ← how many items are free (ask the user)
+export const FREE_LIMIT = 3; // ← how many items are free
 
 // Inside the component:
 const iap = useIAP();
@@ -248,7 +194,7 @@ const isPremiumLocked = !iap.hasPremium && item.number > FREE_LIMIT;
 // Click handler:
 const handleClick = () => {
   if (isPremiumLocked) setShowPaywall(true);
-  else startItem(item); // your normal action
+  else startItem(item);
 };
 
 // JSX — visual indicator on locked items:
@@ -267,8 +213,41 @@ const handleClick = () => {
 
 // ──────────────────────────────────────────────────────────────────────────────
 
+type TopSection = "setup" | "iap";
+type SetupSection = "prerequisites" | "new-app" | "reference";
+
+function SubTabs<T extends string>({
+  value,
+  onChange,
+  tabs,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  tabs: { id: T; label: string }[];
+}) {
+  return (
+    <div className="flex gap-1 mb-6 rounded-lg bg-muted p-1">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onChange(t.id)}
+          className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+            value === t.id
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function DocsPage() {
-  const [section, setSection] = useState<"setup" | "iap">("setup");
+  const [section, setSection] = useState<TopSection>("setup");
+  const [setupSection, setSetupSection] = useState<SetupSection>("prerequisites");
+
   return (
     <div className="p-6 md:p-8 max-w-3xl mx-auto w-full">
       <div className="flex gap-1 mb-8 border-b border-border">
@@ -291,340 +270,266 @@ function DocsPage() {
         <>
           <span className="label-mono">setup guide</span>
           <h1 className="text-2xl font-display font-semibold tracking-tight mt-1 mb-6">
-            How to Add a New App
+            Deploy System
           </h1>
 
-          <div className="space-y-8 text-sm">
-        <section>
-          <p className="text-muted-foreground mb-6">
-            This guide walks you through adding a new Capacitor app to the Bible Games Project
-            deployment system. Follow these steps in order for a complete setup.
-          </p>
-        </section>
+          <SubTabs
+            value={setupSection}
+            onChange={setSetupSection}
+            tabs={[
+              { id: "prerequisites", label: "Prerequisites" },
+              { id: "new-app", label: "New App" },
+              { id: "reference", label: "Reference" },
+            ]}
+          />
 
-        <section>
-          <h2 className="font-display font-semibold text-lg mb-3">
-            📋 Prerequisites (One-Time Setup)
-          </h2>
-          <p className="text-muted-foreground mb-4">
-            Before adding your first app, complete these organization-level configurations.
-            You only need to do this <strong>once</strong> for the entire organization:
-          </p>
+          {setupSection === "prerequisites" && <SetupPrerequisites />}
+          {setupSection === "new-app" && <SetupNewApp />}
+          {setupSection === "reference" && <SetupReference />}
+        </>
+      )}
 
-          <div className="space-y-4">
-            {/* GITHUB_PAT */}
-            <div className="rounded-lg border-2 border-primary/20 bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-3">
-                <div className="font-display font-semibold">1.</div>
-                <div className="font-display font-semibold">GitHub Personal Access Token</div>
-              </div>
-              <p className="text-muted-foreground text-xs mb-3">
-                Create a personal access token (PAT) from your GitHub account to allow
-                bgp-admin to trigger deployments and manage assets.
-              </p>
-              <div className="space-y-3">
-                <div className="rounded-md bg-muted p-3">
-                  <div className="font-medium text-xs mb-2">📍 Where to create it:</div>
-                  <ol className="list-decimal pl-5 space-y-1 text-muted-foreground text-xs">
-                    <li>
-                      Go to{" "}
-                      <a
-                        href="https://github.com/settings/tokens?type=beta"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline"
-                      >
-                        GitHub → Settings → Developer settings → Fine-grained tokens
-                      </a>
-                    </li>
-                    <li>Click "Generate new token"</li>
-                    <li>
-                      <strong>Repository access:</strong> Select only your app repositories
-                      (e.g., eden-choice-chronicles)
-                    </li>
-                    <li>
-                      <strong>Permissions:</strong>
-                      <ul className="list-disc pl-5 mt-1">
-                        <li>Actions: Read & Write (trigger deployments)</li>
-                        <li>Contents: Read & Write (commit icon/splash assets)</li>
-                      </ul>
-                    </li>
-                    <li>Set an expiration date</li>
-                    <li>Generate and copy the token</li>
-                  </ol>
-                </div>
-                <div className="rounded-md bg-muted p-3">
-                  <div className="font-medium text-xs mb-2">⚙️ Where to configure it:</div>
-                  <p className="text-muted-foreground text-xs">
-                    Go to{" "}
-                    <a
-                      href="https://lovable.dev"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline"
-                    >
-                      Lovable Cloud
-                    </a>{" "}
-                    → bgp-admin project → Settings → Environment Variables
-                    <br />
-                    Add: <code className="text-xs">GITHUB_PAT</code> = your token
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Organization Secrets */}
-            <div className="rounded-lg border-2 border-primary/20 bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-3">
-                <div className="font-display font-semibold">2.</div>
-                <div className="font-display font-semibold">
-                  GitHub Organization Secrets (Shared)
-                </div>
-              </div>
-              <p className="text-muted-foreground text-xs mb-3">
-                Configure these secrets once at organization level. All app repositories will
-                inherit them automatically.
-              </p>
-              <div className="space-y-3">
-                <div className="rounded-md bg-muted p-3">
-                  <div className="font-medium text-xs mb-2">
-                    📍 Where to configure them:
-                  </div>
-                  <p className="text-muted-foreground text-xs">
-                    <a
-                      href="https://github.com/organizations/Bible-Games-Project/settings/secrets/actions"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline"
-                    >
-                      GitHub → Bible-Games-Project (org) → Settings → Secrets → Actions →
-                      New organization secret
-                    </a>
-                  </p>
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-3">
-                  <div className="rounded-md border border-border bg-background p-3">
-                    <div className="font-medium text-xs mb-2">iOS Secrets (7)</div>
-                    <ul className="space-y-1 font-mono text-[10px] text-muted-foreground">
-                      <li>• IOS_TEAM_ID</li>
-                      <li>• IOS_BUILD_CERTIFICATE_BASE64</li>
-                      <li>• IOS_P12_PASSWORD</li>
-                      <li>• IOS_KEYCHAIN_PASSWORD</li>
-                      <li>• APP_STORE_CONNECT_API_KEY_ID</li>
-                      <li>• APP_STORE_CONNECT_ISSUER_ID</li>
-                      <li>• APP_STORE_CONNECT_API_KEY_BASE64</li>
-                    </ul>
-                  </div>
-                  <div className="rounded-md border border-border bg-background p-3">
-                    <div className="font-medium text-xs mb-2">Android Secrets (1)</div>
-                    <ul className="space-y-1 font-mono text-[10px] text-muted-foreground">
-                      <li>• GOOGLE_PLAY_SERVICE_ACCOUNT_JSON</li>
-                    </ul>
-                  </div>
-                </div>
-
-                <div className="rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
-                  <div className="flex gap-2">
-                    <span className="text-amber-600 dark:text-amber-400">💡</span>
-                    <div className="text-xs text-muted-foreground">
-                      <strong>Quick guide:</strong>
-                      <ul className="list-disc pl-5 mt-1 space-y-1">
-                        <li>
-                          <strong>IOS_TEAM_ID:</strong> Find in App Store Connect →
-                          Membership (10 chars)
-                        </li>
-                        <li>
-                          <strong>Certificate & P12:</strong> Download from Apple Developer
-                          Portal, export as .p12 with password
-                        </li>
-                        <li>
-                          <strong>App Store Connect API:</strong> Create key in App Store
-                          Connect → Users → Keys
-                        </li>
-                        <li>
-                          <strong>Google Play:</strong> Create service account in Google
-                          Cloud Console, grant access in Play Console
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Workflow Access */}
-            <div className="rounded-lg border-2 border-primary/20 bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-3">
-                <div className="font-display font-semibold">3.</div>
-                <div className="font-display font-semibold">Enable Workflow Sharing</div>
-              </div>
-              <p className="text-muted-foreground text-xs mb-3">
-                Allow app repositories to use the shared workflows from bgp-admin:
-              </p>
-              <div className="rounded-md bg-muted p-3">
-                <ol className="list-decimal pl-5 space-y-1 text-muted-foreground text-xs">
-                  <li>
-                    Go to{" "}
-                    <a
-                      href="https://github.com/Bible-Games-Project/bgp-admin/settings/actions"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline"
-                    >
-                      bgp-admin repo → Settings → Actions → General
-                    </a>
-                  </li>
-                  <li>
-                    Scroll to <strong>Access</strong> section
-                  </li>
-                  <li>
-                    Select: "Accessible from repositories in the Bible-Games-Project
-                    organization"
-                  </li>
-                  <li>Save</li>
-                </ol>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-md bg-green-500/10 border border-green-500/20 p-3">
-            <div className="flex gap-2">
-              <span className="text-green-600 dark:text-green-400">✅</span>
-              <p className="text-xs text-muted-foreground">
-                <strong>Once these 3 steps are complete,</strong> you're ready to add as
-                many apps as you want. Each new app only needs the app-specific configuration
-                from the steps below.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section>
-          <h2 className="font-display font-semibold text-lg mb-3">
-            🚀 Step-by-Step: Adding a New App
-          </h2>
-
-          <div className="space-y-6">
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-2">
-                <div className="font-display font-semibold text-base">Step 1</div>
-                <div className="font-medium">Setup Capacitor in your project</div>
-              </div>
-              <p className="text-muted-foreground mb-3 text-xs">
-                Initialize Capacitor and add iOS/Android platforms to your app:
-              </p>
-              <CodeBlock>{`# Install Capacitor
-bun add @capacitor/core @capacitor/cli @capacitor/assets
-
-# Initialize (creates capacitor.config.ts)
-bunx cap init "Your App Name" "com.biblegames.yourapp"
-
-# Add platforms
-bunx cap add ios
-bunx cap add android
-
-# Create assets directory for icon and splash screen
-mkdir -p assets
-
-# Build and sync
-bun run build
-bunx cap sync`}</CodeBlock>
-            </div>
-
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-2">
-                <div className="font-display font-semibold text-base">Step 2</div>
-                <div className="font-medium">Configure Android signing</div>
-              </div>
-              <p className="text-muted-foreground mb-3 text-xs">
-                In <code>android/app/build.gradle</code>, add signing configuration above{" "}
-                <code>android {"{"}</code>:
-              </p>
-              <CodeBlock>{`def keystorePropertiesFile = rootProject.file("key.properties")
-def keystoreProperties = new Properties()
-if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-}`}</CodeBlock>
-              <p className="text-muted-foreground mt-3 mb-2 text-xs">
-                And inside <code>android {"{ ... }"}</code>:
-              </p>
-              <CodeBlock>{`signingConfigs {
-    release {
-        if (keystorePropertiesFile.exists()) {
-            keyAlias keystoreProperties['keyAlias']
-            keyPassword keystoreProperties['keyPassword']
-            storeFile file(keystoreProperties['storeFile'])
-            storePassword keystoreProperties['storePassword']
-        }
-    }
+      {section === "iap" && <IAPDocs />}
+    </div>
+  );
 }
 
-buildTypes {
-    release {
-        signingConfig signingConfigs.release
-        minifyEnabled false
-    }
-}`}</CodeBlock>
-            </div>
+// ─── Prerequisites ─────────────────────────────────────────────────────────────
 
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-2">
-                <div className="font-display font-semibold text-base">Step 3</div>
-                <div className="font-medium">Generate Android keystore</div>
-              </div>
-              <p className="text-muted-foreground mb-3 text-xs">
-                Create a unique keystore for this app. ⚠️ Back up the .jks file securely —
-                losing it means you can never update the app on Google Play.
-              </p>
-              <CodeBlock>{`keytool -genkey -v -keystore your-app-release.jks \\
-  -keyalg RSA -keysize 2048 -validity 10000 \\
-  -alias your-app-alias
+function SetupPrerequisites() {
+  return (
+    <div className="space-y-8 text-sm">
+      <p className="text-muted-foreground">
+        Complete these steps once for the whole organization. You'll never need to repeat them
+        for individual apps.
+      </p>
 
-# Convert to base64 for GitHub secret
-base64 -i your-app-release.jks | pbcopy`}</CodeBlock>
-            </div>
-
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-2">
-                <div className="font-display font-semibold text-base">Step 4</div>
-                <div className="font-medium">Generate iOS provisioning profile</div>
-              </div>
-              <p className="text-muted-foreground mb-3 text-xs">
-                Create a provisioning profile for your app's bundle ID:
-              </p>
-              <ol className="list-decimal pl-5 space-y-2 text-muted-foreground text-xs">
+      <div className="space-y-4">
+        <div className="rounded-lg border-2 border-primary/20 bg-card p-4">
+          <div className="flex items-baseline gap-2 mb-3">
+            <span className="font-display font-semibold">1.</span>
+            <span className="font-display font-semibold">GitHub Personal Access Token</span>
+          </div>
+          <p className="text-muted-foreground text-xs mb-3">
+            Create a classic PAT from your GitHub account. bgp-admin uses it to trigger
+            deployments, commit assets, and create files in app repos.
+          </p>
+          <div className="space-y-3">
+            <div className="rounded-md bg-muted p-3">
+              <div className="font-medium text-xs mb-2">Where to create it</div>
+              <ol className="list-decimal pl-5 space-y-1 text-muted-foreground text-xs">
                 <li>
                   Go to{" "}
                   <a
-                    href="https://developer.apple.com/account/resources/profiles/list"
+                    href="https://github.com/settings/tokens"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary hover:underline"
                   >
-                    Apple Developer → Profiles
+                    GitHub → Settings → Developer settings → Personal access tokens → Classic
                   </a>
                 </li>
-                <li>Click + to create new profile</li>
-                <li>Select "App Store" distribution type</li>
-                <li>Choose your App ID (or create one for your bundle ID)</li>
-                <li>Select your distribution certificate</li>
-                <li>Download the .mobileprovision file</li>
+                <li>Click "Generate new token (classic)"</li>
                 <li>
-                  Convert to base64: <code>base64 -i YourApp.mobileprovision | pbcopy</code>
+                  Enable scopes: <code>repo</code> + <code>workflow</code>
                 </li>
+                <li>Generate and copy the token</li>
               </ol>
             </div>
-
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-2">
-                <div className="font-display font-semibold text-base">Step 5</div>
-                <div className="font-medium">Create iOS ExportOptions.plist</div>
-              </div>
-              <p className="text-muted-foreground mb-3 text-xs">
-                Create an export options file for your app and convert to base64:
+            <div className="rounded-md bg-muted p-3">
+              <div className="font-medium text-xs mb-2">Where to configure it</div>
+              <p className="text-muted-foreground text-xs">
+                Lovable Cloud → bgp-admin project → Settings → Environment Variables
+                <br />
+                Add: <code>GITHUB_PAT</code> = your token
               </p>
-              <CodeBlock>{`<?xml version="1.0" encoding="UTF-8"?>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border-2 border-primary/20 bg-card p-4">
+          <div className="flex items-baseline gap-2 mb-3">
+            <span className="font-display font-semibold">2.</span>
+            <span className="font-display font-semibold">GitHub Organization Secrets (Shared)</span>
+          </div>
+          <p className="text-muted-foreground text-xs mb-3">
+            Configure these once at organization level — all app repos inherit them automatically.
+          </p>
+          <div className="rounded-md bg-muted p-3 mb-3">
+            <div className="font-medium text-xs mb-1">Where to add them</div>
+            <p className="text-muted-foreground text-xs">
+              <a
+                href="https://github.com/organizations/Bible-Games-Project/settings/secrets/actions"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                Bible-Games-Project (org) → Settings → Secrets → Actions → New organization secret
+              </a>
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="rounded-md border border-border bg-background p-3">
+              <div className="font-medium text-xs mb-2">iOS (7)</div>
+              <ul className="space-y-1 font-mono text-[10px] text-muted-foreground">
+                <li>IOS_TEAM_ID</li>
+                <li>IOS_BUILD_CERTIFICATE_BASE64</li>
+                <li>IOS_P12_PASSWORD</li>
+                <li>IOS_KEYCHAIN_PASSWORD</li>
+                <li>APP_STORE_CONNECT_API_KEY_ID</li>
+                <li>APP_STORE_CONNECT_ISSUER_ID</li>
+                <li>APP_STORE_CONNECT_API_KEY_BASE64</li>
+              </ul>
+            </div>
+            <div className="rounded-md border border-border bg-background p-3">
+              <div className="font-medium text-xs mb-2">Android (1)</div>
+              <ul className="space-y-1 font-mono text-[10px] text-muted-foreground">
+                <li>GOOGLE_PLAY_SERVICE_ACCOUNT_JSON</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border-2 border-primary/20 bg-card p-4">
+          <div className="flex items-baseline gap-2 mb-3">
+            <span className="font-display font-semibold">3.</span>
+            <span className="font-display font-semibold">Enable Workflow Sharing</span>
+          </div>
+          <p className="text-muted-foreground text-xs mb-3">
+            Allow app repos to call the shared workflows in bgp-admin:
+          </p>
+          <div className="rounded-md bg-muted p-3">
+            <ol className="list-decimal pl-5 space-y-1 text-muted-foreground text-xs">
+              <li>
+                Go to{" "}
+                <a
+                  href="https://github.com/Bible-Games-Project/bgp-admin/settings/actions"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  bgp-admin → Settings → Actions → General
+                </a>
+              </li>
+              <li>Scroll to the Access section</li>
+              <li>Select "Accessible from repositories in the Bible-Games-Project organization"</li>
+              <li>Save</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-md bg-green-500/10 border border-green-500/20 p-3">
+        <p className="text-xs text-muted-foreground">
+          <strong>Done.</strong> These 3 steps cover the full organization. Adding a new app
+          only needs the per-app steps in the{" "}
+          <strong>New App</strong> tab.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── New App ──────────────────────────────────────────────────────────────────
+
+function AdminBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+      bgp-admin
+    </span>
+  );
+}
+
+function SetupNewApp() {
+  return (
+    <div className="space-y-4 text-sm">
+      <p className="text-muted-foreground">
+        Follow these steps in order the first time you add a new app.
+      </p>
+
+      <div className="rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
+        <p className="text-xs text-muted-foreground">
+          <strong>The repository must be public.</strong> The deploy system uses the GitHub
+          Actions API, which requires public repos.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="font-display font-semibold text-base">1</span>
+            <span className="font-medium">Create the app</span>
+            <AdminBadge />
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Go to <strong>Apps → New App</strong> and fill in the slug, name, GitHub
+            owner/repo, default branch, and bundle ID. The bundle ID is required for the next
+            step.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="font-display font-semibold text-base">2</span>
+            <span className="font-medium">Run Setup tab</span>
+            <AdminBadge />
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Go to <strong>Apps → [app] → Setup tab</strong> and run all the steps there in
+            order. This installs Capacitor, scaffolds <code>ios/</code> and{" "}
+            <code>android/</code>, configures Android signing, and creates the deploy
+            workflow.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="font-display font-semibold text-base">3</span>
+            <span className="font-medium">Generate Android keystore</span>
+            <AdminBadge />
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Go to <strong>Apps → [app] → Setup tab → "Generate Keystore"</strong>. This
+            generates a release keystore via GitHub Actions and sets{" "}
+            <code>ANDROID_KEYSTORE</code>, <code>KEYSTORE_PASSWORD</code> and{" "}
+            <code>KEY_ALIAS</code> directly as repository secrets. The password is shown
+            once — save it.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="font-display font-semibold text-base">4</span>
+            <span className="font-medium">Generate iOS provisioning profile</span>
+          </div>
+          <ol className="list-decimal pl-5 space-y-2 text-muted-foreground text-xs">
+            <li>
+              Go to{" "}
+              <a
+                href="https://developer.apple.com/account/resources/profiles/list"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                Apple Developer → Profiles
+              </a>
+            </li>
+            <li>Create new → App Store distribution</li>
+            <li>Choose your App ID (or create one for this bundle ID)</li>
+            <li>Select your distribution certificate → Download</li>
+            <li>
+              Convert: <code>base64 -i YourApp.mobileprovision | pbcopy</code>
+            </li>
+          </ol>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="font-display font-semibold text-base">5</span>
+            <span className="font-medium">Create iOS ExportOptions.plist</span>
+          </div>
+          <CodeBlock>{`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -643,235 +548,125 @@ base64 -i your-app-release.jks | pbcopy`}</CodeBlock>
 
 # Convert to base64
 base64 -i ExportOptions.plist | pbcopy`}</CodeBlock>
-            </div>
+        </div>
 
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-2">
-                <div className="font-display font-semibold text-base">Step 6</div>
-                <div className="font-medium">Configure repository secrets</div>
-              </div>
-              <p className="text-muted-foreground mb-3 text-xs">
-                Go to your app repo → Settings → Secrets and variables → Actions → New
-                repository secret. Add these 5 secrets:
-              </p>
-              <div className="grid md:grid-cols-2 gap-3">
-                <SecretList
-                  title="iOS (2)"
-                  items={["IOS_BUILD_PROVISION_PROFILE_BASE64", "IOS_EXPORT_OPTIONS_PLIST"]}
-                />
-                <SecretList
-                  title="Android (3)"
-                  items={["ANDROID_KEYSTORE", "KEYSTORE_PASSWORD", "KEY_ALIAS"]}
-                />
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-2">
-                <div className="font-display font-semibold text-base">Step 7</div>
-                <div className="font-medium">Add deploy workflow to your repo</div>
-              </div>
-              <p className="text-muted-foreground mb-3 text-xs">
-                Create <code>.github/workflows/deploy.yml</code> in your app repo. Update the
-                2 values marked with ← CHANGE THIS:
-              </p>
-              <CodeBlock copyable>{deployYml}</CodeBlock>
-            </div>
-
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-2">
-                <div className="font-display font-semibold text-base">Step 8</div>
-                <div className="font-medium">Register the app in bgp-admin</div>
-              </div>
-              <p className="text-muted-foreground mb-3 text-xs">
-                In this admin panel, go to Apps → New app and fill in:
-              </p>
-              <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs">
-                <li>
-                  <strong>Slug:</strong> Unique identifier (lowercase, numbers, dashes)
-                </li>
-                <li>
-                  <strong>Name:</strong> Display name of the app
-                </li>
-                <li>
-                  <strong>GitHub Owner:</strong> Organization or username (e.g.,
-                  Bible-Games-Project)
-                </li>
-                <li>
-                  <strong>GitHub Repo:</strong> Repository name
-                </li>
-                <li>
-                  <strong>Default Branch:</strong> Usually "main"
-                </li>
-                <li>
-                  <strong>Marketing Version:</strong> X.Y format (e.g., 1.0) — this is the
-                  user-visible version
-                </li>
-              </ul>
-            </div>
-
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-2">
-                <div className="font-display font-semibold text-base">Step 9</div>
-                <div className="font-medium">Configure app icon and splash screen</div>
-              </div>
-              <p className="text-muted-foreground mb-3 text-xs">
-                In the bgp-admin panel, go to your app's detail page and use the{" "}
-                <strong>Icon</strong> and <strong>Splash</strong> tabs to upload your assets:
-              </p>
-              <div className="space-y-3">
-                <div className="rounded-md border border-border bg-muted p-3">
-                  <div className="font-medium text-xs mb-2">Icon Tab</div>
-                  <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs">
-                    <li>Upload a square PNG image (recommended: 1024×1024px minimum)</li>
-                    <li>
-                      Optionally upload a dark mode variant for adaptive theming
-                    </li>
-                    <li>
-                      All required iOS and Android icon sizes will be generated automatically
-                    </li>
-                  </ul>
-                </div>
-                <div className="rounded-md border border-border bg-muted p-3">
-                  <div className="font-medium text-xs mb-2">Splash Tab</div>
-                  <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs">
-                    <li>Upload a square splash screen image (recommended: 2732×2732px)</li>
-                    <li>Choose background colors for light and dark modes</li>
-                    <li>
-                      Optionally upload a dark mode variant
-                    </li>
-                    <li>
-                      All required splash screen sizes will be generated for both platforms
-                    </li>
-                  </ul>
-                </div>
-              </div>
-              <p className="text-muted-foreground mt-3 text-xs">
-                ✨ The system will automatically clone your repo, save the images to the{" "}
-                <code>assets/</code> folder, run <code>@capacitor/assets</code> to generate
-                all sizes, commit the changes, and push them to GitHub.
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-baseline gap-2 mb-2">
-                <div className="font-display font-semibold text-base">Step 10</div>
-                <div className="font-medium">Test deployment</div>
-              </div>
-              <p className="text-muted-foreground mb-3 text-xs">
-                From the app's detail page in bgp-admin, click <strong>Publicar</strong>. This
-                will trigger the deploy.yml workflow via GitHub API.
-              </p>
-              <p className="text-muted-foreground text-xs">
-                Monitor the deployment progress in your GitHub repo under Actions tab. The
-                workflow will:
-              </p>
-              <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs mt-2">
-                <li>Build and sign iOS app</li>
-                <li>Upload to App Store Connect (TestFlight)</li>
-                <li>Build and sign Android app</li>
-                <li>Upload to Google Play (internal testing track)</li>
-                <li>Create a git tag with the version</li>
-              </ul>
-            </div>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="font-display font-semibold text-base">6</span>
+            <span className="font-medium">Add repository secrets</span>
           </div>
-        </section>
-
-        <section>
-          <h2 className="font-display font-semibold text-lg mb-3">🏗️ How It Works</h2>
-          <p className="text-muted-foreground mb-3">
-            This admin hosts reusable workflows (<code>deploy-ios.yml</code>,{" "}
-            <code>deploy-android.yml</code>, etc.) that contain all the build and deployment
-            logic. Each app repo only needs a thin <code>deploy.yml</code> that calls these
-            shared workflows.
+          <p className="text-muted-foreground mb-3 text-xs">
+            App repo → Settings → Secrets and variables → Actions → New repository secret.
+            Add these 2 iOS-specific secrets (Android secrets are set automatically in step 3):
           </p>
-          <p className="text-muted-foreground">
-            When you hit <strong>Publicar</strong> in this console, it triggers the{" "}
-            <code>deploy.yml</code> in your app repo via GitHub API (
-            <code>workflow_dispatch</code>). That file then calls the centralized workflows with
-            your app's specific secrets and configuration.
+          <SecretList
+            title="iOS (2)"
+            items={["IOS_BUILD_PROVISION_PROFILE_BASE64", "IOS_EXPORT_OPTIONS_PLIST"]}
+          />
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="font-display font-semibold text-base">7</span>
+            <span className="font-medium">Upload icon and splash screen</span>
+            <AdminBadge />
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Go to <strong>Apps → [app] → Icon tab</strong> and{" "}
+            <strong>Splash tab</strong> to upload your assets. All platform sizes are
+            generated automatically and committed to the repo.
           </p>
-        </section>
+        </div>
 
-        <section>
-          <h2 className="font-display font-semibold text-lg mb-3">📦 Versioning Strategy</h2>
-          <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs">
-            <li>
-              <strong>Marketing Version (X.Y):</strong> User-visible version set in bgp-admin
-              (e.g., 1.0, 2.1)
-            </li>
-            <li>
-              <strong>Build Number:</strong> Auto-incremented using{" "}
-              <code>GITHUB_RUN_NUMBER</code>
-            </li>
-            <li>
-              <strong>iOS:</strong> <code>CFBundleShortVersionString</code> = X.Y,{" "}
-              <code>CFBundleVersion</code> = X.Y.RUN_NUMBER
-            </li>
-            <li>
-              <strong>Android:</strong> <code>versionName</code> = X.Y.RUN_NUMBER,{" "}
-              <code>versionCode</code> = RUN_NUMBER
-            </li>
-          </ul>
-        </section>
-
-        <section>
-          <h2 className="font-display font-semibold text-lg mb-3">⚠️ Common Errors</h2>
-          <div className="space-y-2">
-            <div className="rounded-md border border-border bg-card p-3">
-              <div className="font-medium text-xs mb-1">422 workflow was not found</div>
-              <p className="text-muted-foreground text-xs">
-                <code>deploy.yml</code> is missing in the app repo, or the branch/file name
-                doesn't match the configuration.
-              </p>
-            </div>
-            <div className="rounded-md border border-border bg-card p-3">
-              <div className="font-medium text-xs mb-1">404 Not Found</div>
-              <p className="text-muted-foreground text-xs">
-                Wrong <code>owner/repo</code> in bgp-admin, or <code>GITHUB_PAT</code> doesn't
-                have access to the repository.
-              </p>
-            </div>
-            <div className="rounded-md border border-border bg-card p-3">
-              <div className="font-medium text-xs mb-1">403 Forbidden</div>
-              <p className="text-muted-foreground text-xs">
-                <code>GITHUB_PAT</code> lacks <code>Actions: Read & Write</code> permission.
-              </p>
-            </div>
-            <div className="rounded-md border border-border bg-card p-3">
-              <div className="font-medium text-xs mb-1">Android signing failed</div>
-              <p className="text-muted-foreground text-xs">
-                <code>KEY_ALIAS</code> secret doesn't match the actual alias inside the{" "}
-                <code>ANDROID_KEYSTORE</code> .jks file.
-              </p>
-            </div>
-            <div className="rounded-md border border-border bg-card p-3">
-              <div className="font-medium text-xs mb-1">iOS provisioning profile mismatch</div>
-              <p className="text-muted-foreground text-xs">
-                Bundle ID in the provisioning profile doesn't match the app's bundle ID in{" "}
-                <code>capacitor.config.ts</code>.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className="pt-4 border-t border-border">
-          <div className="rounded-md bg-blue-500/10 border border-blue-500/20 p-3">
-            <div className="flex gap-2">
-              <span className="text-blue-600 dark:text-blue-400">💬</span>
-              <p className="text-xs text-muted-foreground">
-                <strong>Need help?</strong> This guide covers the complete setup process. If
-                you encounter issues, check the Common Errors section above or review your
-                GitHub Actions logs for detailed error messages.
-              </p>
-            </div>
-          </div>
-        </section>
       </div>
-        </>
-      )}
+    </div>
+  );
+}
 
-      {section === "iap" && <IAPDocs />}
+// ─── Reference ────────────────────────────────────────────────────────────────
+
+function SetupReference() {
+  return (
+    <div className="space-y-8 text-sm">
+      <section>
+        <h2 className="font-display font-semibold text-base mb-3">How It Works</h2>
+        <p className="text-muted-foreground mb-2">
+          bgp-admin hosts reusable workflows (<code>deploy-ios.yml</code>,{" "}
+          <code>deploy-android.yml</code>, etc.) with all the build and signing logic. Each
+          app repo only needs a thin <code>deploy.yml</code> that calls these shared workflows
+          with its own secrets.
+        </p>
+        <p className="text-muted-foreground">
+          When you hit <strong>Publicar</strong>, it triggers <code>deploy.yml</code> in the
+          app repo via <code>workflow_dispatch</code>. That file then calls the centralized
+          workflows with the app's specific configuration.
+        </p>
+      </section>
+
+      <section>
+        <h2 className="font-display font-semibold text-base mb-3">Versioning</h2>
+        <div className="rounded-md border border-border bg-card p-3 space-y-1.5 text-xs text-muted-foreground">
+          <p>
+            <strong className="text-foreground">Marketing Version (X.Y)</strong> — set in
+            bgp-admin, user-visible (e.g., 1.0, 2.1)
+          </p>
+          <p>
+            <strong className="text-foreground">Build Number</strong> — auto-incremented via{" "}
+            <code>GITHUB_RUN_NUMBER</code>
+          </p>
+          <p>
+            <strong className="text-foreground">iOS:</strong>{" "}
+            <code>CFBundleShortVersionString</code> = X.Y,{" "}
+            <code>CFBundleVersion</code> = X.Y.RUN_NUMBER
+          </p>
+          <p>
+            <strong className="text-foreground">Android:</strong>{" "}
+            <code>versionName</code> = X.Y.RUN_NUMBER,{" "}
+            <code>versionCode</code> = RUN_NUMBER
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="font-display font-semibold text-base mb-3">Common Errors</h2>
+        <div className="space-y-2">
+          <div className="rounded-md border border-border bg-card p-3">
+            <div className="font-medium text-xs mb-1">422 workflow was not found</div>
+            <p className="text-muted-foreground text-xs">
+              <code>deploy.yml</code> is missing in the app repo, or the branch/filename
+              doesn't match.
+            </p>
+          </div>
+          <div className="rounded-md border border-border bg-card p-3">
+            <div className="font-medium text-xs mb-1">404 Not Found</div>
+            <p className="text-muted-foreground text-xs">
+              Wrong <code>owner/repo</code> in bgp-admin, repo is private (must be public),
+              or <code>GITHUB_PAT</code> doesn't have access.
+            </p>
+          </div>
+          <div className="rounded-md border border-border bg-card p-3">
+            <div className="font-medium text-xs mb-1">403 Forbidden</div>
+            <p className="text-muted-foreground text-xs">
+              <code>GITHUB_PAT</code> lacks <code>repo</code> or <code>workflow</code> scope.
+              Use a classic PAT with both scopes.
+            </p>
+          </div>
+          <div className="rounded-md border border-border bg-card p-3">
+            <div className="font-medium text-xs mb-1">Android signing failed</div>
+            <p className="text-muted-foreground text-xs">
+              <code>KEY_ALIAS</code> secret doesn't match the alias inside the{" "}
+              <code>ANDROID_KEYSTORE</code> .jks file.
+            </p>
+          </div>
+          <div className="rounded-md border border-border bg-card p-3">
+            <div className="font-medium text-xs mb-1">iOS provisioning profile mismatch</div>
+            <p className="text-muted-foreground text-xs">
+              Bundle ID in the provisioning profile doesn't match the app's bundle ID in{" "}
+              <code>capacitor.config.ts</code>.
+            </p>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -887,28 +682,14 @@ function IAPDocs() {
         IAP — RevenueCat Integration
       </h1>
 
-      <div className="flex gap-1 mb-6 rounded-lg bg-muted p-1">
-        <button
-          onClick={() => setDoc("native")}
-          className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
-            doc === "native"
-              ? "bg-background shadow-sm text-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          1. Native Implementation
-        </button>
-        <button
-          onClick={() => setDoc("web")}
-          className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
-            doc === "web"
-              ? "bg-background shadow-sm text-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          2. Web Integration (Lovable)
-        </button>
-      </div>
+      <SubTabs
+        value={doc}
+        onChange={setDoc}
+        tabs={[
+          { id: "native", label: "1. Native Implementation" },
+          { id: "web", label: "2. Web Integration (Lovable)" },
+        ]}
+      />
 
       {doc === "native" && <IAPNativeDocs />}
       {doc === "web" && <IAPWebDocs />}
@@ -961,16 +742,15 @@ function IAPNativeDocs() {
                 <code>RC_API_KEY_ANDROID</code>
               </li>
               <li>
-                Under <strong>Entitlements</strong>, create one called{" "}
-                <code>premium</code>
+                Under <strong>Entitlements</strong>, create one called <code>premium</code>
               </li>
               <li>
-                Under <strong>Products</strong>, add your App Store / Play Store product
-                IDs and attach them to the <code>premium</code> entitlement
+                Under <strong>Products</strong>, add your App Store / Play Store product IDs
+                and attach them to the <code>premium</code> entitlement
               </li>
               <li>
-                Under <strong>Offerings</strong>, create a <code>default</code> offering
-                and add a package containing your product
+                Under <strong>Offerings</strong>, create a <code>default</code> offering and
+                add a package containing your product
               </li>
             </ol>
           </div>
@@ -997,8 +777,7 @@ function IAPNativeDocs() {
         <h2 className="font-display font-semibold text-lg mb-3">🎨 4. Paywall Component</h2>
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-muted-foreground mb-3 text-xs">
-            Create <code>src/components/Paywall.tsx</code>. The interface below is the
-            minimum contract — style it to match your app:
+            Create <code>src/components/Paywall.tsx</code>:
           </p>
           <CodeBlock copyable>{paywallCode}</CodeBlock>
         </div>
@@ -1035,8 +814,8 @@ function IAPWebDocs() {
     <div className="space-y-6 text-sm">
       <section>
         <p className="text-muted-foreground mb-4">
-          This guide covers wiring up the IAP gate in the web layer — the React code
-          managed in Lovable. Paste the relevant sections below into a Lovable prompt.
+          This guide covers wiring up the IAP gate in the web layer — the React code managed
+          in Lovable. Paste the relevant sections below into a Lovable prompt.
         </p>
         <div className="rounded-md bg-blue-500/10 border border-blue-500/20 p-3">
           <div className="flex gap-2">
@@ -1045,8 +824,7 @@ function IAPWebDocs() {
               <strong>In the browser</strong> (Lovable preview),{" "}
               <code>Capacitor.isNativePlatform()</code> returns <code>false</code>, so{" "}
               <code>hasPremium</code> is always <code>false</code>. To preview the paywall
-              UI, temporarily pass <code>hasPremium={"{"}true{"}"}"</code> as a prop or enable
-              dev mode in the app.
+              UI, temporarily pass <code>hasPremium={"{"}true{"}"}</code> as a prop.
             </p>
           </div>
         </div>
@@ -1056,8 +834,7 @@ function IAPWebDocs() {
         <h2 className="font-display font-semibold text-lg mb-3">🔒 Gate Pattern</h2>
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-muted-foreground mb-3 text-xs">
-            Add to the parent component that renders your list of items (stories, levels,
-            chapters, etc.):
+            Add to the parent component that renders your list of items:
           </p>
           <CodeBlock copyable>{gatePatternCode}</CodeBlock>
         </div>
@@ -1066,20 +843,16 @@ function IAPWebDocs() {
       <section>
         <h2 className="font-display font-semibold text-lg mb-3">🎯 Visual Lock Indicator</h2>
         <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-muted-foreground mb-3 text-xs">
-            On each locked item card, show a visual indicator. Recommended approaches:
-          </p>
           <ul className="space-y-1 text-xs text-muted-foreground">
             <li>
-              🔒 Lock icon: <code>import {'{ Lock }'} from "lucide-react"</code>
+              Lock icon: <code>import {'{ Lock }'} from "lucide-react"</code>
             </li>
             <li>
-              💎 Premium feel: <code>import {'{ Gem }'} from "lucide-react"</code>
+              Premium feel: <code>import {'{ Gem }'} from "lucide-react"</code>
             </li>
-            <li>Dim the card: add <code>opacity-50</code> or a muted border color</li>
+            <li>Dim the card: add <code>opacity-50</code> or a muted border</li>
             <li>
-              Style with a different background:{" "}
-              <code>isPremiumLocked ? "bg-muted" : "bg-card"</code>
+              Style: <code>isPremiumLocked ? "bg-muted" : "bg-card"</code>
             </li>
           </ul>
         </div>
@@ -1091,18 +864,16 @@ function IAPWebDocs() {
           <div className="rounded-lg border border-border bg-card p-4">
             <div className="font-medium text-xs mb-2">Browser (Lovable)</div>
             <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs">
-              <li>Native IAP is inactive — paywall UI can be previewed by temporarily hardcoding <code>hasPremium={"{"}false{"}"}"</code></li>
-              <li>The Paywall component should render and close correctly</li>
-              <li>Locked items should show the correct visual state</li>
+              <li>Native IAP is inactive — test paywall UI by temporarily hardcoding <code>hasPremium={"{"}false{"}"}</code></li>
+              <li>Verify Paywall renders and closes correctly</li>
             </ul>
           </div>
           <div className="rounded-lg border border-border bg-card p-4">
             <div className="font-medium text-xs mb-2">Physical Device (TestFlight / Play Internal)</div>
             <ul className="list-disc pl-5 space-y-1 text-muted-foreground text-xs">
-              <li>Use a RevenueCat sandbox account (Apple sandbox tester / Google test account)</li>
-              <li>Verify purchase flow completes and <code>hasPremium</code> flips to <code>true</code></li>
+              <li>Use a RevenueCat sandbox account</li>
+              <li>Verify purchase completes and <code>hasPremium</code> flips to <code>true</code></li>
               <li>Verify Restore button restores the entitlement</li>
-              <li>Verify locked items unlock after purchase</li>
             </ul>
           </div>
         </div>

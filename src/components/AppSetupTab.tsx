@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -9,10 +10,16 @@ import {
   AlertTriangle,
   ExternalLink,
   RefreshCw,
+  Copy,
+  Check,
 } from "lucide-react";
 import {
   checkCapacitorStatus,
   setupCapacitor,
+  checkAndroidSigning,
+  configureAndroidSigning,
+  checkAndroidKeystoreSecrets,
+  generateAndroidKeystoreSecrets,
   checkDeployWorkflow,
   createDeployWorkflow,
 } from "@/lib/capacitor.functions";
@@ -27,14 +34,33 @@ interface AppSetupTabProps {
 export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTabProps) {
   const qc = useQueryClient();
 
+  const [keystoreResult, setKeystoreResult] = useState<{
+    password: string;
+    alias: string;
+  } | null>(null);
+
   const checkCapacitorFn = useServerFn(checkCapacitorStatus);
   const setupCapacitorFn = useServerFn(setupCapacitor);
+  const checkAndroidSigningFn = useServerFn(checkAndroidSigning);
+  const configureAndroidSigningFn = useServerFn(configureAndroidSigning);
+  const checkAndroidKeystoreFn = useServerFn(checkAndroidKeystoreSecrets);
+  const generateAndroidKeystoreFn = useServerFn(generateAndroidKeystoreSecrets);
   const checkDeployFn = useServerFn(checkDeployWorkflow);
   const createDeployFn = useServerFn(createDeployWorkflow);
 
   const capacitorQ = useQuery({
     queryKey: ["capacitor-status", appId],
     queryFn: () => checkCapacitorFn({ data: { appId } }),
+  });
+
+  const androidSigningQ = useQuery({
+    queryKey: ["android-signing", appId],
+    queryFn: () => checkAndroidSigningFn({ data: { appId } }),
+  });
+
+  const keystoreQ = useQuery({
+    queryKey: ["android-keystore-secrets", appId],
+    queryFn: () => checkAndroidKeystoreFn({ data: { appId } }),
   });
 
   const deployQ = useQuery({
@@ -60,6 +86,42 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
         { duration: 10000 },
       );
       qc.invalidateQueries({ queryKey: ["capacitor-status", appId] });
+      onSuccess();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const androidSigningM = useMutation({
+    mutationFn: () => configureAndroidSigningFn({ data: { appId } }),
+    onSuccess: (result) => {
+      toast.success(
+        <div className="flex items-center gap-2">
+          <span>{result.message}</span>
+          {result.commitUrl && (
+            <a
+              href={result.commitUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              View commit <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>,
+        { duration: 8000 },
+      );
+      qc.invalidateQueries({ queryKey: ["android-signing", appId] });
+      onSuccess();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const keystoreM = useMutation({
+    mutationFn: () => generateAndroidKeystoreFn({ data: { appId } }),
+    onSuccess: (result) => {
+      setKeystoreResult({ password: result.password, alias: result.alias });
+      toast.success(result.message, { duration: 10000 });
+      qc.invalidateQueries({ queryKey: ["android-keystore-secrets", appId] });
       onSuccess();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -92,6 +154,8 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
 
   const cs = capacitorQ.data;
   const capacitorDone = cs?.hasConfig && cs?.hasIos && cs?.hasAndroid;
+  const androidSigningDone = androidSigningQ.data?.configured ?? false;
+  const keystoreDone = keystoreQ.data?.configured ?? false;
   const deployDone = deployQ.data?.exists ?? false;
 
   return (
@@ -136,14 +200,8 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               onClick={() => capacitorM.mutate()}
             >
               {capacitorM.isPending ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Setting up…
-                </>
-              ) : capacitorDone ? (
-                "Re-run"
-              ) : (
-                "Setup Capacitor"
-              )}
+                <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Setting up…</>
+              ) : capacitorDone ? "Re-run" : "Setup Capacitor"}
             </Button>
             <button
               onClick={() => qc.invalidateQueries({ queryKey: ["capacitor-status", appId] })}
@@ -154,9 +212,7 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               <RefreshCw className={`h-3.5 w-3.5 ${capacitorQ.isFetching ? "animate-spin" : ""}`} />
             </button>
             {capacitorM.isPending && (
-              <span className="text-xs text-muted-foreground">
-                Running via GitHub Actions (5–10 min)…
-              </span>
+              <span className="text-xs text-muted-foreground">Running via GitHub Actions (5–10 min)…</span>
             )}
           </div>
         }
@@ -164,6 +220,105 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
 
       <SetupStep
         number={2}
+        title="Android Signing Config"
+        description="Insert the signing configuration into android/app/build.gradle so release builds can be signed."
+        done={androidSigningDone}
+        isLast={false}
+        statusContent={
+          androidSigningQ.isLoading ? (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" /> Checking…
+            </span>
+          ) : (
+            <div className="flex flex-col gap-1.5 mt-2">
+              <StatusRow label="android/app/build.gradle signing config" ok={androidSigningDone} />
+            </div>
+          )
+        }
+        actionContent={
+          <div className="flex items-center gap-3 mt-3">
+            <Button
+              size="sm"
+              variant={androidSigningDone ? "outline" : "default"}
+              disabled={androidSigningM.isPending || !androidSigningQ.data?.fileExists}
+              onClick={() => androidSigningM.mutate()}
+            >
+              {androidSigningM.isPending ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Configuring…</>
+              ) : androidSigningDone ? "Re-configure" : "Configure Signing"}
+            </Button>
+            <button
+              onClick={() => qc.invalidateQueries({ queryKey: ["android-signing", appId] })}
+              disabled={androidSigningQ.isFetching}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Refresh"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${androidSigningQ.isFetching ? "animate-spin" : ""}`} />
+            </button>
+            {!androidSigningQ.data?.fileExists && !androidSigningQ.isLoading && (
+              <span className="text-xs text-muted-foreground">Requires Step 1 first</span>
+            )}
+          </div>
+        }
+      />
+
+      <SetupStep
+        number={3}
+        title="Android Keystore"
+        description="Generate a release keystore and set ANDROID_KEYSTORE, KEYSTORE_PASSWORD and KEY_ALIAS directly as GitHub secrets in the app repo."
+        done={keystoreDone}
+        isLast={false}
+        statusContent={
+          keystoreQ.isLoading ? (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" /> Checking…
+            </span>
+          ) : (
+            <div className="flex flex-col gap-1.5 mt-2">
+              <StatusRow label="ANDROID_KEYSTORE + KEYSTORE_PASSWORD + KEY_ALIAS" ok={keystoreDone} />
+            </div>
+          )
+        }
+        actionContent={
+          <div className="mt-3 space-y-3">
+            <div className="flex items-center gap-3">
+              <Button
+                size="sm"
+                variant={keystoreDone ? "outline" : "default"}
+                disabled={keystoreM.isPending}
+                onClick={() => keystoreM.mutate()}
+              >
+                {keystoreM.isPending ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Generating…</>
+                ) : keystoreDone ? "Regenerate" : "Generate Keystore"}
+              </Button>
+              <button
+                onClick={() => qc.invalidateQueries({ queryKey: ["android-keystore-secrets", appId] })}
+                disabled={keystoreQ.isFetching}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Refresh"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${keystoreQ.isFetching ? "animate-spin" : ""}`} />
+              </button>
+              {keystoreM.isPending && (
+                <span className="text-xs text-muted-foreground">Generating via GitHub Actions (~1 min)…</span>
+              )}
+            </div>
+            {keystoreResult && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950 p-3 space-y-2">
+                <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+                  Save these values — they won't be shown again.
+                </p>
+                <CopyRow label="KEYSTORE_PASSWORD" value={keystoreResult.password} />
+                <CopyRow label="KEY_ALIAS" value={keystoreResult.alias} />
+              </div>
+            )}
+          </div>
+        }
+      />
+
+      <SetupStep
+        number={4}
         title="Deploy Workflow"
         description={
           bundleId
@@ -192,14 +347,8 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               onClick={() => deployM.mutate()}
             >
               {deployM.isPending ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Creating…
-                </>
-              ) : deployDone ? (
-                "Re-create"
-              ) : (
-                "Create Deploy Workflow"
-              )}
+                <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Creating…</>
+              ) : deployDone ? "Re-create" : "Create Deploy Workflow"}
             </Button>
             <button
               onClick={() => qc.invalidateQueries({ queryKey: ["deploy-workflow", appId] })}
@@ -212,6 +361,32 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
           </div>
         }
       />
+    </div>
+  );
+}
+
+function CopyRow({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <span className="font-mono text-[10px] text-amber-700 dark:text-amber-300 w-40 shrink-0">
+        {label}
+      </span>
+      <span className="font-mono text-xs text-amber-900 dark:text-amber-100 flex-1 truncate">
+        {value}
+      </span>
+      <button
+        onClick={copy}
+        className="shrink-0 text-amber-600 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-100 transition-colors"
+        aria-label="Copy"
+      >
+        {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+      </button>
     </div>
   );
 }
