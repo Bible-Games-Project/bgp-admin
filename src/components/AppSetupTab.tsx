@@ -367,14 +367,26 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
         }
         actionContent={
           <div className="mt-3 space-y-3">
-            <div className="rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground space-y-1">
-              <p className="font-medium text-foreground mb-1">How to get a .mobileprovision file</p>
-              <ol className="list-decimal pl-4 space-y-1">
-                <li>Go to <a href="https://developer.apple.com/account/resources/profiles/list" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Apple Developer → Profiles</a></li>
-                <li>Create new → <strong>App Store</strong> distribution</li>
-                <li>Select your App ID for <code>{bundleId ?? "your bundle ID"}</code></li>
-                <li>Select your distribution certificate → Download</li>
-              </ol>
+            <div className="rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground space-y-2.5">
+              <p className="font-medium text-foreground">How to get a .mobileprovision file</p>
+              <div>
+                <p className="font-medium text-foreground/80 mb-1">1. Create an App ID (if not yet created)</p>
+                <ol className="list-decimal pl-4 space-y-1">
+                  <li>Go to <a href="https://developer.apple.com/account/resources/identifiers/list" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Apple Developer → Identifiers</a></li>
+                  <li>Click <strong>+</strong> → App IDs → App → Continue</li>
+                  <li>Set Description and Bundle ID (Explicit): <code>{bundleId ?? "your bundle ID"}</code></li>
+                  <li>Register</li>
+                </ol>
+              </div>
+              <div>
+                <p className="font-medium text-foreground/80 mb-1">2. Create the provisioning profile</p>
+                <ol className="list-decimal pl-4 space-y-1">
+                  <li>Go to <a href="https://developer.apple.com/account/resources/profiles/list" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Apple Developer → Profiles</a></li>
+                  <li>Click <strong>+</strong> → App Store Connect distribution → Continue</li>
+                  <li>Select your App ID for <code>{bundleId ?? "your bundle ID"}</code></li>
+                  <li>Select your distribution certificate → Continue → Download</li>
+                </ol>
+              </div>
             </div>
             <label className="flex items-center gap-2 cursor-pointer w-fit">
               <span className="text-xs text-muted-foreground border border-dashed border-border rounded px-3 py-1.5 hover:border-foreground transition-colors">
