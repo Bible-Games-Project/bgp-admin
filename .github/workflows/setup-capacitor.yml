@@ -59,6 +59,19 @@ jobs:
           cd app-repo
           bun add @capacitor/core @capacitor/cli @capacitor/ios @capacitor/android
 
+      - name: Detect app type and set webDir
+        run: |
+          cd app-repo
+          # TanStack Start apps (@lovable.dev/vite-tanstack-config) output static assets
+          # to dist/client/ instead of dist/. Detect and use the correct webDir.
+          if node -e "const p=require('./package.json'); process.exit(p.dependencies?.['@tanstack/react-start'] || p.devDependencies?.['@tanstack/react-start'] ? 0 : 1)" 2>/dev/null; then
+            echo "WEB_DIR=dist/client" >> $GITHUB_ENV
+            echo "Detected TanStack Start app → webDir: dist/client"
+          else
+            echo "WEB_DIR=dist" >> $GITHUB_ENV
+            echo "Detected standard Vite app → webDir: dist"
+          fi
+
       - name: Create capacitor.config.ts
         env:
           BUNDLE_ID: ${{ inputs.bundle_id }}
@@ -69,13 +82,14 @@ jobs:
           const fs = require('fs');
           const bundleId = process.env.BUNDLE_ID;
           const appName = process.env.APP_NAME;
+          const webDir = process.env.WEB_DIR || 'dist';
           const lines = [
             "import type { CapacitorConfig } from '@capacitor/cli';",
             "",
             "const config: CapacitorConfig = {",
             `  appId: ${JSON.stringify(bundleId)},`,
             `  appName: ${JSON.stringify(appName)},`,
-            "  webDir: 'dist',",
+            `  webDir: ${JSON.stringify(webDir)},`,
             "};",
             "",
             "export default config;",
@@ -86,11 +100,12 @@ jobs:
           console.log(lines.join('\n'));
           EOF
 
-      - name: Create stub dist/ for cap sync
+      - name: Create stub web assets for cap sync
         run: |
           cd app-repo
-          mkdir -p dist
-          echo '<!DOCTYPE html><html><body></body></html>' > dist/index.html
+          mkdir -p "$WEB_DIR"
+          echo '<!DOCTYPE html><html><body></body></html>' > "$WEB_DIR/index.html"
+          echo "Created stub at $WEB_DIR/index.html"
 
       - name: Add iOS native project
         run: |
