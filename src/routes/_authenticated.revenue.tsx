@@ -102,7 +102,7 @@ const fmtDateTime = (iso: string) =>
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    active: "bg-[oklch(0.68_0.14_145)]/15 text-[oklch(0.55_0.16_145)] border-[oklch(0.68_0.14_145)]/30",
+    active: "bg-[var(--success)]/15 text-[var(--success)] border-[var(--success)]/30",
     refunded: "bg-destructive/15 text-destructive border-destructive/30",
     cancelled: "bg-muted text-muted-foreground border-border",
     expired: "bg-muted text-muted-foreground border-border",
