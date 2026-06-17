@@ -484,23 +484,8 @@ function SetupNewApp() {
         </div>
 
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="font-display font-semibold text-base">3</span>
-            <span className="font-medium">Generate Android keystore</span>
-            <AdminBadge />
-          </div>
-          <p className="text-muted-foreground text-xs">
-            Go to <strong>Apps → [app] → Setup tab → "Generate Keystore"</strong>. This
-            generates a release keystore via GitHub Actions and sets{" "}
-            <code>ANDROID_KEYSTORE</code>, <code>KEYSTORE_PASSWORD</code> and{" "}
-            <code>KEY_ALIAS</code> directly as repository secrets. The password is shown
-            once — save it.
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-baseline gap-2 mb-2">
-            <span className="font-display font-semibold text-base">4</span>
+            <span className="font-display font-semibold text-base">3</span>
             <span className="font-medium">Generate iOS provisioning profile</span>
           </div>
           <ol className="list-decimal pl-5 space-y-2 text-muted-foreground text-xs">
@@ -525,49 +510,24 @@ function SetupNewApp() {
         </div>
 
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="font-display font-semibold text-base">5</span>
-            <span className="font-medium">Create iOS ExportOptions.plist</span>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="font-display font-semibold text-base">4</span>
+            <span className="font-medium">Set iOS secrets</span>
+            <AdminBadge />
           </div>
-          <CodeBlock>{`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>method</key>
-    <string>app-store</string>
-    <key>teamID</key>
-    <string>YOUR_TEAM_ID</string>
-    <key>provisioningProfiles</key>
-    <dict>
-        <key>com.biblegames.yourapp</key>
-        <string>YourApp AppStore Profile</string>
-    </dict>
-</dict>
-</plist>
-
-# Convert to base64
-base64 -i ExportOptions.plist | pbcopy`}</CodeBlock>
-        </div>
-
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="font-display font-semibold text-base">6</span>
-            <span className="font-medium">Add repository secrets</span>
-          </div>
-          <p className="text-muted-foreground mb-3 text-xs">
-            App repo → Settings → Secrets and variables → Actions → New repository secret.
-            Add these 2 iOS-specific secrets (Android secrets are set automatically in step 3):
+          <p className="text-muted-foreground text-xs">
+            Go to <strong>Apps → [app] → Setup tab → "Set iOS Secrets"</strong>. Upload your{" "}
+            <code>.mobileprovision</code> file (downloaded from Apple Developer Portal in step
+            3). We parse the profile name and team ID, generate{" "}
+            <code>ExportOptions.plist</code> automatically, and set{" "}
+            <code>IOS_BUILD_PROVISION_PROFILE_BASE64</code> and{" "}
+            <code>IOS_EXPORT_OPTIONS_PLIST</code> as repository secrets.
           </p>
-          <SecretList
-            title="iOS (2)"
-            items={["IOS_BUILD_PROVISION_PROFILE_BASE64", "IOS_EXPORT_OPTIONS_PLIST"]}
-          />
         </div>
 
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-center gap-2 mb-2">
-            <span className="font-display font-semibold text-base">7</span>
+            <span className="font-display font-semibold text-base">6</span>
             <span className="font-medium">Upload icon and splash screen</span>
             <AdminBadge />
           </div>

@@ -165,6 +165,139 @@ export const generateAndroidKeystoreSecrets = createServerFn({ method: "POST" })
     };
   });
 
+function parseMobileProvision(base64: string): { profileName: string; teamId: string } {
+  const buf = Buffer.from(base64, "base64");
+  const str = buf.toString("binary");
+  const start = str.indexOf("<?xml");
+  const end = str.indexOf("</plist>") + "</plist>".length;
+  if (start === -1 || end < 8) throw new Error("Invalid .mobileprovision file");
+  const plist = str.substring(start, end);
+
+  const nameMatch = plist.match(/<key>Name<\/key>\s*<string>([^<]+)<\/string>/);
+  if (!nameMatch) throw new Error("Could not extract profile name from provisioning profile");
+
+  const teamMatch = plist.match(/<key>TeamIdentifier<\/key>\s*<array>\s*<string>([^<]+)<\/string>/);
+  if (!teamMatch) throw new Error("Could not extract team ID from provisioning profile");
+
+  return { profileName: nameMatch[1], teamId: teamMatch[1] };
+}
+
+export const checkIosSecrets = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const base = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/secrets`;
+    const [r1, r2] = await Promise.all([
+      fetch(`${base}/IOS_BUILD_PROVISION_PROFILE_BASE64`, { headers: githubHeaders() }),
+      fetch(`${base}/IOS_EXPORT_OPTIONS_PLIST`, { headers: githubHeaders() }),
+    ]);
+    return { configured: r1.ok && r2.ok };
+  });
+
+export const configureIosSecrets = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) =>
+    z.object({ appId: z.string().uuid(), mobileProvisionBase64: z.string().min(1) }).parse(i),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+
+    if (!app.bundle_id) {
+      throw new Error("Bundle ID is required. Set it in the General tab first.");
+    }
+
+    const { profileName, teamId } = parseMobileProvision(data.mobileProvisionBase64);
+
+    const exportOptionsPlist = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+      '<plist version="1.0">',
+      "<dict>",
+      "    <key>method</key>",
+      "    <string>app-store</string>",
+      "    <key>teamID</key>",
+      `    <string>${teamId}</string>`,
+      "    <key>provisioningProfiles</key>",
+      "    <dict>",
+      `        <key>${app.bundle_id}</key>`,
+      `        <string>${profileName}</string>`,
+      "    </dict>",
+      "</dict>",
+      "</plist>",
+    ].join("\n");
+
+    const exportOptionsBase64 = Buffer.from(exportOptionsPlist).toString("base64");
+    const dispatchedAt = new Date().toISOString();
+
+    const workflowUrl = `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/workflows/set-ios-secrets.yml/dispatches`;
+    const workflowRes = await fetch(workflowUrl, {
+      method: "POST",
+      headers: { ...githubHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ref: "main",
+        inputs: {
+          github_owner: app.github_owner,
+          github_repo: app.github_repo,
+          pat: process.env.GITHUB_PAT ?? "",
+          provision_base64: data.mobileProvisionBase64,
+          export_options_base64: exportOptionsBase64,
+        },
+      }),
+    });
+
+    if (!workflowRes.ok) {
+      const text = await workflowRes.text();
+      throw new Error(`Failed to trigger iOS secrets workflow: ${workflowRes.status} ${text}`);
+    }
+
+    await new Promise((r) => setTimeout(r, 4000));
+
+    const runsUrl = `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/workflows/set-ios-secrets.yml/runs?per_page=5&created=>=${dispatchedAt.substring(0, 19)}Z`;
+    let runId: number | null = null;
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const runsRes = await fetch(runsUrl, { headers: githubHeaders() });
+      if (runsRes.ok) {
+        const runsData = (await runsRes.json()) as any;
+        const match = (runsData.workflow_runs ?? []).find(
+          (r: any) => new Date(r.created_at) >= new Date(dispatchedAt),
+        );
+        if (match) { runId = match.id; break; }
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+
+    if (!runId) throw new Error("iOS secrets workflow triggered but run not found. Check GitHub Actions.");
+
+    const pollTimeoutMs = 3 * 60 * 1000;
+    const pollStart = Date.now();
+    let conclusion: string | null = null;
+
+    while (Date.now() - pollStart < pollTimeoutMs) {
+      await new Promise((r) => setTimeout(r, 6000));
+      const runRes = await fetch(
+        `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/runs/${runId}`,
+        { headers: githubHeaders() },
+      );
+      if (!runRes.ok) continue;
+      const runData = (await runRes.json()) as any;
+      if (runData.status === "completed") { conclusion = runData.conclusion; break; }
+    }
+
+    if (!conclusion) throw new Error(`iOS secrets workflow timed out. Check: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`);
+    if (conclusion !== "success") throw new Error(`iOS secrets workflow failed (${conclusion}). See: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`);
+
+    return {
+      success: true,
+      profileName,
+      teamId,
+      message: `IOS_BUILD_PROVISION_PROFILE_BASE64 and IOS_EXPORT_OPTIONS_PLIST set in ${app.github_owner}/${app.github_repo}.`,
+    };
+  });
+
 export const checkAndroidSigning = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))

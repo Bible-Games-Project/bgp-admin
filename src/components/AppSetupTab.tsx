@@ -20,6 +20,8 @@ import {
   configureAndroidSigning,
   checkAndroidKeystoreSecrets,
   generateAndroidKeystoreSecrets,
+  checkIosSecrets,
+  configureIosSecrets,
   checkDeployWorkflow,
   createDeployWorkflow,
 } from "@/lib/capacitor.functions";
@@ -39,12 +41,16 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
     alias: string;
   } | null>(null);
 
+  const [mobileProvisionBase64, setMobileProvisionBase64] = useState<string | null>(null);
+
   const checkCapacitorFn = useServerFn(checkCapacitorStatus);
   const setupCapacitorFn = useServerFn(setupCapacitor);
   const checkAndroidSigningFn = useServerFn(checkAndroidSigning);
   const configureAndroidSigningFn = useServerFn(configureAndroidSigning);
   const checkAndroidKeystoreFn = useServerFn(checkAndroidKeystoreSecrets);
   const generateAndroidKeystoreFn = useServerFn(generateAndroidKeystoreSecrets);
+  const checkIosSecretsFn = useServerFn(checkIosSecrets);
+  const configureIosSecretsFn = useServerFn(configureIosSecrets);
   const checkDeployFn = useServerFn(checkDeployWorkflow);
   const createDeployFn = useServerFn(createDeployWorkflow);
 
@@ -61,6 +67,11 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
   const keystoreQ = useQuery({
     queryKey: ["android-keystore-secrets", appId],
     queryFn: () => checkAndroidKeystoreFn({ data: { appId } }),
+  });
+
+  const iosSecretsQ = useQuery({
+    queryKey: ["ios-secrets", appId],
+    queryFn: () => checkIosSecretsFn({ data: { appId } }),
   });
 
   const deployQ = useQuery({
@@ -127,6 +138,19 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const iosSecretsM = useMutation({
+    mutationFn: () => {
+      if (!mobileProvisionBase64) throw new Error("No .mobileprovision file selected");
+      return configureIosSecretsFn({ data: { appId, mobileProvisionBase64 } });
+    },
+    onSuccess: (result) => {
+      toast.success(result.message, { duration: 8000 });
+      qc.invalidateQueries({ queryKey: ["ios-secrets", appId] });
+      onSuccess();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const deployM = useMutation({
     mutationFn: () => createDeployFn({ data: { appId } }),
     onSuccess: (result) => {
@@ -156,6 +180,7 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
   const capacitorDone = cs?.hasConfig && cs?.hasIos && cs?.hasAndroid;
   const androidSigningDone = androidSigningQ.data?.configured ?? false;
   const keystoreDone = keystoreQ.data?.configured ?? false;
+  const iosSecretsDone = iosSecretsQ.data?.configured ?? false;
   const deployDone = deployQ.data?.exists ?? false;
 
   return (
@@ -319,6 +344,72 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
 
       <SetupStep
         number={4}
+        title="iOS Secrets"
+        description="Upload your .mobileprovision file. We'll parse the profile name and team ID, generate ExportOptions.plist, and set IOS_BUILD_PROVISION_PROFILE_BASE64 and IOS_EXPORT_OPTIONS_PLIST as repository secrets."
+        done={iosSecretsDone}
+        isLast={false}
+        statusContent={
+          iosSecretsQ.isLoading ? (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" /> Checking…
+            </span>
+          ) : (
+            <div className="flex flex-col gap-1.5 mt-2">
+              <StatusRow label="IOS_BUILD_PROVISION_PROFILE_BASE64 + IOS_EXPORT_OPTIONS_PLIST" ok={iosSecretsDone} />
+            </div>
+          )
+        }
+        actionContent={
+          <div className="mt-3 space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer w-fit">
+              <span className="text-xs text-muted-foreground border border-dashed border-border rounded px-3 py-1.5 hover:border-foreground transition-colors">
+                {mobileProvisionBase64 ? "✓ .mobileprovision loaded" : "Select .mobileprovision…"}
+              </span>
+              <input
+                type="file"
+                accept=".mobileprovision"
+                className="sr-only"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const base64 = (reader.result as string).split(",")[1];
+                    setMobileProvisionBase64(base64);
+                  };
+                  reader.readAsDataURL(file);
+                }}
+              />
+            </label>
+            <div className="flex items-center gap-3">
+              <Button
+                size="sm"
+                variant={iosSecretsDone ? "outline" : "default"}
+                disabled={iosSecretsM.isPending || !mobileProvisionBase64}
+                onClick={() => iosSecretsM.mutate()}
+              >
+                {iosSecretsM.isPending ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Setting…</>
+                ) : iosSecretsDone ? "Re-upload" : "Set iOS Secrets"}
+              </Button>
+              <button
+                onClick={() => qc.invalidateQueries({ queryKey: ["ios-secrets", appId] })}
+                disabled={iosSecretsQ.isFetching}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Refresh"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${iosSecretsQ.isFetching ? "animate-spin" : ""}`} />
+              </button>
+              {iosSecretsM.isPending && (
+                <span className="text-xs text-muted-foreground">Via GitHub Actions (~30 s)…</span>
+              )}
+            </div>
+          </div>
+        }
+      />
+
+      <SetupStep
+        number={5}
         title="Deploy Workflow"
         description={
           bundleId
