@@ -318,11 +318,12 @@ function RevenuePage() {
               <EmptyChart />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={tsQ.data!.points}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <LineChart data={tsQ.data!.points} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis
                     dataKey="day"
-                    tick={{ fontSize: 11 }}
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    stroke="var(--border)"
                     tickFormatter={(d) =>
                       new Date(d).toLocaleDateString("en-US", {
                         month: "short",
@@ -331,19 +332,29 @@ function RevenuePage() {
                     }
                   />
                   <YAxis
-                    tick={{ fontSize: 11 }}
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    stroke="var(--border)"
                     tickFormatter={(v) => `$${v}`}
                   />
                   <RTooltip
                     formatter={(v: number) => fmtUSD(v)}
                     labelFormatter={(d) => fmtDate(d as string)}
+                    contentStyle={{
+                      background: "var(--popover)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      color: "var(--foreground)",
+                      fontSize: 12,
+                    }}
+                    cursor={{ stroke: "var(--border)" }}
                   />
                   <Line
                     type="monotone"
                     dataKey="revenueUsd"
-                    stroke="hsl(var(--primary))"
+                    stroke="var(--primary)"
                     strokeWidth={2}
-                    dot={false}
+                    dot={{ r: 3, fill: "var(--primary)", strokeWidth: 0 }}
+                    activeDot={{ r: 5, fill: "var(--primary)" }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -361,30 +372,7 @@ function RevenuePage() {
             ) : (platQ.data?.rows ?? []).length === 0 ? (
               <EmptyChart />
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={platQ.data!.rows}
-                    dataKey="revenueUsd"
-                    nameKey="platform"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
-                  >
-                    {platQ.data!.rows.map((r: any, i: number) => (
-                      <Cell
-                        key={r.platform}
-                        fill={
-                          i === 0
-                            ? "hsl(var(--primary))"
-                            : "oklch(0.68 0.14 145)"
-                        }
-                      />
-                    ))}
-                  </Pie>
-                  <RTooltip formatter={(v: number) => fmtUSD(v)} />
-                </PieChart>
-              </ResponsiveContainer>
+              <PlatformBreakdown rows={platQ.data!.rows} />
             )}
           </CardContent>
         </Card>
@@ -400,12 +388,30 @@ function RevenuePage() {
               <EmptyChart />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={appQ.data!.rows}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="appName" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
-                  <RTooltip formatter={(v: number) => fmtUSD(v)} />
-                  <Bar dataKey="revenueUsd" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                <BarChart data={appQ.data!.rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis
+                    dataKey="appName"
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    stroke="var(--border)"
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    stroke="var(--border)"
+                    tickFormatter={(v) => `$${v}`}
+                  />
+                  <RTooltip
+                    formatter={(v: number) => fmtUSD(v)}
+                    contentStyle={{
+                      background: "var(--popover)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      color: "var(--foreground)",
+                      fontSize: 12,
+                    }}
+                    cursor={{ fill: "var(--muted)", opacity: 0.4 }}
+                  />
+                  <Bar dataKey="revenueUsd" fill="var(--primary)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
