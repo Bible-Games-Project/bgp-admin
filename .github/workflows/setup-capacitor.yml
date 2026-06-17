@@ -86,6 +86,12 @@ jobs:
           console.log(lines.join('\n'));
           EOF
 
+      - name: Create stub dist/ for cap sync
+        run: |
+          cd app-repo
+          mkdir -p dist
+          echo '<!DOCTYPE html><html><body></body></html>' > dist/index.html
+
       - name: Add iOS native project
         run: |
           cd app-repo
