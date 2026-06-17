@@ -20,9 +20,6 @@ import {
   YAxis,
   Tooltip as RTooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
   BarChart,
   Bar,
   CartesianGrid,
@@ -102,7 +99,7 @@ const fmtDateTime = (iso: string) =>
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    active: "bg-[oklch(0.68_0.14_145)]/15 text-[oklch(0.55_0.16_145)] border-[oklch(0.68_0.14_145)]/30",
+    active: "bg-[var(--success)]/15 text-[var(--success)] border-[var(--success)]/30",
     refunded: "bg-destructive/15 text-destructive border-destructive/30",
     cancelled: "bg-muted text-muted-foreground border-border",
     expired: "bg-muted text-muted-foreground border-border",
@@ -318,11 +315,12 @@ function RevenuePage() {
               <EmptyChart />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={tsQ.data!.points}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <LineChart data={tsQ.data!.points} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis
                     dataKey="day"
-                    tick={{ fontSize: 11 }}
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    stroke="var(--border)"
                     tickFormatter={(d) =>
                       new Date(d).toLocaleDateString("en-US", {
                         month: "short",
@@ -331,19 +329,29 @@ function RevenuePage() {
                     }
                   />
                   <YAxis
-                    tick={{ fontSize: 11 }}
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    stroke="var(--border)"
                     tickFormatter={(v) => `$${v}`}
                   />
                   <RTooltip
                     formatter={(v: number) => fmtUSD(v)}
                     labelFormatter={(d) => fmtDate(d as string)}
+                    contentStyle={{
+                      background: "var(--popover)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      color: "var(--foreground)",
+                      fontSize: 12,
+                    }}
+                    cursor={{ stroke: "var(--border)" }}
                   />
                   <Line
                     type="monotone"
                     dataKey="revenueUsd"
-                    stroke="hsl(var(--primary))"
+                    stroke="var(--primary)"
                     strokeWidth={2}
-                    dot={false}
+                    dot={{ r: 3, fill: "var(--primary)", strokeWidth: 0 }}
+                    activeDot={{ r: 5, fill: "var(--primary)" }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -361,30 +369,7 @@ function RevenuePage() {
             ) : (platQ.data?.rows ?? []).length === 0 ? (
               <EmptyChart />
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={platQ.data!.rows}
-                    dataKey="revenueUsd"
-                    nameKey="platform"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
-                  >
-                    {platQ.data!.rows.map((r: any, i: number) => (
-                      <Cell
-                        key={r.platform}
-                        fill={
-                          i === 0
-                            ? "hsl(var(--primary))"
-                            : "oklch(0.68 0.14 145)"
-                        }
-                      />
-                    ))}
-                  </Pie>
-                  <RTooltip formatter={(v: number) => fmtUSD(v)} />
-                </PieChart>
-              </ResponsiveContainer>
+              <PlatformBreakdown rows={platQ.data!.rows} />
             )}
           </CardContent>
         </Card>
@@ -400,12 +385,30 @@ function RevenuePage() {
               <EmptyChart />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={appQ.data!.rows}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="appName" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
-                  <RTooltip formatter={(v: number) => fmtUSD(v)} />
-                  <Bar dataKey="revenueUsd" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                <BarChart data={appQ.data!.rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis
+                    dataKey="appName"
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    stroke="var(--border)"
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    stroke="var(--border)"
+                    tickFormatter={(v) => `$${v}`}
+                  />
+                  <RTooltip
+                    formatter={(v: number) => fmtUSD(v)}
+                    contentStyle={{
+                      background: "var(--popover)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      color: "var(--foreground)",
+                      fontSize: 12,
+                    }}
+                    cursor={{ fill: "var(--muted)", opacity: 0.4 }}
+                  />
+                  <Bar dataKey="revenueUsd" fill="var(--primary)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -644,6 +647,52 @@ function EmptyChart() {
   return (
     <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">
       No data
+    </div>
+  );
+}
+
+function PlatformBreakdown({ rows }: { rows: Array<{ platform: string; revenueUsd: number; count?: number }> }) {
+  const total = rows.reduce((s, r) => s + (r.revenueUsd || 0), 0) || 1;
+  const colors: Record<string, string> = {
+    ios: "var(--primary)",
+    android: "var(--success)",
+  };
+  return (
+    <div className="h-full w-full flex flex-col justify-center gap-4 px-2">
+      {rows.map((r) => {
+        const pct = (r.revenueUsd / total) * 100;
+        const color = colors[r.platform] ?? "var(--accent)";
+        return (
+          <div key={r.platform} className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{ background: color }}
+                />
+                <span className="font-medium">
+                  {r.platform === "ios" ? "iOS" : "Android"}
+                </span>
+                {r.count != null && (
+                  <span className="text-muted-foreground">· {r.count}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 font-mono">
+                <span>{fmtUSD(r.revenueUsd)}</span>
+                <span className="text-muted-foreground w-12 text-right">
+                  {pct.toFixed(1)}%
+                </span>
+              </div>
+            </div>
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${pct}%`, background: color }}
+              />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
