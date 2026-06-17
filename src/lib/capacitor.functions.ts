@@ -494,6 +494,8 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
       "  tag:",
       "    needs: [ios, android]",
       "    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')",
+      "    permissions:",
+      "      contents: write",
       "    uses: Bible-Games-Project/bgp-admin/.github/workflows/tag-release.yml@main",
       "",
     ].join("\n");
