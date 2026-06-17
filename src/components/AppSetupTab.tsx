@@ -437,6 +437,36 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
 
       <SetupStep
         number={5}
+        title="Store Listings"
+        description="Create the app in Google Play Console and App Store Connect before the first deploy. The deploy workflow can upload builds to existing apps but cannot create new store listings."
+        done={false}
+        isLast={false}
+        statusContent={null}
+        actionContent={
+          <div className="mt-3 space-y-3">
+            <div className="rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground space-y-2.5">
+              <div>
+                <p className="font-medium text-foreground/80 mb-1">Google Play Console</p>
+                <ol className="list-decimal pl-4 space-y-1">
+                  <li>Go to <a href="https://play.google.com/console" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">play.google.com/console</a> → Create app</li>
+                  <li>Fill in title, language, type and pricing → Create</li>
+                  <li>Complete enough of the store listing to be able to upload to Internal Testing</li>
+                </ol>
+              </div>
+              <div>
+                <p className="font-medium text-foreground/80 mb-1">App Store Connect</p>
+                <ol className="list-decimal pl-4 space-y-1">
+                  <li>Go to <a href="https://appstoreconnect.apple.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">appstoreconnect.apple.com</a> → Apps → <strong>+</strong></li>
+                  <li>Select platform, fill in name, primary language, Bundle ID (<code>{bundleId ?? "your bundle ID"}</code>) and SKU → Create</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        }
+      />
+
+      <SetupStep
+        number={6}
         title="Deploy Workflow"
         description={
           bundleId
