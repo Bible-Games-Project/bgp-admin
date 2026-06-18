@@ -470,9 +470,20 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
         number={5}
         title="Store Listings"
         description="Create the app in Google Play Console and App Store Connect before the first deploy. The deploy workflow can upload builds to existing apps but cannot create new store listings."
-        done={false}
+        done={completedKeys.has("store_listings")}
         isLast={false}
-        statusContent={null}
+        statusContent={
+          <label className="mt-2 flex items-center gap-2 cursor-pointer w-fit">
+            <Checkbox
+              checked={completedKeys.has("store_listings")}
+              disabled={toggleStepM.isPending || setupStepsQ.isLoading}
+              onCheckedChange={(checked) =>
+                toggleStepM.mutate({ stepKey: "store_listings", completed: !!checked })
+              }
+            />
+            <span className="text-xs text-muted-foreground">Mark as completed</span>
+          </label>
+        }
         actionContent={
           <div className="mt-3 space-y-3">
             <div className="rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground space-y-2.5">
