@@ -24,7 +24,6 @@ import {
   configureIosSecrets,
   checkDeployWorkflow,
   createDeployWorkflow,
-  generateAndroidAab,
 } from "@/lib/capacitor.functions";
 
 interface AppSetupTabProps {
@@ -43,8 +42,6 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
   } | null>(null);
 
   const [mobileProvisionBase64, setMobileProvisionBase64] = useState<string | null>(null);
-  const [aabRunUrl, setAabRunUrl] = useState<string | null>(null);
-
   const checkCapacitorFn = useServerFn(checkCapacitorStatus);
   const setupCapacitorFn = useServerFn(setupCapacitor);
   const checkAndroidSigningFn = useServerFn(checkAndroidSigning);
@@ -55,7 +52,6 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
   const configureIosSecretsFn = useServerFn(configureIosSecrets);
   const checkDeployFn = useServerFn(checkDeployWorkflow);
   const createDeployFn = useServerFn(createDeployWorkflow);
-  const generateAabFn = useServerFn(generateAndroidAab);
 
   const capacitorQ = useQuery({
     queryKey: ["capacitor-status", appId],
@@ -175,15 +171,6 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
       );
       qc.invalidateQueries({ queryKey: ["deploy-workflow", appId] });
       onSuccess();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const aabM = useMutation({
-    mutationFn: () => generateAabFn({ data: { appId } }),
-    onSuccess: (result) => {
-      setAabRunUrl(result.runUrl);
-      toast.success(result.message, { duration: 10000 });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -463,8 +450,7 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
                   <li>Go to <a href="https://play.google.com/console" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">play.google.com/console</a> → Create app</li>
                   <li>Fill in title, language, type and pricing → Create</li>
                   <li>Complete enough of the store listing to be able to upload to Internal Testing</li>
-                  <li>Go to <strong>Users and permissions</strong> → Invite new users → add <code>github-actions-deploy</code> service account (the <code>client_email</code> from your <code>GOOGLE_PLAY_SERVICE_ACCOUNT_JSON</code>) with <strong>Release manager</strong> role for this app</li>
-                  <li>Upload the first AAB manually to Internal Testing — the API cannot create a new app listing, only update an existing one. Use the button below to generate the AAB.</li>
+                  <li>Go to <strong>Users and permissions</strong> → Invite new users → add the service account (<code>client_email</code> from your <code>GOOGLE_PLAY_SERVICE_ACCOUNT_JSON</code>) with <strong>Release manager</strong> role for this app</li>
                 </ol>
               </div>
               <div>
@@ -475,34 +461,6 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
                 </ol>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={aabM.isPending || !deployDone}
-                onClick={() => { setAabRunUrl(null); aabM.mutate(); }}
-              >
-                {aabM.isPending ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Generating AAB…</>
-                ) : "Generate AAB"}
-              </Button>
-              {aabM.isPending && (
-                <span className="text-xs text-muted-foreground">Building via GitHub Actions (~5 min)…</span>
-              )}
-              {aabRunUrl && (
-                <a
-                  href={aabRunUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                >
-                  Download AAB artifact <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-            </div>
-            {!deployDone && (
-              <p className="text-xs text-muted-foreground">Complete Step 6 (Deploy Workflow) first to enable AAB generation.</p>
-            )}
           </div>
         }
       />
