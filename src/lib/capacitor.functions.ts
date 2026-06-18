@@ -445,6 +445,10 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
       '        description: "Marketing version (e.g. 1.0). Leave empty to use package.json"',
       "        type: string",
       '        default: ""',
+      "      generate_aab_only:",
+      '        description: "Build AAB without uploading to Google Play (saves as downloadable artifact)"',
+      "        type: boolean",
+      "        default: false",
       "",
       "jobs:",
       "  ios:",
@@ -470,11 +474,13 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
       "    if: |",
       "      github.ref == 'refs/heads/deploy-app' ||",
       "      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||",
-      "      (github.event_name == 'workflow_dispatch' && inputs.deploy_android == true)",
+      "      (github.event_name == 'workflow_dispatch' && inputs.deploy_android == true) ||",
+      "      (github.event_name == 'workflow_dispatch' && inputs.generate_aab_only == true)",
       "    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@main",
       "    with:",
       `      package-name: ${bundleId}`,
       "      marketing-version: ${{ inputs.marketing_version }}",
+      "      skip-upload: ${{ inputs.generate_aab_only }}",
       "    secrets:",
       "      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}",
       "      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}",
@@ -536,6 +542,63 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
       commitUrl: result.commit?.html_url as string | undefined,
       message: "deploy.yml created successfully.",
     };
+  });
+
+export const generateAndroidAab = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const branch = app.default_ref || "main";
+
+    const dispatchRes = await fetch(
+      `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows/deploy.yml/dispatches`,
+      {
+        method: "POST",
+        headers: { ...githubHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ref: branch,
+          inputs: { deploy_android: true, generate_aab_only: true },
+        }),
+      }
+    );
+
+    if (!dispatchRes.ok) {
+      const text = await dispatchRes.text();
+      throw new Error(`Failed to dispatch AAB generation: ${dispatchRes.status} ${text.slice(0, 200)}`);
+    }
+
+    await new Promise((r) => setTimeout(r, 4000));
+
+    const runsUrl = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows/deploy.yml/runs?branch=${encodeURIComponent(branch)}&per_page=5`;
+    const timeout = Date.now() + 15 * 60 * 1000;
+
+    while (Date.now() < timeout) {
+      const runsRes = await fetch(runsUrl, { headers: githubHeaders() });
+      if (runsRes.ok) {
+        const runs = (await runsRes.json()) as any;
+        const run = runs.workflow_runs?.[0];
+        if (run) {
+          if (run.status === "completed") {
+            return {
+              success: run.conclusion === "success",
+              runUrl: run.html_url as string,
+              message:
+                run.conclusion === "success"
+                  ? "AAB generated. Download the artifact from the GitHub Actions run."
+                  : `Run ended with: ${run.conclusion}`,
+            };
+          }
+          if (run.status !== "queued" && run.status !== "in_progress") {
+            return { success: false, runUrl: run.html_url as string, message: `Unexpected status: ${run.status}` };
+          }
+        }
+      }
+      await new Promise((r) => setTimeout(r, 10000));
+    }
+
+    throw new Error("Timeout waiting for AAB generation.");
   });
 
 export const setupCapacitor = createServerFn({ method: "POST" })
