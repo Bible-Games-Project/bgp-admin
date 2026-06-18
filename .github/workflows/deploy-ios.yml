@@ -273,23 +273,46 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           PP_UUID=$(security cms -D -i "$PP_PATH" | plutil -extract UUID raw -)
           PP_NAME=$(security cms -D -i "$PP_PATH" | plutil -extract Name raw -)
+          PP_TEAM=$(security cms -D -i "$PP_PATH" | plutil -extract TeamIdentifier.0 raw -)
           echo "Provisioning Profile UUID: $PP_UUID"
           echo "Provisioning Profile Name: $PP_NAME"
+          echo "Provisioning Profile Team: $PP_TEAM"
           cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/$PP_UUID.mobileprovision
 
           {
             echo "PP_NAME=$PP_NAME"
             echo "PP_UUID=$PP_UUID"
+            echo "PP_TEAM=$PP_TEAM"
             echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
           } >> $GITHUB_ENV
 
-      - name: Patch provisioning profile UUID into Xcode project
+      - name: Patch Xcode project for manual signing
         run: |
           set -euo pipefail
           PBXPROJ="${{ inputs.ios-project-dir }}/${{ inputs.ios-project-file }}/project.pbxproj"
-          # Replace the empty PROVISIONING_PROFILE placeholder with the real UUID
-          sed -i '' "s/PROVISIONING_PROFILE = \"\";/PROVISIONING_PROFILE = \"$PP_UUID\";/" "$PBXPROJ"
-          echo "Patched PROVISIONING_PROFILE = $PP_UUID in $PBXPROJ"
+          node - << 'EOF'
+          const fs = require('fs');
+          const pbxPath = process.env.PBXPROJ;
+          const ppUuid = process.env.PP_UUID;
+          const teamId = process.env.PP_TEAM;
+          let content = fs.readFileSync(pbxPath, 'utf8');
+
+          // Switch all CODE_SIGN_STYLE from Automatic to Manual
+          content = content.replace(/CODE_SIGN_STYLE = Automatic;/g, 'CODE_SIGN_STYLE = Manual;');
+
+          // In the App target Release buildSettings (identified by PRODUCT_BUNDLE_IDENTIFIER),
+          // inject manual signing keys. PRODUCT_BUNDLE_IDENTIFIER only appears in the
+          // App target Release config, not in project-level or Debug configs.
+          content = content.replace(
+            /([ \t]+PRODUCT_BUNDLE_IDENTIFIER = [^;]+;)/,
+            `$1\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tDEVELOPMENT_TEAM = "${teamId}";\n\t\t\t\tPROVISIONING_PROFILE = "${ppUuid}";`
+          );
+
+          fs.writeFileSync(pbxPath, content);
+          console.log('Patched project.pbxproj: Manual signing, PP_UUID=' + ppUuid + ', TEAM=' + teamId);
+          EOF
+        env:
+          PBXPROJ: ${{ inputs.ios-project-dir }}/${{ inputs.ios-project-file }}/project.pbxproj
 
       - name: Write App Store Connect API key
         env:
