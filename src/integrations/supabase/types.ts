@@ -29,6 +29,35 @@ export type Database = {
         }
         Relationships: []
       }
+      app_setup_steps: {
+        Row: {
+          app_id: string
+          completed_at: string
+          completed_by: string | null
+          step_key: string
+        }
+        Insert: {
+          app_id: string
+          completed_at?: string
+          completed_by?: string | null
+          step_key: string
+        }
+        Update: {
+          app_id?: string
+          completed_at?: string
+          completed_by?: string | null
+          step_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_setup_steps_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "apps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       apps: {
         Row: {
           bundle_id: string | null
