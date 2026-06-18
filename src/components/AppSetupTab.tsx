@@ -25,6 +25,8 @@ import {
   checkDeployWorkflow,
   createDeployWorkflow,
 } from "@/lib/capacitor.functions";
+import { listSetupSteps, setSetupStep } from "@/lib/app-setup.functions";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface AppSetupTabProps {
   appId: string;
