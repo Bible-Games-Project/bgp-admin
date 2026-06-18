@@ -80,6 +80,36 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
     queryFn: () => checkDeployFn({ data: { appId } }),
   });
 
+  const listSetupFn = useServerFn(listSetupSteps);
+  const setSetupFn = useServerFn(setSetupStep);
+
+  const setupStepsQ = useQuery({
+    queryKey: ["app-setup-steps", appId],
+    queryFn: () => listSetupFn({ data: { appId } }),
+  });
+
+  const completedKeys = new Set((setupStepsQ.data?.steps ?? []).map((s: any) => s.step_key));
+
+  const toggleStepM = useMutation({
+    mutationFn: (vars: { stepKey: string; completed: boolean }) =>
+      setSetupFn({ data: { appId, ...vars } }),
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["app-setup-steps", appId] });
+      const prev = qc.getQueryData<any>(["app-setup-steps", appId]);
+      qc.setQueryData(["app-setup-steps", appId], (old: any) => {
+        const steps = (old?.steps ?? []).filter((s: any) => s.step_key !== vars.stepKey);
+        if (vars.completed) steps.push({ step_key: vars.stepKey, completed_at: new Date().toISOString() });
+        return { steps };
+      });
+      return { prev };
+    },
+    onError: (e: Error, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["app-setup-steps", appId], ctx.prev);
+      toast.error(e.message);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["app-setup-steps", appId] }),
+  });
+
   const capacitorM = useMutation({
     mutationFn: () => setupCapacitorFn({ data: { appId } }),
     onSuccess: (result) => {
