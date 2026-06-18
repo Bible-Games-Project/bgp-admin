@@ -601,14 +601,21 @@ function SetupStep({
   return (
     <div className="flex gap-4">
       <div className="flex flex-col items-center">
-        <div
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold transition-colors ${
-            done
-              ? "border-green-500 bg-green-500 text-white"
-              : "border-border bg-background text-muted-foreground"
-          }`}
-        >
-          {done ? <CheckCircle2 className="w-4 h-4" /> : number}
+        <div className="relative shrink-0">
+          <div
+            className={`flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-semibold transition-colors ${
+              done
+                ? "border-green-500 bg-green-500 text-white"
+                : "border-border bg-background text-muted-foreground"
+            }`}
+          >
+            {number}
+          </div>
+          {done && (
+            <div className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white dark:bg-background ring-1 ring-green-500">
+              <CheckCircle2 className="w-3 h-3 text-green-500" />
+            </div>
+          )}
         </div>
         {!isLast && <div className="mt-1 w-px flex-1 bg-border" />}
       </div>
