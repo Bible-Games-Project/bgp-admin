@@ -25,6 +25,8 @@ import {
   checkDeployWorkflow,
   createDeployWorkflow,
 } from "@/lib/capacitor.functions";
+import { listSetupSteps, setSetupStep } from "@/lib/app-setup.functions";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface AppSetupTabProps {
   appId: string;
@@ -76,6 +78,36 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
   const deployQ = useQuery({
     queryKey: ["deploy-workflow", appId],
     queryFn: () => checkDeployFn({ data: { appId } }),
+  });
+
+  const listSetupFn = useServerFn(listSetupSteps);
+  const setSetupFn = useServerFn(setSetupStep);
+
+  const setupStepsQ = useQuery({
+    queryKey: ["app-setup-steps", appId],
+    queryFn: () => listSetupFn({ data: { appId } }),
+  });
+
+  const completedKeys = new Set((setupStepsQ.data?.steps ?? []).map((s: any) => s.step_key));
+
+  const toggleStepM = useMutation({
+    mutationFn: (vars: { stepKey: string; completed: boolean }) =>
+      setSetupFn({ data: { appId, ...vars } }),
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["app-setup-steps", appId] });
+      const prev = qc.getQueryData<any>(["app-setup-steps", appId]);
+      qc.setQueryData(["app-setup-steps", appId], (old: any) => {
+        const steps = (old?.steps ?? []).filter((s: any) => s.step_key !== vars.stepKey);
+        if (vars.completed) steps.push({ step_key: vars.stepKey, completed_at: new Date().toISOString() });
+        return { steps };
+      });
+      return { prev };
+    },
+    onError: (e: Error, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["app-setup-steps", appId], ctx.prev);
+      toast.error(e.message);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["app-setup-steps", appId] }),
   });
 
   const capacitorM = useMutation({
@@ -438,9 +470,20 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
         number={5}
         title="Store Listings"
         description="Create the app in Google Play Console and App Store Connect before the first deploy. The deploy workflow can upload builds to existing apps but cannot create new store listings."
-        done={false}
+        done={completedKeys.has("store_listings")}
         isLast={false}
-        statusContent={null}
+        statusContent={
+          <label className="mt-2 flex items-center gap-2 cursor-pointer w-fit">
+            <Checkbox
+              checked={completedKeys.has("store_listings")}
+              disabled={toggleStepM.isPending || setupStepsQ.isLoading}
+              onCheckedChange={(checked) =>
+                toggleStepM.mutate({ stepKey: "store_listings", completed: !!checked })
+              }
+            />
+            <span className="text-xs text-muted-foreground">Mark as completed</span>
+          </label>
+        }
         actionContent={
           <div className="mt-3 space-y-3">
             <div className="rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground space-y-2.5">
