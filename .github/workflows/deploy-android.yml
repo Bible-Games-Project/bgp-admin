@@ -121,7 +121,10 @@ jobs:
           const clientEntry = entryMatch[1];
           const cssFiles = fs.readdirSync('dist/client/assets').filter(f => f.endsWith('.css')).map(f => `/assets/${f}`);
           const links = cssFiles.map(f => `  <link rel="stylesheet" href="${f}" />`).join('\n');
-          const html = `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8" />\n  <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n${links}\n  <script type="module" src="${clientEntry}"></script>\n</head>\n<body>\n  <div id="root"></div>\n</body>\n</html>\n`;
+          // Seed window.__TSR__ so TanStack Start's router.hydrate() doesn't throw in Capacitor
+          // (no SSR server means no dehydrated state — an empty object is truthy and safe).
+          // Also clear WebView history state to prevent scroll restoration invariant.
+          const html = `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8" />\n  <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n  <script>window.__TSR__={dehydrated:{}};try{history.replaceState({},'',location.href)}catch(e){}</script>\n${links}\n  <script type="module" src="${clientEntry}"></script>\n</head>\n<body></body>\n</html>\n`;
           fs.writeFileSync('dist/client/index.html', html);
           console.log('Generated dist/client/index.html with entry:', clientEntry);
           EOF
