@@ -105,6 +105,45 @@ jobs:
           console.log(lines.join('\n'));
           EOF
 
+      - name: Enable SPA mode for TanStack Start apps
+        run: |
+          cd app-repo
+          if [ "$WEB_DIR" != "dist/client" ]; then
+            echo "Not a TanStack Start app — skipping SPA mode patch"
+            exit 0
+          fi
+          node -e "
+            const fs = require('fs');
+            if (!fs.existsSync('vite.config.ts')) {
+              console.log('No vite.config.ts found — skipping SPA mode patch');
+              process.exit(0);
+            }
+            let content = fs.readFileSync('vite.config.ts', 'utf8');
+            if (content.includes('spa:') && content.includes('enabled: true')) {
+              console.log('SPA mode already configured — skipping');
+              process.exit(0);
+            }
+            const spaOption = 'spa: { enabled: true, prerender: { outputPath: \"index.html\" } }';
+            // Case 1: tanstackStart() with no args
+            let patched = content.replace(
+              /tanstackStart\s*\(\s*\)/,
+              'tanstackStart({ ' + spaOption + ' })'
+            );
+            // Case 2: tanstackStart({ with existing args
+            if (patched === content) {
+              patched = content.replace(
+                /tanstackStart\s*\(\s*\{/,
+                'tanstackStart({ ' + spaOption + ','
+              );
+            }
+            if (patched === content) {
+              console.log('Could not find tanstackStart() in vite.config.ts — skipping');
+              process.exit(0);
+            }
+            fs.writeFileSync('vite.config.ts', patched);
+            console.log('Patched vite.config.ts: enabled TanStack Start SPA mode for Capacitor');
+          "
+
       - name: Add postbuild script for TanStack Start apps
         run: |
           cd app-repo
