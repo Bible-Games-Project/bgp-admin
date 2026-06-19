@@ -123,21 +123,30 @@ jobs:
               console.log('SPA mode already configured — skipping');
               process.exit(0);
             }
-            const spaOption = 'spa: { enabled: true, prerender: { outputPath: \"index.html\" } }';
-            // Case 1: tanstackStart() with no args
-            let patched = content.replace(
-              /tanstackStart\s*\(\s*\)/,
-              'tanstackStart({ ' + spaOption + ' })'
-            );
-            // Case 2: tanstackStart({ with existing args
-            if (patched === content) {
-              patched = content.replace(
-                /tanstackStart\s*\(\s*\{/,
-                'tanstackStart({ ' + spaOption + ','
-              );
+            const spa = 'spa: { enabled: true, prerender: { outputPath: \"index.html\" } }';
+            let patched = content;
+            // Lovable config: tanstackStart: { ...opts } object key
+            if (/tanstackStart\s*:\s*\{/.test(content)) {
+              patched = content.replace(/tanstackStart\s*:\s*\{/, 'tanstackStart: { ' + spa + ',');
+            }
+            // Direct plugin: tanstackStart() no args
+            else if (/tanstackStart\s*\(\s*\)/.test(content)) {
+              patched = content.replace(/tanstackStart\s*\(\s*\)/, 'tanstackStart({ ' + spa + ' })');
+            }
+            // Direct plugin: tanstackStart({ existing args })
+            else if (/tanstackStart\s*\(\s*\{/.test(content)) {
+              patched = content.replace(/tanstackStart\s*\(\s*\{/, 'tanstackStart({ ' + spa + ',');
+            }
+            // Lovable config with no tanstackStart key yet
+            else if (/defineConfig\s*\(\s*\{/.test(content)) {
+              patched = content.replace(/defineConfig\s*\(\s*\{/, 'defineConfig({ tanstackStart: { ' + spa + ' },');
+            }
+            else {
+              console.log('Could not find a patchable location in vite.config.ts — skipping');
+              process.exit(0);
             }
             if (patched === content) {
-              console.log('Could not find tanstackStart() in vite.config.ts — skipping');
+              console.log('No changes made to vite.config.ts');
               process.exit(0);
             }
             fs.writeFileSync('vite.config.ts', patched);
