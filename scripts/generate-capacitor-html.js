@@ -56,13 +56,28 @@ const cssLinks = fs.existsSync(clientAssetsDir)
       .join('\n')
   : '';
 
+// Debug script: logs the full stack trace of any invariant/startup error.
+// Remove once the blank-screen issue is resolved.
+const debugScript = `  <script>
+  window.__TSR__={dehydrated:{router:{state:{dehydratedMatches:[]}}}};
+  console.log('[BGP] init, __TSR__='+JSON.stringify(window.__TSR__));
+  window.addEventListener('error',function(e){
+    var s=e.error&&e.error.stack?e.error.stack:'(no stack)';
+    console.error('[BGP-ERR] '+e.message+'\\n'+s);
+  });
+  window.addEventListener('unhandledrejection',function(e){
+    var r=e.reason;
+    console.error('[BGP-REJ] '+(r&&r.stack?r.stack:String(r)));
+  });
+  </script>`;
+
 const parts = [
   '<!DOCTYPE html>',
   '<html lang="en">',
   '<head>',
   '  <meta charset="UTF-8" />',
   '  <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
-  '  <script>window.__TSR__={dehydrated:{router:{state:{dehydratedMatches:[]}}}}</script>',
+  debugScript,
   cssLinks,
   `  <script type="module" src="${clientEntry}"></script>`,
   '</head>',
