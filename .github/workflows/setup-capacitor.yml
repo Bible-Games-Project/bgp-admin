@@ -35,6 +35,11 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.github_owner != '' && inputs.github_repo != '' && inputs.bundle_id != '' }}
 
     steps:
+      - name: Checkout bgp-admin (for shared scripts)
+        uses: actions/checkout@v4
+        with:
+          path: bgp-admin
+
       - name: Clone target app repository
         run: |
           git clone --depth 1 --branch ${{ inputs.branch }} \
@@ -99,6 +104,29 @@ jobs:
           console.log('Written capacitor.config.ts:');
           console.log(lines.join('\n'));
           EOF
+
+      - name: Add postbuild script for TanStack Start apps
+        run: |
+          cd app-repo
+          if [ "$WEB_DIR" != "dist/client" ]; then
+            echo "Not a TanStack Start app — skipping postbuild script"
+            exit 0
+          fi
+          mkdir -p scripts
+          cp ../bgp-admin/scripts/generate-capacitor-html.js scripts/generate-capacitor-html.js
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            if (!pkg.scripts) pkg.scripts = {};
+            const pb = 'node scripts/generate-capacitor-html.js';
+            if (!pkg.scripts.postbuild) {
+              pkg.scripts.postbuild = pb;
+            } else if (!pkg.scripts.postbuild.includes('generate-capacitor-html')) {
+              pkg.scripts.postbuild += ' && ' + pb;
+            }
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log('Added postbuild script to package.json');
+          "
 
       - name: Create stub web assets for cap sync
         run: |
