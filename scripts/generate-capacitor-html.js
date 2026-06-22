@@ -1,15 +1,15 @@
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
 
 // Generates dist/client/index.html for Capacitor after a TanStack Start build.
 //
-// TanStack Router calls router.hydrate() which reads window.__TSR__.dehydrated.
-// Two invariants must pass:
-//   1. invariant(ctx)        → dehydrated must exist
-//   2. invariant(ctx.router) → dehydrated.router must exist
-// With dehydratedMatches:[] the router finds no cached server data and does a
-// fresh client-side navigation to the current URL. React's hydrateRoot recovers
-// from the empty body by doing a full client render (standard behaviour in prod).
+// When TanStack Start SPA mode is enabled (spa.prerender.outputPath = "index.html"),
+// the build already produces dist/client/index.html with window.$_TSR properly
+// initialised. This script exits immediately in that case.
+//
+// For non-SPA TanStack Start builds (no index.html produced), this script
+// generates a minimal static shell with window.__TSR__ seeded so TanStack
+// Router's hydrate() invariants pass.
 
 if (!fs.existsSync('dist/client') || fs.existsSync('dist/client/index.html')) {
   process.exit(0);
@@ -56,28 +56,13 @@ const cssLinks = fs.existsSync(clientAssetsDir)
       .join('\n')
   : '';
 
-// Debug script: logs the full stack trace of any invariant/startup error.
-// Remove once the blank-screen issue is resolved.
-const debugScript = `  <script>
-  window.__TSR__={dehydrated:{router:{state:{dehydratedMatches:[]}}}};
-  console.log('[BGP] init, __TSR__='+JSON.stringify(window.__TSR__));
-  window.addEventListener('error',function(e){
-    var s=e.error&&e.error.stack?e.error.stack:'(no stack)';
-    console.error('[BGP-ERR] '+e.message+'\\n'+s);
-  });
-  window.addEventListener('unhandledrejection',function(e){
-    var r=e.reason;
-    console.error('[BGP-REJ] '+(r&&r.stack?r.stack:String(r)));
-  });
-  </script>`;
-
 const parts = [
   '<!DOCTYPE html>',
   '<html lang="en">',
   '<head>',
   '  <meta charset="UTF-8" />',
   '  <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
-  debugScript,
+  '  <script>window.__TSR__={dehydrated:{router:{state:{dehydratedMatches:[]}}}}</script>',
   cssLinks,
   `  <script type="module" src="${clientEntry}"></script>`,
   '</head>',
@@ -87,4 +72,4 @@ const parts = [
 ];
 
 fs.writeFileSync('dist/client/index.html', parts.filter(Boolean).join('\n'));
-console.log('Generated dist/client/index.html, entry:', clientEntry);
+console.log('Generated dist/client/index.html (fallback), entry:', clientEntry);
