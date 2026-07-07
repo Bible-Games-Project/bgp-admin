@@ -6,7 +6,9 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi"] },
+  // templates/ holds addon source files copied into app repos by workflows;
+  // their dependencies are not installed here, so they are not linted.
+  { ignores: ["dist", ".output", ".vinxi", "templates"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

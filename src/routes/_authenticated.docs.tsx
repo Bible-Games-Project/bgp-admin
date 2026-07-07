@@ -501,6 +501,14 @@ function IAPDocs() {
         IAP — RevenueCat Integration
       </h1>
 
+      <div className="rounded-md bg-green-500/10 border border-green-500/20 p-3 mb-6">
+        <p className="text-xs text-muted-foreground">
+          <strong>This is now automated.</strong> Open the app in <strong>Apps</strong> and use
+          the <strong>Addons</strong> tab — it installs the plugin, creates the files and fills
+          in the API keys with one button. The docs below are kept as reference only.
+        </p>
+      </div>
+
       <SubTabs
         value={doc}
         onChange={setDoc}

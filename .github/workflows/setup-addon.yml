@@ -1,0 +1,211 @@
+name: Setup Addon (Centralized)
+
+on:
+  workflow_dispatch:
+    inputs:
+      github_owner:
+        description: "GitHub repository owner"
+        required: true
+        type: string
+      github_repo:
+        description: "GitHub repository name"
+        required: true
+        type: string
+      branch:
+        description: "Branch to work on"
+        required: true
+        type: string
+      addon:
+        description: "Addon to install (iap | rewarded-ads)"
+        required: true
+        type: string
+      config_json:
+        description: "JSON with the addon config keys (API keys, ad unit IDs, ...)"
+        required: true
+        type: string
+      pat:
+        description: "GitHub PAT with write access to the target repository"
+        required: true
+        type: string
+
+jobs:
+  setup:
+    name: Setup Addon
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.github_owner != '' && inputs.github_repo != '' }}
+
+    steps:
+      - name: Checkout bgp-admin (for addon templates)
+        uses: actions/checkout@v4
+        with:
+          path: bgp-admin
+
+      - name: Clone target app repository
+        run: |
+          git clone --depth 1 --branch ${{ inputs.branch }} \
+            https://x-access-token:${{ inputs.pat }}@github.com/${{ inputs.github_owner }}/${{ inputs.github_repo }}.git \
+            app-repo
+          cd app-repo
+          git config user.name "BGP Admin Bot"
+          git config user.email "admin@biblegames.dev"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install existing dependencies
+        run: |
+          cd app-repo
+          bun install --frozen-lockfile || bun install
+
+      - name: Add addon package
+        run: |
+          cd app-repo
+          case "${{ inputs.addon }}" in
+            iap)
+              bun add @revenuecat/purchases-capacitor
+              ;;
+            rewarded-ads)
+              bun add @capacitor-community/admob
+              ;;
+            *)
+              echo "Unknown addon: ${{ inputs.addon }}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Write addon source files
+        env:
+          ADDON: ${{ inputs.addon }}
+          CONFIG_JSON: ${{ inputs.config_json }}
+        run: |
+          cd app-repo
+          node - << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          const addon = process.env.ADDON;
+          const config = JSON.parse(process.env.CONFIG_JSON || '{}');
+          const templatesDir = path.join('..', 'bgp-admin', 'templates', 'addons', addon);
+
+          const inject = (content, replacements) => {
+            for (const [token, value] of Object.entries(replacements)) {
+              content = content.split(token).join(value);
+            }
+            return content;
+          };
+
+          fs.mkdirSync('src/hooks', { recursive: true });
+          fs.mkdirSync('src/components', { recursive: true });
+
+          if (addon === 'iap') {
+            const hook = inject(
+              fs.readFileSync(path.join(templatesDir, 'useIAP.ts'), 'utf8'),
+              {
+                '__RC_API_KEY_IOS__': config.rcApiKeyIos || '',
+                '__RC_API_KEY_ANDROID__': config.rcApiKeyAndroid || '',
+              },
+            );
+            // Always overwrite the hook so re-runs can update the API keys.
+            fs.writeFileSync('src/hooks/useIAP.ts', hook);
+            console.log('Written src/hooks/useIAP.ts');
+
+            // Only create the paywall if missing — apps customize its styling.
+            if (!fs.existsSync('src/components/Paywall.tsx')) {
+              fs.copyFileSync(
+                path.join(templatesDir, 'Paywall.tsx'),
+                'src/components/Paywall.tsx',
+              );
+              console.log('Written src/components/Paywall.tsx');
+            } else {
+              console.log('src/components/Paywall.tsx already exists — kept as is');
+            }
+          } else if (addon === 'rewarded-ads') {
+            const hook = inject(
+              fs.readFileSync(path.join(templatesDir, 'useRewardedAd.ts'), 'utf8'),
+              {
+                '__ADMOB_REWARDED_AD_UNIT_ID_IOS__': config.adUnitIdIos || '',
+                '__ADMOB_REWARDED_AD_UNIT_ID_ANDROID__': config.adUnitIdAndroid || '',
+              },
+            );
+            fs.writeFileSync('src/hooks/useRewardedAd.ts', hook);
+            console.log('Written src/hooks/useRewardedAd.ts');
+          }
+          EOF
+
+      - name: Patch native config (rewarded-ads only)
+        if: ${{ inputs.addon == 'rewarded-ads' }}
+        env:
+          CONFIG_JSON: ${{ inputs.config_json }}
+        run: |
+          cd app-repo
+          node - << 'EOF'
+          const fs = require('fs');
+
+          const config = JSON.parse(process.env.CONFIG_JSON || '{}');
+          const androidAppId = config.admobAppIdAndroid || '';
+          const iosAppId = config.admobAppIdIos || '';
+
+          // ── AndroidManifest.xml: AdMob application ID meta-data ────────────
+          const manifestPath = 'android/app/src/main/AndroidManifest.xml';
+          if (fs.existsSync(manifestPath) && androidAppId) {
+            let manifest = fs.readFileSync(manifestPath, 'utf8');
+            const metaRe = /<meta-data\s+android:name="com\.google\.android\.gms\.ads\.APPLICATION_ID"\s+android:value="[^"]*"\s*\/>/;
+            const meta = `<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="${androidAppId}"/>`;
+            if (metaRe.test(manifest)) {
+              manifest = manifest.replace(metaRe, meta);
+              console.log('Updated AdMob APPLICATION_ID in AndroidManifest.xml');
+            } else {
+              manifest = manifest.replace('</application>', `        ${meta}\n    </application>`);
+              console.log('Inserted AdMob APPLICATION_ID into AndroidManifest.xml');
+            }
+            fs.writeFileSync(manifestPath, manifest);
+          } else if (!fs.existsSync(manifestPath)) {
+            throw new Error('AndroidManifest.xml not found — run Capacitor setup first');
+          }
+
+          // ── Info.plist: GADApplicationIdentifier + SKAdNetwork + ATT ──────
+          const plistPath = 'ios/App/App/Info.plist';
+          if (fs.existsSync(plistPath) && iosAppId) {
+            let plist = fs.readFileSync(plistPath, 'utf8');
+            if (plist.includes('GADApplicationIdentifier')) {
+              plist = plist.replace(
+                /(<key>GADApplicationIdentifier<\/key>\s*<string>)[^<]*(<\/string>)/,
+                `$1${iosAppId}$2`,
+              );
+              console.log('Updated GADApplicationIdentifier in Info.plist');
+            } else {
+              const block = [
+                '\t<key>GADApplicationIdentifier</key>',
+                `\t<string>${iosAppId}</string>`,
+                '\t<key>SKAdNetworkItems</key>',
+                '\t<array>',
+                '\t\t<dict>',
+                '\t\t\t<key>SKAdNetworkIdentifier</key>',
+                '\t\t\t<string>cbq32gaske.skadnetwork</string>',
+                '\t\t</dict>',
+                '\t</array>',
+                '\t<key>NSUserTrackingUsageDescription</key>',
+                '\t<string>This identifier will be used to deliver personalized ads to you.</string>',
+              ].join('\n');
+              plist = plist.replace(/<\/dict>\s*<\/plist>\s*$/, `${block}\n</dict>\n</plist>\n`);
+              console.log('Inserted AdMob keys into Info.plist');
+            }
+            fs.writeFileSync(plistPath, plist);
+          } else if (!fs.existsSync(plistPath)) {
+            throw new Error('ios/App/App/Info.plist not found — run Capacitor setup first');
+          }
+          EOF
+
+      - name: Commit and push changes
+        run: |
+          cd app-repo
+          git add .
+          if git diff --staged --quiet; then
+            echo "No changes to commit — addon was already configured"
+          else
+            git commit -m "chore: set up ${{ inputs.addon }} addon via bgp-admin"
+            git push https://x-access-token:${{ inputs.pat }}@github.com/${{ inputs.github_owner }}/${{ inputs.github_repo }}.git ${{ inputs.branch }}
+            echo "Addon setup committed and pushed successfully"
+          fi

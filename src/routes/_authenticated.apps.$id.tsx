@@ -9,6 +9,7 @@ import { AppAssetUpload } from "@/components/AppAssetUpload";
 import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
 import { AppNameEditor } from "@/components/AppNameEditor";
 import { AppSetupTab } from "@/components/AppSetupTab";
+import { AppAddonsTab } from "@/components/AppAddonsTab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 
@@ -107,6 +108,7 @@ function AppDetailPage() {
           <TabsTrigger value="splash">Splash</TabsTrigger>
           <TabsTrigger value="environment">Environment</TabsTrigger>
           <TabsTrigger value="setup">Setup</TabsTrigger>
+          <TabsTrigger value="addons">Addons</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general">
@@ -156,8 +158,8 @@ function AppDetailPage() {
             <div>
               <h2 className="text-xl font-semibold mb-2">Splash Screen</h2>
               <p className="text-sm text-muted-foreground">
-                Upload a square splash screen image to generate all required sizes for iOS and Android.
-                Choose background colors for light and dark modes.
+                Upload a square splash screen image to generate all required sizes for iOS and
+                Android. Choose background colors for light and dark modes.
               </p>
             </div>
             <AppAssetUpload
@@ -192,6 +194,25 @@ function AppDetailPage() {
               appId={id}
               bundleId={(app as any).bundle_id ?? null}
               appName={app.name}
+              onSuccess={() => {
+                qc.invalidateQueries({ queryKey: ["app", id] });
+              }}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="addons">
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-semibold mb-1">Addons</h2>
+              <p className="text-sm text-muted-foreground">
+                Optional features you can add to the app with one click. Each addon follows the same
+                pattern: do the console steps, paste the keys, press Install, then send the final
+                prompt to Lovable to wire it into the game.
+              </p>
+            </div>
+            <AppAddonsTab
+              appId={id}
               onSuccess={() => {
                 qc.invalidateQueries({ queryKey: ["app", id] });
               }}
