@@ -1,0 +1,80 @@
+name: Deploy
+
+on:
+  push:
+    branches: [deploy-app]
+  pull_request:
+    branches: [main]
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      deploy_ios:
+        description: "Deploy iOS"
+        type: boolean
+        default: false
+      deploy_android:
+        description: "Deploy Android"
+        type: boolean
+        default: false
+      marketing_version:
+        description: "Marketing version (e.g. 1.0). Leave empty to use package.json"
+        type: string
+        default: ""
+      generate_aab_only:
+        description: "Build AAB without uploading to Google Play (saves as downloadable artifact)"
+        type: boolean
+        default: false
+
+jobs:
+  ios:
+    if: |
+      github.ref == 'refs/heads/deploy-app' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_ios == true)
+    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-ios.yml@main
+    with:
+      marketing-version: ${{ inputs.marketing_version }}
+    secrets:
+      IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+      IOS_BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}
+      IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+      IOS_BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_BUILD_PROVISION_PROFILE_BASE64 }}
+      IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+      IOS_EXPORT_OPTIONS_PLIST: ${{ secrets.IOS_EXPORT_OPTIONS_PLIST }}
+      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+
+  android:
+    if: |
+      github.ref == 'refs/heads/deploy-app' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_android == true) ||
+      (github.event_name == 'workflow_dispatch' && inputs.generate_aab_only == true)
+    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@main
+    with:
+      package-name: com.biblegames.bgpadmin
+      marketing-version: ${{ inputs.marketing_version }}
+      skip-upload: ${{ inputs.generate_aab_only }}
+    secrets:
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+
+  notify:
+    needs: [ios, android]
+    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')
+    uses: Bible-Games-Project/bgp-admin/.github/workflows/notify-telegram.yml@main
+    with:
+      app-name: "BGP Admin"
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+  tag:
+    needs: [ios, android]
+    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')
+    permissions:
+      contents: write
+    uses: Bible-Games-Project/bgp-admin/.github/workflows/tag-release.yml@main
