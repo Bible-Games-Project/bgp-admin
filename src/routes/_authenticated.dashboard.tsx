@@ -326,12 +326,9 @@ function DashboardPage() {
     queryFn: () => listFn(),
     enabled: !!adminQ.data?.isAdmin,
   });
+  // No auto-selection: the user must explicitly pick a project to avoid
+  // accidentally deploying the wrong app.
   const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const apps = appsQ.data?.apps ?? [];
-    if (!selectedId && apps.length > 0) setSelectedId(apps[0].id);
-  }, [appsQ.data, selectedId]);
 
   if (adminQ.isLoading) {
     return (
@@ -406,9 +403,18 @@ function DashboardPage() {
         </div>
       </div>
 
+      {!selected && (
+        <div className="rounded-md border border-dashed border-border bg-card p-8 text-center">
+          <Boxes className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">
+            Selecciona un proyecto para ver el panel de deploy.
+          </p>
+        </div>
+      )}
+
       {selected && (
         <>
-          <DeployPanel 
+          <DeployPanel
             appId={selected.id} 
             defaultRef={selected.default_ref} 
             currentVersion={selected.marketing_version}
