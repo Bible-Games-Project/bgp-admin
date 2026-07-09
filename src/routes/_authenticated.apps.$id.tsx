@@ -11,6 +11,7 @@ import { AppNameEditor } from "@/components/AppNameEditor";
 import { AppSetupTab } from "@/components/AppSetupTab";
 import { AppAddonsTab } from "@/components/AppAddonsTab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/apps/$id")({
@@ -103,9 +104,7 @@ function AppDetailPage() {
       <Tabs defaultValue="general" className="w-full mb-6">
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="name">App Name</TabsTrigger>
-          <TabsTrigger value="icon">Icon</TabsTrigger>
-          <TabsTrigger value="splash">Splash</TabsTrigger>
+          <TabsTrigger value="branding">Branding</TabsTrigger>
           <TabsTrigger value="environment">Environment</TabsTrigger>
           <TabsTrigger value="setup">Setup</TabsTrigger>
           <TabsTrigger value="addons">Addons</TabsTrigger>
@@ -125,50 +124,52 @@ function AppDetailPage() {
           />
         </TabsContent>
 
-        <TabsContent value="name">
-          <AppNameEditor
-            appId={id}
-            onSuccess={() => {
-              qc.invalidateQueries({ queryKey: ["app", id] });
-            }}
-          />
-        </TabsContent>
-
-        <TabsContent value="icon">
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-xl font-semibold mb-2">App Icon</h2>
-              <p className="text-sm text-muted-foreground">
-                Upload a square icon image to generate all required iOS and Android icon sizes.
-                Optionally provide a dark mode variant for adaptive theming.
-              </p>
-            </div>
-            <AppAssetUpload
-              type="icon"
+        <TabsContent value="branding">
+          <div className="space-y-8">
+            <AppNameEditor
               appId={id}
               onSuccess={() => {
                 qc.invalidateQueries({ queryKey: ["app", id] });
               }}
             />
-          </div>
-        </TabsContent>
 
-        <TabsContent value="splash">
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-xl font-semibold mb-2">Splash Screen</h2>
-              <p className="text-sm text-muted-foreground">
-                Upload a square splash screen image to generate all required sizes for iOS and
-                Android. Choose background colors for light and dark modes.
-              </p>
+            <Separator />
+
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-xl font-semibold mb-2">App Icon</h2>
+                <p className="text-sm text-muted-foreground">
+                  Upload a square icon image to generate all required iOS and Android icon sizes.
+                  Optionally provide a dark mode variant for adaptive theming.
+                </p>
+              </div>
+              <AppAssetUpload
+                type="icon"
+                appId={id}
+                onSuccess={() => {
+                  qc.invalidateQueries({ queryKey: ["app", id] });
+                }}
+              />
             </div>
-            <AppAssetUpload
-              type="splash"
-              appId={id}
-              onSuccess={() => {
-                qc.invalidateQueries({ queryKey: ["app", id] });
-              }}
-            />
+
+            <Separator />
+
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-xl font-semibold mb-2">Splash Screen</h2>
+                <p className="text-sm text-muted-foreground">
+                  Upload a square splash screen image to generate all required sizes for iOS and
+                  Android. Choose background colors for light and dark modes.
+                </p>
+              </div>
+              <AppAssetUpload
+                type="splash"
+                appId={id}
+                onSuccess={() => {
+                  qc.invalidateQueries({ queryKey: ["app", id] });
+                }}
+              />
+            </div>
           </div>
         </TabsContent>
 
