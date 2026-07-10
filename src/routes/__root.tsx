@@ -18,9 +18,7 @@ function NotFoundComponent() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-display font-semibold text-foreground">404</h1>
-        <p className="mt-3 text-sm text-muted-foreground">
-          This route does not exist.
-        </p>
+        <p className="mt-3 text-sm text-muted-foreground">This route does not exist.</p>
         <div className="mt-6">
           <Link
             to="/dashboard"
@@ -40,9 +38,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-xl font-display font-semibold text-foreground">
-          Something broke
-        </h1>
+        <h1 className="text-xl font-display font-semibold text-foreground">Something broke</h1>
         <p className="mt-2 text-sm text-muted-foreground font-mono">{error.message}</p>
         <button
           onClick={() => {
@@ -62,7 +58,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      // viewport-fit=cover is required for env(safe-area-inset-*) to report
+      // real values in the Capacitor app (notch / home indicator handling)
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "BGP Admin" },
       { name: "description", content: "Internal administration" },
       { name: "robots", content: "noindex,nofollow" },
@@ -70,8 +68,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:title", content: "BGP Admin" },
       { property: "og:description", content: "Internal administration" },
       { name: "twitter:description", content: "Internal administration" },
-      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/f661683e-d20c-4074-93af-a65d77943e86" },
-      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/f661683e-d20c-4074-93af-a65d77943e86" },
+      {
+        property: "og:image",
+        content:
+          "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/f661683e-d20c-4074-93af-a65d77943e86",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/f661683e-d20c-4074-93af-a65d77943e86",
+      },
       { name: "twitter:card", content: "summary_large_image" },
       { property: "og:type", content: "website" },
     ],
@@ -109,7 +115,9 @@ function AuthListener() {
   const router = useRouter();
   const queryClient = useQueryClient();
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
       router.invalidate();
       queryClient.invalidateQueries();
     });

@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Rocket, LogOut, Terminal, ShieldCheck, Boxes, BookOpen, DollarSign } from "lucide-react";
 import {
   Sidebar,
@@ -27,6 +27,7 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const navigate = useNavigate();
 
   return (
     <Sidebar collapsible="icon">
@@ -71,8 +72,11 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               onClick={async () => {
+                // SPA navigation instead of window.location.href: a full page
+                // load of /login 404s inside the Capacitor app, where only
+                // index.html exists in the bundle.
                 await supabase.auth.signOut();
-                window.location.href = "/login";
+                navigate({ to: "/login", replace: true });
               }}
             >
               <LogOut className="h-4 w-4" />
