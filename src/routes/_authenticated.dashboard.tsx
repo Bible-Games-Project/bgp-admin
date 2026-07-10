@@ -18,6 +18,7 @@ import {
   getCommitsAheadOfLatestTag,
 } from "@/lib/deploy.functions";
 import { listApps } from "@/lib/apps.functions";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -256,8 +257,8 @@ function DeployPanel({
 function RunsHistory({ appId }: { appId: string }) {
   const runsFn = useServerFn(listRepoRuns);
   const q = useQuery({
-    queryKey: ["runs", appId],
-    queryFn: () => runsFn({ data: { appId } }),
+    queryKey: ["runs", appId, "deploy.yml"],
+    queryFn: () => runsFn({ data: { appId, workflowFile: "deploy.yml" } }),
     refetchInterval: 8000,
   });
 
@@ -321,6 +322,13 @@ function DashboardPage() {
   const adminFn = useServerFn(isCurrentUserAdmin);
   const listFn = useServerFn(listApps);
   const adminQ = useQuery({ queryKey: ["isAdmin"], queryFn: () => adminFn() });
+  const sessionQ = useQuery({
+    queryKey: ["sessionUser"],
+    queryFn: async () => {
+      const { data } = await supabase.auth.getUser();
+      return data.user ? { id: data.user.id, email: data.user.email ?? null } : null;
+    },
+  });
   const appsQ = useQuery({
     queryKey: ["apps"],
     queryFn: () => listFn(),
@@ -346,6 +354,21 @@ function DashboardPage() {
           Your account is signed in but not authorized to use this console. Ask an admin to
           add your user to the allow list.
         </p>
+        {sessionQ.data && (
+          <div className="mt-4 rounded-md border border-border bg-card p-3 text-xs font-mono space-y-1">
+            <div>
+              <span className="text-muted-foreground">signed in as: </span>
+              {sessionQ.data.email ?? "(no email)"}
+            </div>
+            <div>
+              <span className="text-muted-foreground">user_id: </span>
+              <span className="select-all">{sessionQ.data.id}</span>
+            </div>
+            <p className="text-muted-foreground pt-1">
+              An admin must add this exact user_id to the <code>admins</code> table.
+            </p>
+          </div>
+        )}
       </div>
     );
   }

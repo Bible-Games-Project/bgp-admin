@@ -156,15 +156,30 @@ export const listWorkflows = createServerFn({ method: "POST" })
 
 export const listRepoRuns = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input) => z.object({ appId: z.string().uuid() }).parse(input))
+  .inputValidator((input) =>
+    z
+      .object({
+        appId: z.string().uuid(),
+        workflowFile: z.string().min(1).max(255).optional(),
+      })
+      .parse(input),
+  )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
     const app = await loadApp(context.supabase, data.appId);
-    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/runs?per_page=15`;
+    const base = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions`;
+    const url = data.workflowFile
+      ? `${base}/workflows/${encodeURIComponent(data.workflowFile)}/runs?per_page=15`
+      : `${base}/runs?per_page=15`;
     const res = await fetch(url, { headers: githubHeaders() });
     if (!res.ok) {
       if (res.status === 404) {
-        return { runs: [], error: `GitHub returned 404 for ${app.github_owner}/${app.github_repo}. Most likely the repository is private — repos must be public. Also check for typos in owner/repo name (General tab).` };
+        return {
+          runs: [],
+          error: data.workflowFile
+            ? `GitHub returned 404 for ${data.workflowFile} in ${app.github_owner}/${app.github_repo}. The workflow file may not exist yet, or the repository is private/misnamed (General tab).`
+            : `GitHub returned 404 for ${app.github_owner}/${app.github_repo}. Most likely the repository is private — repos must be public. Also check for typos in owner/repo name (General tab).`,
+        };
       }
       const text = await res.text();
       return { runs: [], error: `GitHub API ${res.status}: ${text.slice(0, 200)}` };
