@@ -131,6 +131,52 @@ jobs:
             echo "No postbuild script found — skipping (run Capacitor Setup in bgp-admin if this is a TanStack Start app)"
           fi
 
+      - name: Inject safe area styles (notch / home indicator)
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const file = ['dist/client/index.html', 'dist/index.html'].find((f) => fs.existsSync(f));
+          if (!file) {
+            console.log('No built index.html found — skipping safe area injection');
+            process.exit(0);
+          }
+          let html = fs.readFileSync(file, 'utf8');
+          if (html.includes('id="bgp-safe-area"')) {
+            console.log('Safe area styles already present — skipping');
+            process.exit(0);
+          }
+
+          // env(safe-area-inset-*) only reports real values when viewport-fit=cover is set
+          const meta = html.match(/<meta[^>]*name=["']viewport["'][^>]*\/?>/i);
+          if (meta) {
+            let tag = meta[0];
+            if (/viewport-fit/i.test(tag)) {
+              tag = tag.replace(/viewport-fit=[\w-]*/i, 'viewport-fit=cover');
+            } else {
+              tag = tag.replace(/content=["']([^"']*)["']/i, (m, v) => `content="${v}, viewport-fit=cover"`);
+            }
+            html = html.replace(meta[0], tag);
+          } else {
+            html = html.replace(/<head[^>]*>/i, (m) =>
+              `${m}\n  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />`);
+          }
+
+          const style = [
+            '<style id="bgp-safe-area">',
+            '  body {',
+            '    padding-top: env(safe-area-inset-top, 0px);',
+            '    padding-right: env(safe-area-inset-right, 0px);',
+            '    padding-bottom: env(safe-area-inset-bottom, 0px);',
+            '    padding-left: env(safe-area-inset-left, 0px);',
+            '  }',
+            '</style>',
+          ].join('\n');
+          html = html.replace('</head>', `${style}\n</head>`);
+
+          fs.writeFileSync(file, html);
+          console.log(`Injected safe area styles into ${file}`);
+          EOF
+
       - name: Sync Capacitor (iOS)
         run: bunx cap sync ios
 
