@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "build:app": "CAPACITOR_BUILD=1 vite build && CAPACITOR_BUILD=1 node scripts/generate-capacitor-html.js",
+    "build:app": "vite build && CAPACITOR_BUILD=1 node scripts/generate-capacitor-html.js",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
