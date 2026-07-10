@@ -6,8 +6,17 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+// SPA prerender exists only to produce the static index.html the Capacitor app
+// boots from (see scripts/generate-capacitor-html.js). It must stay off for the
+// regular web build: Lovable's pipeline can't run the prerender phase, and the
+// SSR site doesn't need the file. Build the app bundle with `bun run build:app`.
+const capacitorBuild = process.env.CAPACITOR_BUILD === "1";
+
 export default defineConfig({
-  tanstackStart: { spa: { enabled: true, prerender: { outputPath: "index.html" } },
+  tanstackStart: {
+    ...(capacitorBuild
+      ? { spa: { enabled: true, prerender: { outputPath: "index.html" } } }
+      : {}),
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
     server: { entry: "server" },

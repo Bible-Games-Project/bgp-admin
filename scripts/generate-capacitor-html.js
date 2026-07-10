@@ -11,6 +11,12 @@ import path from 'node:path';
 // generates a minimal static shell with window.__TSR__ seeded so TanStack
 // Router's hydrate() invariants pass.
 
+// Only relevant for Capacitor app builds (bun run build:app). The regular web
+// build must not gain a static index.html — the site is SSR'd by the server.
+if (process.env.CAPACITOR_BUILD !== '1') {
+  process.exit(0);
+}
+
 if (!fs.existsSync('dist/client') || fs.existsSync('dist/client/index.html')) {
   process.exit(0);
 }
