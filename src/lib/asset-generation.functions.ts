@@ -259,11 +259,13 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
 
       const assetType = data.type === "icon" ? "app icon" : "splash screen";
       
-      // Cache icon as base64 data URL on apps row for fast list rendering.
-      // Only for icons, and only when payload is small enough (<= 500KB raw).
-      if (data.type === "icon" && imageData.length <= 500 * 1024) {
-        const base64 = data.imageData;
-        const dataUrl = `data:image/png;base64,${base64}`;
+      // Cache a small icon thumbnail on the apps row for fast list rendering.
+      // The thumbnail is generated client-side (~128x128 PNG) and kept tiny
+      // to avoid bloating the apps list payload.
+      if (data.type === "icon" && data.iconThumbnail) {
+        const dataUrl = data.iconThumbnail.startsWith("data:")
+          ? data.iconThumbnail
+          : `data:image/png;base64,${data.iconThumbnail}`;
         const { error: updErr } = await context.supabase
           .from("apps")
           .update({ icon_data_url: dataUrl })
