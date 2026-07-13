@@ -143,7 +143,8 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
     }
   };
 
-  const qc = useQueryClient();
+
+
 
   const previewQuery = useQuery({
     queryKey: ["app-asset-preview", appId, type],
