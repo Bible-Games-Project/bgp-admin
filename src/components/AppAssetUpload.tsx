@@ -149,6 +149,13 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
       const lightData = await fileToBase64(lightFile);
       const darkData = darkFile ? await fileToBase64(darkFile) : undefined;
 
+      // For icons, generate a tiny 128x128 PNG thumbnail (as a data URL) so
+      // the apps list can render the icon without pulling multi-MB payloads.
+      let iconThumbnail: string | undefined;
+      if (type === "icon") {
+        iconThumbnail = await generateThumbnailDataUrl(lightFile, 128);
+      }
+
       setStatus("Cloning repository...");
 
       // Call server function
@@ -160,6 +167,7 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
           imageDarkData: darkData,
           splashBgColor: type === "splash" ? splashBgLight : undefined,
           splashBgColorDark: type === "splash" ? splashBgDark : undefined,
+          iconThumbnail,
         },
       });
 
