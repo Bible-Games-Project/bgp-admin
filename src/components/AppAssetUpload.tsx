@@ -11,6 +11,27 @@ import { getAppAssetPreview } from "@/lib/app-assets.functions";
 
 type AssetType = "icon" | "splash";
 
+async function generateThumbnailDataUrl(file: File, size: number): Promise<string> {
+  const bitmapUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("Failed to load image for thumbnail"));
+      el.src = bitmapUrl;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context unavailable");
+    ctx.drawImage(img, 0, 0, size, size);
+    return canvas.toDataURL("image/png");
+  } finally {
+    URL.revokeObjectURL(bitmapUrl);
+  }
+}
+
 interface AppAssetUploadProps {
   type: AssetType;
   appId: string;
