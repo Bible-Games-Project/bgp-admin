@@ -138,13 +138,13 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
       // Upload light mode image
       const lightFileName = data.type === "icon" ? "logo.png" : "splash.png";
       console.log(`Uploading ${lightFileName} to assets/...`);
-      await uploadFile(`assets/${lightFileName}`, data.imageData);
+      await uploadFile(`assets/${lightFileName}`, imageData);
 
       // Upload dark mode image if provided
-      if (data.imageDarkData) {
+      if (imageDarkData) {
         const darkFileName = data.type === "icon" ? "logo-dark.png" : "splash-dark.png";
         console.log(`Uploading ${darkFileName} to assets/...`);
-        await uploadFile(`assets/${darkFileName}`, data.imageDarkData);
+        await uploadFile(`assets/${darkFileName}`, imageDarkData);
       }
 
       // Upload or update assets configuration file with colors
