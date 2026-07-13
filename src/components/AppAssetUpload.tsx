@@ -113,6 +113,36 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
 
   const uploadFn = useServerFn(uploadAndGenerateAsset);
   const previewFn = useServerFn(getAppAssetPreview);
+  const deleteFn = useServerFn(deleteAppAsset);
+  const qc = useQueryClient();
+  const [deletingMode, setDeletingMode] = useState<"light" | "dark" | null>(null);
+
+  const handleDelete = async (mode: "light" | "dark") => {
+    if (
+      !window.confirm(
+        `Delete the ${mode} ${typeLabel.toLowerCase()} from the repo? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setDeletingMode(mode);
+    try {
+      const result = await deleteFn({ data: { appId, type, mode } });
+      if (result.alreadyMissing) {
+        toast.info(`No ${mode} ${typeLabel.toLowerCase()} to delete.`);
+      } else {
+        toast.success(`${typeLabel} (${mode}) deleted.`);
+      }
+      qc.invalidateQueries({ queryKey: ["app-asset-preview", appId, type] });
+      onSuccess();
+    } catch (error) {
+      console.error("Delete failed:", error);
+      toast.error(error instanceof Error ? error.message : "Delete failed");
+    } finally {
+      setDeletingMode(null);
+    }
+  };
+
   const qc = useQueryClient();
 
   const previewQuery = useQuery({
