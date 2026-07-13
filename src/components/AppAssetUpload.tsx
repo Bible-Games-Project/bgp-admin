@@ -389,7 +389,7 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
               Processing...
             </>
           ) : (
-            `Generate & Deploy ${typeLabel}`
+            `Generate & Push ${typeLabel}`
           )}
         </Button>
       </div>
