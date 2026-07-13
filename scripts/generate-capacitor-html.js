@@ -5,9 +5,13 @@ import path from 'node:path';
 // TanStack Start build (run via `bun run build:app`). The SSR web build must
 // not gain this file, so the script is gated behind CAPACITOR_BUILD=1.
 //
-// The shell seeds window.__TSR__ so TanStack Router's hydrate() invariants
-// pass, then loads the client entry; the app renders fully client-side and
-// talks to the deployed server for server functions (see src/start.ts).
+// The shell seeds the router bootstrap globals so TanStack Router's hydrate()
+// invariants pass, then loads the client entry; the app renders fully
+// client-side and talks to the deployed server for server functions (see
+// src/start.ts). Router versions differ in which global they read:
+//   - older:  window.__TSR__ with { dehydrated: { router: ... } }
+//   - newer (router-core >= ~1.168): window.$_TSR with { buffer, router }
+// Seeding both is harmless; each version only reads its own.
 //
 // Supports both build layouts:
 //   - .output/public + .output/server  (@lovable.dev/vite-tanstack-config >= 2.7)
@@ -82,8 +86,22 @@ const parts = [
   '<head>',
   '  <meta charset="UTF-8" />',
   '  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />',
-  '  <script>window.__TSR__={dehydrated:{router:{state:{dehydratedMatches:[]}}}}</script>',
+  '  <script>',
+  '    window.__TSR__={dehydrated:{router:{state:{dehydratedMatches:[]}}}};',
+  '    window.$_TSR={buffer:[],router:{matches:[]},h(){},e(){},c(){},p(cb){this.initialized?cb():this.buffer.push(cb)}};',
+  '  </script>',
   cssLinks,
+  // viewport-fit=cover lets the webview extend under the notch/home indicator;
+  // this padding pushes the content back inside the safe area. Same block the
+  // deploy workflows inject (keyed by id) — they skip it when already present.
+  '  <style id="bgp-safe-area">',
+  '    body {',
+  '      padding-top: env(safe-area-inset-top, 0px);',
+  '      padding-right: env(safe-area-inset-right, 0px);',
+  '      padding-bottom: env(safe-area-inset-bottom, 0px);',
+  '      padding-left: env(safe-area-inset-left, 0px);',
+  '    }',
+  '  </style>',
   `  <script type="module" src="${clientEntry}"></script>`,
   '</head>',
   '<body></body>',
