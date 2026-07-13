@@ -52,14 +52,35 @@ async function fetchGithubFileAsDataUrl(
     throw new Error(`GitHub API error ${res.status}: ${await res.text()}`);
   }
   const json: any = await res.json();
-  if (!json || json.type !== "file" || typeof json.content !== "string") {
+  if (!json || json.type !== "file") {
     return null;
   }
-  // GitHub returns base64 with line breaks
-  const base64 = json.content.replace(/\n/g, "");
   const ext = path.toLowerCase().endsWith(".jpg") || path.toLowerCase().endsWith(".jpeg")
     ? "image/jpeg"
     : "image/png";
+
+  let base64 = typeof json.content === "string" ? json.content.replace(/\s/g, "") : "";
+
+  // GitHub Contents API returns empty content for files >1MB. Fall back to
+  // the blob API (which supports up to 100MB) using the file's SHA.
+  if (!base64 && json.sha) {
+    const blobUrl = `https://api.github.com/repos/${owner}/${repo}/git/blobs/${json.sha}`;
+    const blobRes = await fetch(blobUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "bgp-admin",
+      },
+    });
+    if (!blobRes.ok) {
+      throw new Error(`GitHub blob API error ${blobRes.status}: ${await blobRes.text()}`);
+    }
+    const blobJson: any = await blobRes.json();
+    base64 = typeof blobJson.content === "string" ? blobJson.content.replace(/\s/g, "") : "";
+  }
+
+  if (!base64) return null;
   return { dataUrl: `data:${ext};base64,${base64}`, sha: json.sha };
 }
 
