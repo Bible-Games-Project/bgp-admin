@@ -126,7 +126,7 @@ jobs:
       - name: Generate index.html for TanStack Start builds
         run: |
           if [ -f "scripts/generate-capacitor-html.js" ]; then
-            node scripts/generate-capacitor-html.js
+            CAPACITOR_BUILD=1 node scripts/generate-capacitor-html.js
           else
             echo "No postbuild script found — skipping (run Capacitor Setup in bgp-admin if this is a TanStack Start app)"
           fi
@@ -135,7 +135,7 @@ jobs:
         run: |
           node - <<'EOF'
           const fs = require('fs');
-          const file = ['dist/client/index.html', 'dist/index.html'].find((f) => fs.existsSync(f));
+          const file = ['.output/public/index.html', 'dist/client/index.html', 'dist/index.html'].find((f) => fs.existsSync(f));
           if (!file) {
             console.log('No built index.html found — skipping safe area injection');
             process.exit(0);
