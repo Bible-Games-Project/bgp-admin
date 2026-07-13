@@ -273,7 +273,7 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
       return {
         success: true,
         commitUrl: `https://github.com/${owner}/${repo}/tree/${branch}/assets`,
-        message: `${assetType.charAt(0).toUpperCase() + assetType.slice(1)} generated and deployed successfully for iOS and Android.`,
+        message: `${assetType.charAt(0).toUpperCase() + assetType.slice(1)} generated and pushed to the repo. Trigger a deploy from the Deploy screen to publish it.`,
       };
     } catch (error) {
       console.error("Asset upload failed:", error);
