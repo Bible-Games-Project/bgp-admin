@@ -130,15 +130,24 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
     setStatus("Preparing upload...");
 
     try {
-      // Convert files to Uint8Array
-      const lightBuffer = await lightFile.arrayBuffer();
-      const lightData = new Uint8Array(lightBuffer);
+      // Convert files to base64 strings (sent as strings over RPC to avoid
+      // seroval Uint8Array deserialization issues on Cloudflare Workers).
+      const fileToBase64 = async (file: File): Promise<string> => {
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(
+            null,
+            Array.from(bytes.subarray(i, i + chunkSize))
+          );
+        }
+        return btoa(binary);
+      };
 
-      let darkData: Uint8Array | undefined;
-      if (darkFile) {
-        const darkBuffer = await darkFile.arrayBuffer();
-        darkData = new Uint8Array(darkBuffer);
-      }
+      const lightData = await fileToBase64(lightFile);
+      const darkData = darkFile ? await fileToBase64(darkFile) : undefined;
 
       setStatus("Cloning repository...");
 
