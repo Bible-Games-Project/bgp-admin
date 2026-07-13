@@ -3,11 +3,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Loader2, ExternalLink, RefreshCw, ImageOff } from "lucide-react";
+import { Loader2, ExternalLink, RefreshCw, ImageOff, Trash2 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { uploadAndGenerateAsset } from "@/lib/asset-generation.functions";
-import { getAppAssetPreview } from "@/lib/app-assets.functions";
+import { getAppAssetPreview, deleteAppAsset } from "@/lib/app-assets.functions";
+
 
 type AssetType = "icon" | "splash";
 
@@ -112,7 +113,38 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
 
   const uploadFn = useServerFn(uploadAndGenerateAsset);
   const previewFn = useServerFn(getAppAssetPreview);
+  const deleteFn = useServerFn(deleteAppAsset);
   const qc = useQueryClient();
+  const [deletingMode, setDeletingMode] = useState<"light" | "dark" | null>(null);
+
+  const handleDelete = async (mode: "light" | "dark") => {
+    if (
+      !window.confirm(
+        `Delete the ${mode} ${typeLabel.toLowerCase()} from the repo? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setDeletingMode(mode);
+    try {
+      const result = await deleteFn({ data: { appId, type, mode } });
+      if (result.alreadyMissing) {
+        toast.info(`No ${mode} ${typeLabel.toLowerCase()} to delete.`);
+      } else {
+        toast.success(`${typeLabel} (${mode}) deleted.`);
+      }
+      qc.invalidateQueries({ queryKey: ["app-asset-preview", appId, type] });
+      onSuccess();
+    } catch (error) {
+      console.error("Delete failed:", error);
+      toast.error(error instanceof Error ? error.message : "Delete failed");
+    } finally {
+      setDeletingMode(null);
+    }
+  };
+
+
+
 
   const previewQuery = useQuery({
     queryKey: ["app-asset-preview", appId, type],
@@ -329,10 +361,10 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
           </p>
         ) : (
           <div className="grid grid-cols-2 gap-4">
-            {[
-              { label: "Light", src: previewQuery.data?.light },
-              { label: "Dark", src: previewQuery.data?.dark },
-            ].map((slot) => (
+            {([
+              { label: "Light", mode: "light" as const, src: previewQuery.data?.light },
+              { label: "Dark", mode: "dark" as const, src: previewQuery.data?.dark },
+            ]).map((slot) => (
               <div key={slot.label} className="space-y-2">
                 <p className="text-xs font-mono text-muted-foreground">
                   {slot.label}
@@ -349,9 +381,26 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
                     <span className="text-[10px] font-mono">not uploaded</span>
                   </div>
                 )}
+                {slot.src && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDelete(slot.mode)}
+                    disabled={deletingMode !== null || uploading}
+                    className="gap-2 w-32 text-destructive hover:text-destructive"
+                  >
+                    {deletingMode === slot.mode ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    Delete
+                  </Button>
+                )}
               </div>
             ))}
           </div>
+
         )}
       </div>
 

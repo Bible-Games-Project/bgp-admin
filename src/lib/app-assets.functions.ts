@@ -130,3 +130,76 @@ export const getAppAssetPreview = createServerFn({ method: "POST" })
       repo: `${app.github_owner}/${app.github_repo}`,
     };
   });
+
+export const deleteAppAsset = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        appId: z.string().uuid(),
+        type: z.enum(["icon", "splash"]),
+        mode: z.enum(["light", "dark"]),
+      })
+      .parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const token = getGithubPAT();
+
+    const path =
+      data.type === "icon"
+        ? data.mode === "light"
+          ? "mobile-assets/logo.png"
+          : "mobile-assets/logo-dark.png"
+        : data.mode === "light"
+          ? "mobile-assets/splash.png"
+          : "mobile-assets/splash-dark.png";
+
+    // Look up current SHA
+    const existing = await fetchGithubFileAsDataUrl(
+      app.github_owner,
+      app.github_repo,
+      app.default_ref,
+      path,
+      token
+    );
+    if (!existing) {
+      return { success: true, alreadyMissing: true as const };
+    }
+
+    const delRes = await fetch(
+      `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/${encodeURIComponent(path)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "bgp-admin",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: `chore: delete ${path} via bgp-admin`,
+          sha: existing.sha,
+          branch: app.default_ref,
+        }),
+      }
+    );
+    if (!delRes.ok) {
+      const errText = await delRes.text();
+      throw new Error(`GitHub delete failed ${delRes.status}: ${errText}`);
+    }
+
+    // If deleting the light icon, also clear the cached thumbnail on the app row.
+    if (data.type === "icon" && data.mode === "light") {
+      const { error: updErr } = await context.supabase
+        .from("apps")
+        .update({ icon_data_url: null })
+        .eq("id", data.appId);
+      if (updErr) console.error("Failed to clear icon_data_url:", updErr.message);
+    }
+
+    return { success: true, alreadyMissing: false as const };
+  });
+
