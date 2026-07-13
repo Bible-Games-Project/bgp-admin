@@ -40,3 +40,6 @@ supabase/.temp/
 
 # Claude Code
 .claude/
+
+# Local asset generation output (belongs in target app repos, not here)
+assets/
