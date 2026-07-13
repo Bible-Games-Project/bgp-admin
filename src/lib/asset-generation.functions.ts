@@ -46,8 +46,8 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
       .object({
         appId: z.string().uuid(),
         type: z.enum(["icon", "splash"]),
-        imageData: z.instanceof(Uint8Array),
-        imageDarkData: z.instanceof(Uint8Array).optional(),
+        imageData: z.string(),
+        imageDarkData: z.string().optional(),
         splashBgColor: z.string().optional(),
         splashBgColorDark: z.string().optional(),
       })
@@ -60,13 +60,25 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
     // Load app data
     const app = await loadApp(context.supabase, data.appId);
 
+    // Decode base64 image payloads into Uint8Array (sent as base64 strings
+    // over RPC to avoid seroval Uint8Array deserialization issues on Workers).
+    const base64ToUint8 = (b64: string): Uint8Array => {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    };
+    const imageData = base64ToUint8(data.imageData);
+    const imageDarkData = data.imageDarkData ? base64ToUint8(data.imageDarkData) : undefined;
+
     // Validate image data
-    if (data.imageData.length > 5 * 1024 * 1024) {
+    if (imageData.length > 5 * 1024 * 1024) {
       throw new Error("Image size must be less than 5MB");
     }
-    if (data.imageDarkData && data.imageDarkData.length > 5 * 1024 * 1024) {
+    if (imageDarkData && imageDarkData.length > 5 * 1024 * 1024) {
       throw new Error("Dark mode image size must be less than 5MB");
     }
+
 
     const owner = app.github_owner;
     const repo = app.github_repo;
