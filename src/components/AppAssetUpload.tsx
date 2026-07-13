@@ -207,24 +207,21 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
     setStatus("Preparing upload...");
 
     try {
-      // Convert files to base64 strings (sent as strings over RPC to avoid
-      // seroval Uint8Array deserialization issues on Cloudflare Workers).
-      const fileToBase64 = async (file: File): Promise<string> => {
-        const buffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        let binary = "";
-        const chunkSize = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-          binary += String.fromCharCode.apply(
-            null,
-            Array.from(bytes.subarray(i, i + chunkSize))
-          );
-        }
-        return btoa(binary);
-      };
+      // Downscale to the max size @capacitor/assets actually needs.
+      // Anything larger is wasted bytes in the repo commit — the generator
+      // resizes down anyway. PNG output is lossless.
+      //   icon:   1024x1024 (App Store / Android adaptive)
+      //   splash: 2732x2732 (iPad Pro 12.9")
+      const maxSize = type === "icon" ? 1024 : 2732;
 
-      const lightData = await fileToBase64(lightFile);
-      const darkData = darkFile ? await fileToBase64(darkFile) : undefined;
+      setStatus("Optimizing image...");
+      const lightBytes = await downscaleSquareToPngBytes(lightFile, maxSize);
+      const darkBytes = darkFile
+        ? await downscaleSquareToPngBytes(darkFile, maxSize)
+        : undefined;
+
+      const lightData = uint8ToBase64(lightBytes);
+      const darkData = darkBytes ? uint8ToBase64(darkBytes) : undefined;
 
       // For icons, generate a tiny 128x128 PNG thumbnail (as a data URL) so
       // the apps list can render the icon without pulling multi-MB payloads.
