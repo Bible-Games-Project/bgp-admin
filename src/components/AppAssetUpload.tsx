@@ -361,10 +361,10 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
           </p>
         ) : (
           <div className="grid grid-cols-2 gap-4">
-            {[
-              { label: "Light", src: previewQuery.data?.light },
-              { label: "Dark", src: previewQuery.data?.dark },
-            ].map((slot) => (
+            {([
+              { label: "Light", mode: "light" as const, src: previewQuery.data?.light },
+              { label: "Dark", mode: "dark" as const, src: previewQuery.data?.dark },
+            ]).map((slot) => (
               <div key={slot.label} className="space-y-2">
                 <p className="text-xs font-mono text-muted-foreground">
                   {slot.label}
@@ -381,9 +381,26 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
                     <span className="text-[10px] font-mono">not uploaded</span>
                   </div>
                 )}
+                {slot.src && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDelete(slot.mode)}
+                    disabled={deletingMode !== null || uploading}
+                    className="gap-2 w-32 text-destructive hover:text-destructive"
+                  >
+                    {deletingMode === slot.mode ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    Delete
+                  </Button>
+                )}
               </div>
             ))}
           </div>
+
         )}
       </div>
 
