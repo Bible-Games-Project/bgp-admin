@@ -1,4 +1,4 @@
-.PHONY: help run dev install clean format lint check supabase-start supabase-stop supabase-reset
+.PHONY: help run dev install clean format lint check supabase-start supabase-stop supabase-reset sync-ios sync-android
 
 # Default target
 .DEFAULT_GOAL := help
@@ -27,6 +27,16 @@ build: ## Build for production
 preview: ## Preview production build locally
 	@echo "👀 Previewing production build..."
 	bun run preview
+
+sync-ios: ## Build app bundle and sync Capacitor iOS
+	@echo "📱 Building and syncing iOS..."
+	bun run build:app
+	bunx cap sync ios
+
+sync-android: ## Build app bundle and sync Capacitor Android
+	@echo "🤖 Building and syncing Android..."
+	bun run build:app
+	bunx cap sync android
 
 format: ## Format code with Prettier
 	@echo "✨ Formatting code..."
