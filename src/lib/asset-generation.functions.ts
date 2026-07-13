@@ -137,14 +137,14 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
 
       // Upload light mode image
       const lightFileName = data.type === "icon" ? "logo.png" : "splash.png";
-      console.log(`Uploading ${lightFileName} to assets/...`);
-      await uploadFile(`assets/${lightFileName}`, imageData);
+      console.log(`Uploading ${lightFileName} to mobile-assets/...`);
+      await uploadFile(`mobile-assets/${lightFileName}`, imageData);
 
       // Upload dark mode image if provided
       if (imageDarkData) {
         const darkFileName = data.type === "icon" ? "logo-dark.png" : "splash-dark.png";
-        console.log(`Uploading ${darkFileName} to assets/...`);
-        await uploadFile(`assets/${darkFileName}`, imageDarkData);
+        console.log(`Uploading ${darkFileName} to mobile-assets/...`);
+        await uploadFile(`mobile-assets/${darkFileName}`, imageDarkData);
       }
 
       // Upload or update assets configuration file with colors
@@ -155,8 +155,8 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
       }, null, 2);
       
       const configBytes = new TextEncoder().encode(configContent);
-      console.log("Uploading assets configuration...");
-      await uploadFile("assets/config.json", configBytes);
+      console.log("Uploading mobile-assets configuration...");
+      await uploadFile("mobile-assets/config.json", configBytes);
 
       // Trigger the centralized GitHub Action workflow in bgp-admin to generate all asset sizes
       console.log("Triggering centralized asset generation workflow...");
