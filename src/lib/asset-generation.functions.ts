@@ -258,8 +258,8 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
       
       // Cache icon as base64 data URL on apps row for fast list rendering.
       // Only for icons, and only when payload is small enough (<= 500KB raw).
-      if (data.type === "icon" && data.imageData.length <= 500 * 1024) {
-        const base64 = uint8ArrayToBase64(data.imageData);
+      if (data.type === "icon" && imageData.length <= 500 * 1024) {
+        const base64 = data.imageData;
         const dataUrl = `data:image/png;base64,${base64}`;
         const { error: updErr } = await context.supabase
           .from("apps")
