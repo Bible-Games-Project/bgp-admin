@@ -55,8 +55,8 @@ jobs:
         id: check_assets
         run: |
           cd app-repo
-          if [ ! -d "assets" ]; then
-            echo "Error: assets/ directory not found in repository"
+          if [ ! -d "mobile-assets" ]; then
+            echo "Error: mobile-assets/ directory not found in repository"
             exit 1
           fi
           
@@ -65,17 +65,17 @@ jobs:
             exit 1
           fi
           
-          echo "✓ Assets directory and Capacitor config found"
+          echo "✓ mobile-assets directory and Capacitor config found"
       
       - name: Parse asset configuration
         id: config
         run: |
           cd app-repo
           
-          if [ -f "assets/config.json" ]; then
-            ICON_BG=$(cat assets/config.json | grep -o '"iconBackgroundColor"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "#ffffff")
-            SPLASH_BG=$(cat assets/config.json | grep -o '"splashBackgroundColor"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "#ffffff")
-            SPLASH_BG_DARK=$(cat assets/config.json | grep -o '"splashBackgroundColorDark"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "#000000")
+          if [ -f "mobile-assets/config.json" ]; then
+            ICON_BG=$(cat mobile-assets/config.json | grep -o '"iconBackgroundColor"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "#ffffff")
+            SPLASH_BG=$(cat mobile-assets/config.json | grep -o '"splashBackgroundColor"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "#ffffff")
+            SPLASH_BG_DARK=$(cat mobile-assets/config.json | grep -o '"splashBackgroundColorDark"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "#000000")
           else
             ICON_BG="#ffffff"
             SPLASH_BG="#ffffff"
@@ -96,9 +96,11 @@ jobs:
           echo "  Splash BG Dark: ${{ steps.config.outputs.splash_bg_dark }}"
           
           npx @capacitor/assets generate \
+            --assetPath mobile-assets \
             --iconBackgroundColor "${{ steps.config.outputs.icon_bg }}" \
             --splashBackgroundColor "${{ steps.config.outputs.splash_bg }}" \
             --splashBackgroundColorDark "${{ steps.config.outputs.splash_bg_dark }}"
+
       
       - name: Commit and push changes
         run: |

@@ -100,9 +100,9 @@ export const getAppAssetPreview = createServerFn({ method: "POST" })
     const token = getGithubPAT();
 
     const lightPath =
-      data.type === "icon" ? "assets/logo.png" : "assets/splash.png";
+      data.type === "icon" ? "mobile-assets/logo.png" : "mobile-assets/splash.png";
     const darkPath =
-      data.type === "icon" ? "assets/logo-dark.png" : "assets/splash-dark.png";
+      data.type === "icon" ? "mobile-assets/logo-dark.png" : "mobile-assets/splash-dark.png";
 
     const [light, dark] = await Promise.all([
       fetchGithubFileAsDataUrl(
