@@ -50,6 +50,9 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
         imageDarkData: z.string().optional(),
         splashBgColor: z.string().optional(),
         splashBgColorDark: z.string().optional(),
+        // Small client-generated base64 PNG thumbnail (icon only) for
+        // fast list rendering. Stored on apps.icon_data_url as a data URL.
+        iconThumbnail: z.string().optional(),
       })
       .parse(input)
   )
