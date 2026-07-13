@@ -272,7 +272,7 @@ export const uploadAndGenerateAsset = createServerFn({ method: "POST" })
 
       return {
         success: true,
-        commitUrl: `https://github.com/${owner}/${repo}/tree/${branch}/assets`,
+        commitUrl: `https://github.com/${owner}/${repo}/tree/${branch}/mobile-assets`,
         message: `${assetType.charAt(0).toUpperCase() + assetType.slice(1)} generated and pushed to the repo. Trigger a deploy from the Deploy screen to publish it.`,
       };
     } catch (error) {
