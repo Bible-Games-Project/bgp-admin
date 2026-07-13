@@ -102,6 +102,15 @@
     font-feature-settings: "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* App-shell: the document itself never scrolls; the layout's <main> is
+       the only scroller. The Capacitor shell (#bgp-safe-area) pads <body>
+       with safe-area insets, which would make the document taller than the
+       viewport and reintroduce body scroll — neutralize it; the layout
+       reserves the insets in its own header/footer instead. */
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    padding: 0 !important;
   }
 
   h1, h2, h3, h4 {

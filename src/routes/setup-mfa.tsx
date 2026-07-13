@@ -85,20 +85,16 @@ function SetupMfaPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12">
-      <div className="w-full max-w-sm">
+    <div className="h-dvh overflow-y-auto flex bg-background px-4 py-12">
+      <div className="w-full max-w-sm m-auto">
         <div className="flex items-center gap-2 mb-8">
           <ShieldPlus className="h-4 w-4 text-primary" />
-          <span className="font-display font-semibold text-sm">
-            bgp / enable 2fa
-          </span>
+          <span className="font-display font-semibold text-sm">bgp / enable 2fa</span>
         </div>
-        <h1 className="text-2xl font-display font-semibold tracking-tight">
-          Set up two-factor
-        </h1>
+        <h1 className="text-2xl font-display font-semibold tracking-tight">Set up two-factor</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Two-factor is required. Scan the QR with an authenticator app
-          (1Password, Authy, Google Authenticator) and enter the 6-digit code.
+          Two-factor is required. Scan the QR with an authenticator app (1Password, Authy, Google
+          Authenticator) and enter the 6-digit code.
         </p>
 
         {bootstrapping ? (
@@ -140,20 +136,11 @@ function SetupMfaPage() {
                   autoFocus
                 />
               </div>
-              <Button
-                type="submit"
-                disabled={loading || code.length !== 6}
-                className="w-full"
-              >
+              <Button type="submit" disabled={loading || code.length !== 6} className="w-full">
                 {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Verify and enable
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full"
-                onClick={cancel}
-              >
+              <Button type="button" variant="ghost" className="w-full" onClick={cancel}>
                 Cancel and sign out
               </Button>
             </form>

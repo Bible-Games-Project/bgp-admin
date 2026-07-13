@@ -24,8 +24,11 @@ const items = [
 ];
 
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, isMobile, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
+  const closeMobileSidebar = () => {
+    if (isMobile) setOpenMobile(false);
+  };
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
 
@@ -55,7 +58,11 @@ export function AppSidebar() {
                         : pathname === item.url || pathname.startsWith(item.url + "/")
                     }
                   >
-                    <Link to={item.url} className="flex items-center gap-2">
+                    <Link
+                      to={item.url}
+                      className="flex items-center gap-2"
+                      onClick={closeMobileSidebar}
+                    >
                       <item.icon className="h-4 w-4" />
                       {!collapsed && <span>{item.title}</span>}
                     </Link>

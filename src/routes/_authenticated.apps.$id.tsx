@@ -84,7 +84,7 @@ function AppDetailPage() {
         <div>
           <span className="label-mono">app</span>
           <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">{app.name}</h1>
-          <p className="text-xs text-muted-foreground font-mono mt-1">
+          <p className="text-xs text-muted-foreground font-mono mt-1 break-all">
             {app.github_owner}/{app.github_repo}
           </p>
         </div>
@@ -102,7 +102,9 @@ function AppDetailPage() {
       </div>
 
       <Tabs defaultValue="general" className="w-full mb-6">
-        <TabsList>
+        {/* justify-start + internal scroll: on narrow screens the strip pans
+            within itself instead of overflowing the page */}
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="branding">Branding</TabsTrigger>
           <TabsTrigger value="environment">Environment</TabsTrigger>

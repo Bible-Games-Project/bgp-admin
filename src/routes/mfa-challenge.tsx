@@ -32,8 +32,7 @@ function MfaChallengePage() {
         return;
       }
       setFactorId(totp.id);
-      const { data: aal } =
-        await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       if (aal?.currentLevel === "aal2") {
         navigate({ to: "/dashboard", replace: true });
       }
@@ -65,24 +64,22 @@ function MfaChallengePage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm">
+    <div className="h-dvh overflow-y-auto flex bg-background px-4">
+      <div className="w-full max-w-sm m-auto">
         <div className="flex items-center gap-2 mb-8">
           <ShieldCheck className="h-4 w-4 text-primary" />
-          <span className="font-display font-semibold text-sm">
-            bgp / two-factor
-          </span>
+          <span className="font-display font-semibold text-sm">bgp / two-factor</span>
         </div>
-        <h1 className="text-2xl font-display font-semibold tracking-tight">
-          Enter your code
-        </h1>
+        <h1 className="text-2xl font-display font-semibold tracking-tight">Enter your code</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Open your authenticator app and enter the 6-digit code.
         </p>
 
         <form onSubmit={submit} className="mt-8 space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="code" className="label-mono">Code</Label>
+            <Label htmlFor="code" className="label-mono">
+              Code
+            </Label>
             <Input
               id="code"
               inputMode="numeric"
@@ -97,20 +94,11 @@ function MfaChallengePage() {
               autoFocus
             />
           </div>
-          <Button
-            type="submit"
-            disabled={loading || code.length !== 6}
-            className="w-full"
-          >
+          <Button type="submit" disabled={loading || code.length !== 6} className="w-full">
             {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Verify
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            className="w-full"
-            onClick={cancel}
-          >
+          <Button type="button" variant="ghost" className="w-full" onClick={cancel}>
             Cancel and sign out
           </Button>
         </form>

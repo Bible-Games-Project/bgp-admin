@@ -58,27 +58,27 @@ function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 relative">
+    <div className="h-dvh overflow-y-auto flex bg-background px-4 relative">
       {loading && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
           <span className="label-mono text-xs text-muted-foreground">Signing in…</span>
         </div>
       )}
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-sm m-auto">
         <div className="flex items-center gap-2 mb-8">
           <Terminal className="h-4 w-4 text-primary" />
           <span className="font-display font-semibold text-sm">bgp / console</span>
         </div>
 
         <h1 className="text-2xl font-display font-semibold tracking-tight">Sign in</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Restricted access. Admins only.
-        </p>
+        <p className="text-sm text-muted-foreground mt-1">Restricted access. Admins only.</p>
 
         <form onSubmit={submit} className="mt-8 space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="email" className="label-mono">Email</Label>
+            <Label htmlFor="email" className="label-mono">
+              Email
+            </Label>
             <Input
               id="email"
               type="email"
@@ -90,7 +90,9 @@ function LoginPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="password" className="label-mono">Password</Label>
+            <Label htmlFor="password" className="label-mono">
+              Password
+            </Label>
             <Input
               id="password"
               type="password"

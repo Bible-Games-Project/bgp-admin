@@ -9,12 +9,10 @@ export const Route = createFileRoute("/forbidden")({
 
 function ForbiddenPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm text-center">
+    <div className="h-dvh overflow-y-auto flex bg-background px-4">
+      <div className="w-full max-w-sm m-auto text-center">
         <ShieldAlert className="h-8 w-8 text-destructive mx-auto" />
-        <h1 className="text-2xl font-display font-semibold tracking-tight mt-4">
-          Access denied
-        </h1>
+        <h1 className="text-2xl font-display font-semibold tracking-tight mt-4">Access denied</h1>
         <p className="text-sm text-muted-foreground mt-2">
           Your account is not authorized for this console.
         </p>
