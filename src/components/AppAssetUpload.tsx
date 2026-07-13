@@ -32,6 +32,62 @@ async function generateThumbnailDataUrl(file: File, size: number): Promise<strin
   }
 }
 
+/**
+ * Downscale a square image to at most `maxSize`x`maxSize` (PNG, lossless).
+ * If the file is already <= maxSize, returns the original bytes untouched.
+ * Assumes the file has been validated as square.
+ */
+async function downscaleSquareToPngBytes(
+  file: File,
+  maxSize: number
+): Promise<Uint8Array> {
+  const bitmapUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("Failed to load image for resize"));
+      el.src = bitmapUrl;
+    });
+    if (img.width <= maxSize) {
+      // Already at or below target size — send the original bytes.
+      const buf = await file.arrayBuffer();
+      return new Uint8Array(buf);
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = maxSize;
+    canvas.height = maxSize;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context unavailable");
+    // High-quality downscale
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, 0, 0, maxSize, maxSize);
+    const blob: Blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("Canvas toBlob failed"))),
+        "image/png"
+      );
+    });
+    const buf = await blob.arrayBuffer();
+    return new Uint8Array(buf);
+  } finally {
+    URL.revokeObjectURL(bitmapUrl);
+  }
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(
+      null,
+      Array.from(bytes.subarray(i, i + chunkSize))
+    );
+  }
+  return btoa(binary);
+}
+
 interface AppAssetUploadProps {
   type: AssetType;
   appId: string;
@@ -151,24 +207,21 @@ export function AppAssetUpload({ type, appId, onSuccess }: AppAssetUploadProps) 
     setStatus("Preparing upload...");
 
     try {
-      // Convert files to base64 strings (sent as strings over RPC to avoid
-      // seroval Uint8Array deserialization issues on Cloudflare Workers).
-      const fileToBase64 = async (file: File): Promise<string> => {
-        const buffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        let binary = "";
-        const chunkSize = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-          binary += String.fromCharCode.apply(
-            null,
-            Array.from(bytes.subarray(i, i + chunkSize))
-          );
-        }
-        return btoa(binary);
-      };
+      // Downscale to the max size @capacitor/assets actually needs.
+      // Anything larger is wasted bytes in the repo commit — the generator
+      // resizes down anyway. PNG output is lossless.
+      //   icon:   1024x1024 (App Store / Android adaptive)
+      //   splash: 2732x2732 (iPad Pro 12.9")
+      const maxSize = type === "icon" ? 1024 : 2732;
 
-      const lightData = await fileToBase64(lightFile);
-      const darkData = darkFile ? await fileToBase64(darkFile) : undefined;
+      setStatus("Optimizing image...");
+      const lightBytes = await downscaleSquareToPngBytes(lightFile, maxSize);
+      const darkBytes = darkFile
+        ? await downscaleSquareToPngBytes(darkFile, maxSize)
+        : undefined;
+
+      const lightData = uint8ToBase64(lightBytes);
+      const darkData = darkBytes ? uint8ToBase64(darkBytes) : undefined;
 
       // For icons, generate a tiny 128x128 PNG thumbnail (as a data URL) so
       // the apps list can render the icon without pulling multi-MB payloads.
