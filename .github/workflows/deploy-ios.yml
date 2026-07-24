@@ -43,6 +43,21 @@ on:
         required: false
         type: string
         default: ""
+      bundle-identifier:
+        description: "iOS bundle identifier, required when submit-for-review is true"
+        required: false
+        type: string
+        default: ""
+      submit-for-review:
+        description: "After uploading, attach the build to an App Store version and submit it for Apple review"
+        required: false
+        type: boolean
+        default: false
+      release-notes:
+        description: "What's New / release notes for the App Store version, required when submit-for-review is true"
+        required: false
+        type: string
+        default: ""
     secrets:
       IOS_TEAM_ID:
         required: true
@@ -428,6 +443,161 @@ jobs:
             --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
             --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
             --verbose
+
+      - name: Submit build for App Store review
+        if: inputs.submit-for-review == true
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          BUNDLE_IDENTIFIER: ${{ inputs.bundle-identifier }}
+          RELEASE_NOTES: ${{ inputs.release-notes }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BUNDLE_IDENTIFIER" ]; then
+            echo "❌ submit-for-review is true but bundle-identifier was not provided."
+            exit 1
+          fi
+          if [ -z "$RELEASE_NOTES" ]; then
+            echo "❌ submit-for-review is true but release-notes was not provided."
+            exit 1
+          fi
+
+          node - <<'EOF'
+          const crypto = require('crypto');
+
+          const keyId = process.env.APP_STORE_CONNECT_API_KEY_ID;
+          const issuerId = process.env.APP_STORE_CONNECT_ISSUER_ID;
+          const privateKey = Buffer.from(process.env.APP_STORE_CONNECT_API_KEY_BASE64, 'base64').toString('utf-8');
+          const bundleId = process.env.BUNDLE_IDENTIFIER;
+          const versionString = process.env.MARKETING_VERSION;
+          const buildNumber = process.env.BUILD_NUMBER;
+          const releaseNotes = process.env.RELEASE_NOTES;
+
+          function base64url(input) {
+            return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+          }
+
+          function mintToken() {
+            const header = { alg: 'ES256', kid: keyId, typ: 'JWT' };
+            const now = Math.floor(Date.now() / 1000);
+            const payload = { iss: issuerId, iat: now, exp: now + 1190, aud: 'appstoreconnect-v1' };
+            const unsigned = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`;
+            const signature = crypto.sign('sha256', Buffer.from(unsigned), { key: privateKey, dsaEncoding: 'ieee-p1363' });
+            return `${unsigned}.${base64url(signature)}`;
+          }
+
+          async function api(method, path, body) {
+            const res = await fetch(`https://api.appstoreconnect.apple.com${path}`, {
+              method,
+              headers: {
+                Authorization: `Bearer ${mintToken()}`,
+                'Content-Type': 'application/json',
+              },
+              body: body ? JSON.stringify(body) : undefined,
+            });
+            const text = await res.text();
+            const json = text ? JSON.parse(text) : {};
+            if (!res.ok) {
+              throw new Error(`${method} ${path} -> ${res.status}: ${text.slice(0, 500)}`);
+            }
+            return json;
+          }
+
+          async function main() {
+            console.log(`Looking up app by bundle id ${bundleId}...`);
+            const appsRes = await api('GET', `/v1/apps?filter[bundleId]=${encodeURIComponent(bundleId)}`);
+            const app = appsRes.data && appsRes.data[0];
+            if (!app) throw new Error(`No app found in App Store Connect for bundle id ${bundleId}`);
+            const appId = app.id;
+            console.log(`App id: ${appId}`);
+
+            console.log(`Waiting for build ${buildNumber} (version ${versionString}) to finish processing...`);
+            const deadline = Date.now() + 45 * 60 * 1000;
+            let build = null;
+            while (Date.now() < deadline) {
+              const buildsRes = await api(
+                'GET',
+                `/v1/builds?filter[app]=${appId}&filter[version]=${encodeURIComponent(buildNumber)}&filter[preReleaseVersion.version]=${encodeURIComponent(versionString)}&fields[builds]=processingState,version`,
+              );
+              const candidate = buildsRes.data && buildsRes.data[0];
+              if (candidate) {
+                console.log(`Build ${candidate.id} processingState=${candidate.attributes.processingState}`);
+                if (candidate.attributes.processingState === 'VALID') {
+                  build = candidate;
+                  break;
+                }
+                if (candidate.attributes.processingState === 'INVALID' || candidate.attributes.processingState === 'FAILED') {
+                  throw new Error(`Build processing failed with state ${candidate.attributes.processingState}`);
+                }
+              } else {
+                console.log('Build not visible in App Store Connect yet...');
+              }
+              await new Promise((r) => setTimeout(r, 30000));
+            }
+            if (!build) throw new Error('Timed out waiting for build to finish processing in App Store Connect.');
+
+            console.log('Looking for an editable App Store version...');
+            const versionsRes = await api(
+              'GET',
+              `/v1/apps/${appId}/appStoreVersions?filter[platform]=IOS&filter[versionString]=${encodeURIComponent(versionString)}`,
+            );
+            let version = versionsRes.data && versionsRes.data[0];
+            if (!version) {
+              console.log(`No existing App Store version ${versionString} — creating one.`);
+              const created = await api('POST', '/v1/appStoreVersions', {
+                data: {
+                  type: 'appStoreVersions',
+                  attributes: { platform: 'IOS', versionString },
+                  relationships: { app: { data: { type: 'apps', id: appId } } },
+                },
+              });
+              version = created.data;
+            } else {
+              const state = version.attributes.appStoreState;
+              const editableStates = ['PREPARE_FOR_SUBMISSION', 'DEVELOPER_REJECTED', 'REJECTED', 'METADATA_REJECTED', 'INVALID_BINARY'];
+              if (!editableStates.includes(state)) {
+                throw new Error(`App Store version ${versionString} is in state ${state}, which is not editable. Resolve it manually in App Store Connect.`);
+              }
+            }
+            console.log(`Using App Store version ${version.id}`);
+
+            console.log('Attaching build to version...');
+            await api('PATCH', `/v1/appStoreVersions/${version.id}`, {
+              data: {
+                type: 'appStoreVersions',
+                id: version.id,
+                relationships: { build: { data: { type: 'builds', id: build.id } } },
+              },
+            });
+
+            console.log('Updating release notes (en-US)...');
+            const locRes = await api('GET', `/v1/appStoreVersions/${version.id}/appStoreVersionLocalizations`);
+            const loc = (locRes.data && locRes.data.find((l) => l.attributes.locale === 'en-US')) || (locRes.data && locRes.data[0]);
+            if (loc) {
+              await api('PATCH', `/v1/appStoreVersionLocalizations/${loc.id}`, {
+                data: { type: 'appStoreVersionLocalizations', id: loc.id, attributes: { whatsNew: releaseNotes } },
+              });
+            } else {
+              console.log('No localization found to attach release notes to — skipping (set one up in App Store Connect first).');
+            }
+
+            console.log('Submitting version for App Store review...');
+            await api('POST', '/v1/appStoreVersionSubmissions', {
+              data: {
+                type: 'appStoreVersionSubmissions',
+                relationships: { appStoreVersion: { data: { type: 'appStoreVersions', id: version.id } } },
+              },
+            });
+
+            console.log(`✅ Submitted App Store version ${versionString} (build ${build.id}) for review.`);
+          }
+
+          main().catch((err) => {
+            console.error('❌ ' + err.message);
+            process.exit(1);
+          });
+          EOF
 
       - name: Upload IPA as artifact
         uses: actions/upload-artifact@v4
