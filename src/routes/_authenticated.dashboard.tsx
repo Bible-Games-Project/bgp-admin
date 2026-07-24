@@ -9,6 +9,7 @@ import {
   RefreshCw,
   GitBranch,
   Boxes,
+  TriangleAlert,
 } from "lucide-react";
 import {
   isCurrentUserAdmin,
@@ -27,6 +28,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -97,6 +107,8 @@ function DeployPanel({
   const marketingVersion = `${major || "0"}.${minor || "0"}`;
   const [deployIos, setDeployIos] = useState(true);
   const [deployAndroid, setDeployAndroid] = useState(true);
+  const [prodDialogOpen, setProdDialogOpen] = useState(false);
+  const [releaseNotes, setReleaseNotes] = useState("");
 
   useEffect(() => setRef(defaultRef), [defaultRef]);
 
@@ -150,6 +162,37 @@ function DeployPanel({
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const prodDeployM = useMutation({
+    mutationFn: () =>
+      deployFn({
+        data: {
+          appId,
+          workflowFile: "deploy.yml",
+          ref,
+          inputs: {
+            deploy_ios: deployIos,
+            deploy_android: deployAndroid,
+            marketing_version: marketingVersion.trim() || undefined,
+            production: true,
+            release_notes: releaseNotes.trim(),
+          },
+        },
+      }),
+    onSuccess: () => {
+      const platforms = [];
+      if (deployIos) platforms.push("iOS");
+      if (deployAndroid) platforms.push("Android");
+      const versionStr = marketingVersion.trim() ? ` v${marketingVersion}` : "";
+      toast.success(`Publicando a producción ${platforms.join(" + ")}${versionStr} on ${ref}`);
+      setProdDialogOpen(false);
+      setReleaseNotes("");
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["runs", appId] }), 1500);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const releaseNotesMissing = deployIos && !releaseNotes.trim();
 
   return (
     <section className="mb-10">
@@ -248,8 +291,80 @@ function DeployPanel({
             )}
             Publicar
           </Button>
+
+          <Button
+            variant="destructive"
+            onClick={() => setProdDialogOpen(true)}
+            disabled={deployM.isPending || prodDeployM.isPending || !ref.trim() || (!deployIos && !deployAndroid)}
+            className="gap-2"
+          >
+            {prodDeployM.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <TriangleAlert className="h-4 w-4" />
+            )}
+            Publicar a producción
+          </Button>
         </div>
       </div>
+
+      <Dialog open={prodDialogOpen} onOpenChange={(open) => !prodDeployM.isPending && setProdDialogOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Publicar a producción</DialogTitle>
+            <DialogDescription>
+              Esto publica en la pista de producción de Google Play
+              {deployIos ? " y envía el build a revisión de Apple para su publicación en la App Store" : ""}.
+              No es una acción trivialmente reversible.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="rounded-md border border-border bg-muted/30 p-3 text-xs font-mono space-y-1">
+              <div>rama: <span className="text-foreground">{ref}</span></div>
+              <div>versión: <span className="text-foreground">{marketingVersion || "—"}</span></div>
+              <div>
+                plataformas:{" "}
+                <span className="text-foreground">
+                  {[deployIos && "iOS", deployAndroid && "Android"].filter(Boolean).join(" + ") || "ninguna"}
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                Release notes / What&apos;s New {deployIos && <span className="text-destructive">*</span>}
+              </label>
+              <Textarea
+                value={releaseNotes}
+                onChange={(e) => setReleaseNotes(e.target.value)}
+                placeholder="Qué ha cambiado en esta versión…"
+                rows={4}
+              />
+              {releaseNotesMissing && (
+                <p className="text-xs text-destructive mt-1">
+                  Obligatorio: el envío a revisión de Apple requiere release notes.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProdDialogOpen(false)} disabled={prodDeployM.isPending}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => prodDeployM.mutate()}
+              disabled={prodDeployM.isPending || releaseNotesMissing}
+              className="gap-2"
+            >
+              {prodDeployM.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Confirmar publicación a producción
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
