@@ -34,11 +34,11 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           packageManager: bun
           command: deploy --config .output/server/wrangler.json
-          # Pushed as real Worker secrets (not committed) — required server-side by
-          # src/integrations/supabase/client.server.ts and src/lib/*.functions.ts.
+          # Pushed as a real Worker secret (not committed) — required server-side by
+          # src/lib/*.functions.ts to call the GitHub API and trigger deploys.
+          # SUPABASE_SERVICE_ROLE_KEY isn't listed here: it's unused (no code
+          # imports supabaseAdmin) and Lovable Cloud doesn't expose its value anyway.
           secrets: |
-            SUPABASE_SERVICE_ROLE_KEY
             GITHUB_PAT
         env:
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
