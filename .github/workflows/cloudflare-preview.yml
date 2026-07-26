@@ -1,0 +1,47 @@
+name: Cloudflare Preview
+
+# Deploys the admin panel itself to Cloudflare Workers for preview purposes
+# only, replacing Lovable's auto-publish-on-commit. Publishing the actual
+# apps (iOS/Android) stays manual, triggered from BGP Admin — see deploy.yml.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: cloudflare-preview
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: bun
+          command: deploy --config .output/server/wrangler.json
+          # Pushed as a real Worker secret named GITHUB_PAT (not committed) — required
+          # server-side by src/lib/*.functions.ts to call the GitHub API and trigger
+          # deploys. The GitHub Actions secret itself is named GH_PAT because GitHub
+          # rejects secret names starting with "GITHUB_"; only the Worker-side name
+          # (what process.env.GITHUB_PAT reads) needs to match the app's code.
+          # SUPABASE_SERVICE_ROLE_KEY isn't listed here: it's unused (no code
+          # imports supabaseAdmin) and Lovable Cloud doesn't expose its value anyway.
+          secrets: |
+            GITHUB_PAT
+        env:
+          GITHUB_PAT: ${{ secrets.GH_PAT }}
