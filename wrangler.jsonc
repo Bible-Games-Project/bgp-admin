@@ -1,0 +1,8 @@
+{
+  "$schema": "https://developers.cloudflare.com/workers/wrangler/wrangler-schema.json",
+  // Base config for the Cloudflare preview deploy (.github/workflows/cloudflare-preview.yml).
+  // Nitro's cloudflare-module preset merges this with the config it generates at
+  // .output/server/wrangler.json (main entry, assets dir, compatibility flags) on `bun run build`.
+  // See https://nitro.build/deploy/providers/cloudflare
+  "name": "bgp-admin-preview"
+}
