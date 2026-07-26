@@ -34,11 +34,14 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           packageManager: bun
           command: deploy --config .output/server/wrangler.json
-          # Pushed as a real Worker secret (not committed) — required server-side by
-          # src/lib/*.functions.ts to call the GitHub API and trigger deploys.
+          # Pushed as a real Worker secret named GITHUB_PAT (not committed) — required
+          # server-side by src/lib/*.functions.ts to call the GitHub API and trigger
+          # deploys. The GitHub Actions secret itself is named GH_PAT because GitHub
+          # rejects secret names starting with "GITHUB_"; only the Worker-side name
+          # (what process.env.GITHUB_PAT reads) needs to match the app's code.
           # SUPABASE_SERVICE_ROLE_KEY isn't listed here: it's unused (no code
           # imports supabaseAdmin) and Lovable Cloud doesn't expose its value anyway.
           secrets: |
             GITHUB_PAT
         env:
-          GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+          GITHUB_PAT: ${{ secrets.GH_PAT }}
