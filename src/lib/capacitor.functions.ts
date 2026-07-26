@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { PREVIEW_WORKFLOW_PATH, commitPreviewWorkflow } from "@/lib/github.functions";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -554,6 +555,33 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
       commitUrl: result.commit?.html_url as string | undefined,
       message: "deploy.yml created successfully.",
     };
+  });
+
+export const checkPreviewDeployWorkflow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const branch = app.default_ref || "main";
+    const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/${PREVIEW_WORKFLOW_PATH}?ref=${encodeURIComponent(branch)}`;
+    const res = await fetch(url, { headers: githubHeaders() });
+    return { exists: res.ok, previewUrl: `https://${app.github_repo}.pages.dev` };
+  });
+
+export const createPreviewDeployWorkflow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const branch = app.default_ref || "main";
+    const result = await commitPreviewWorkflow({
+      owner: app.github_owner,
+      repo: app.github_repo,
+      branch,
+    });
+    return { ...result, message: "preview-deploy.yml created successfully." };
   });
 
 export const generateAndroidAab = createServerFn({ method: "POST" })

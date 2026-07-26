@@ -4,6 +4,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
+const GITHUB_ORG = "Bible-Games-Project";
 
 export type AppFormValues = {
   slug: string;
@@ -35,15 +38,19 @@ export function AppForm({
   submitLabel,
   onSubmit,
   onCancel,
+  showCreateRepoOption = false,
 }: {
   initial: AppFormValues;
   submitting: boolean;
   submitLabel: string;
-  onSubmit: (v: AppFormValues) => void;
+  onSubmit: (v: AppFormValues, meta: { createRepo: boolean }) => void;
   onCancel?: () => void;
+  showCreateRepoOption?: boolean;
 }) {
   const [v, setV] = useState<AppFormValues>(initial);
   const [repoError, setRepoError] = useState<string | null>(null);
+  const [repoMode, setRepoMode] = useState<"link" | "create">("link");
+  const createRepo = showCreateRepoOption && repoMode === "create";
 
   const upd = <K extends keyof AppFormValues>(k: K, val: AppFormValues[K]) =>
     setV((s) => ({ ...s, [k]: val }));
@@ -60,15 +67,40 @@ export function AppForm({
     e.preventDefault();
     const normalized = normalizeRepo(v.github_repo);
     if (normalized.includes("/") || /https?:/i.test(normalized) || !normalized) {
-      setRepoError("Enter just the repo name (e.g. eden-choice-chronicles), no URL or slashes.");
+      setRepoError(
+        createRepo
+          ? "Enter just the new repo name (e.g. eden-choice-chronicles), no URL or slashes."
+          : "Enter just the repo name (e.g. eden-choice-chronicles), no URL or slashes.",
+      );
       return;
     }
     setRepoError(null);
-    onSubmit({ ...v, github_repo: normalized });
+    onSubmit({ ...v, github_owner: createRepo ? GITHUB_ORG : v.github_owner, github_repo: normalized }, { createRepo });
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {showCreateRepoOption && (
+        <div className="space-y-1.5">
+          <Label className="text-xs font-mono uppercase text-muted-foreground">Repository</Label>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            value={repoMode}
+            onValueChange={(val) => {
+              if (val) {
+                setRepoMode(val as "link" | "create");
+                setRepoError(null);
+              }
+            }}
+            className="justify-start"
+          >
+            <ToggleGroupItem value="link">Link existing repo</ToggleGroupItem>
+            <ToggleGroupItem value="create">Create new repo</ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Slug" hint="lowercase, dashes (e.g. eden)">
           <Input value={v.slug} onChange={(e) => upd("slug", e.target.value)} required />
@@ -76,22 +108,45 @@ export function AppForm({
         <Field label="Display name">
           <Input value={v.name} onChange={(e) => upd("name", e.target.value)} required />
         </Field>
-        <Field label="GitHub owner">
-          <Input value={v.github_owner} onChange={(e) => upd("github_owner", e.target.value)} required />
-        </Field>
-        <Field label="Repo name" hint="just the repo name, e.g. eden-choice-chronicles">
-          <Input
-            value={v.github_repo}
-            onChange={(e) => {
-              upd("github_repo", e.target.value);
-              if (repoError) setRepoError(null);
-            }}
-            onBlur={(e) => upd("github_repo", normalizeRepo(e.target.value))}
-            placeholder="eden-choice-chronicles"
-            required
-          />
-          {repoError && <p className="text-[11px] text-destructive">{repoError}</p>}
-        </Field>
+        {createRepo ? (
+          <>
+            <Field label="GitHub org" hint="fixed for all apps">
+              <Input value={GITHUB_ORG} disabled />
+            </Field>
+            <Field label="New repo name" hint="will be created as a public repo, e.g. eden-choice-chronicles">
+              <Input
+                value={v.github_repo}
+                onChange={(e) => {
+                  upd("github_repo", e.target.value);
+                  if (repoError) setRepoError(null);
+                }}
+                onBlur={(e) => upd("github_repo", normalizeRepo(e.target.value))}
+                placeholder={v.slug || "eden-choice-chronicles"}
+                required
+              />
+              {repoError && <p className="text-[11px] text-destructive">{repoError}</p>}
+            </Field>
+          </>
+        ) : (
+          <>
+            <Field label="GitHub owner">
+              <Input value={v.github_owner} onChange={(e) => upd("github_owner", e.target.value)} required />
+            </Field>
+            <Field label="Repo name" hint="just the repo name, e.g. eden-choice-chronicles">
+              <Input
+                value={v.github_repo}
+                onChange={(e) => {
+                  upd("github_repo", e.target.value);
+                  if (repoError) setRepoError(null);
+                }}
+                onBlur={(e) => upd("github_repo", normalizeRepo(e.target.value))}
+                placeholder="eden-choice-chronicles"
+                required
+              />
+              {repoError && <p className="text-[11px] text-destructive">{repoError}</p>}
+            </Field>
+          </>
+        )}
         <Field label="Default branch">
           <Input value={v.default_ref} onChange={(e) => upd("default_ref", e.target.value)} required />
         </Field>

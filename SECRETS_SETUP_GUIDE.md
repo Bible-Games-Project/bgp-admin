@@ -6,13 +6,14 @@ This guide explains **which secrets you need** and **where to configure them** s
 
 ## 📊 Overall Status
 
-**Total progress:** 14/14 secrets configured (100%) ✅
+**Total progress:** 16/16 secrets configured (100%) ✅
 
 - ✅ **bgp-admin**: 1/1 (100%)
 - ✅ **iOS Organization**: 7/7 (100%)
 - ✅ **iOS Repository (per app)**: 2/2 (100%)
 - ✅ **Android Organization**: 1/1 (100%)
 - ✅ **Android Repository (per app)**: 3/3 (100%)
+- ✅ **Cloudflare Organization (preview deploys)**: 2/2 (100%)
 
 🎉 **All secrets are configured. The deployment system is fully operational.**
 
@@ -136,18 +137,19 @@ base64 -i file.ext
 ### Secret:
 - [x] `GITHUB_PAT` ✅
 
+**Note:** `GITHUB_PAT` is a **classic** personal access token (not fine-grained), so its permissions are plain scopes rather than a per-repository/per-permission matrix.
+
 ### Completed steps:
 
-- [x] Go to GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens
-- [x] Create token with:
-  - [x] **Repository access**: All repositories under `Bible-Games-Project` organization (or select specific app repos)
-  - [x] **Permissions**: 
-    - [x] **Actions** - Read and write (required for triggering centralized asset generation workflow)
-    - [x] **Contents** - Read and write (required for uploading asset files and cloning app repos)
-  - [x] **Expiration**: Configured
+- [x] Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
+- [x] Create/update token with scopes:
+  - [x] **`repo`** - Full control of repositories (read/write contents, and required to create new repositories in the `Bible-Games-Project` org)
+  - [x] **`workflow`** - Required to read/write `.github/workflows/*.yml` files and trigger Actions
 - [x] Token copied
 - [x] Configured in Lovable Cloud (Environment Variables → GITHUB_PAT)
 - [x] **Also configured as GitHub Secret in bgp-admin repository**: Go to https://github.com/Bible-Games-Project/bgp-admin/settings/secrets/actions → New repository secret → Name: `GITHUB_PAT`, Value: (paste token)
+
+**Used for:** everything above, plus creating brand-new app repositories from `Apps → New app → Create new repo` (`POST /orgs/Bible-Games-Project/repos`).
 
 **Note:** The asset management feature (icon and splash screen) works as follows:
 1. BGP Admin uploads the source images to `assets/` via GitHub Contents API (to the app repo)
@@ -614,6 +616,37 @@ base64 -i ExportOptions.plist | pbcopy
 
 ---
 
+## 4️⃣ Cloudflare Pages Preview Deploys ✅
+
+**Level:** Organization secrets
+**Exact location:**
+1. Go to: https://github.com/organizations/Bible-Games-Project/settings/secrets/actions
+2. Click **"New organization secret"**
+3. Repository access: **"All repositories"** (so every new app repo works with zero per-app setup)
+
+**Configure these 2 secrets at Organization level:**
+
+#### 1. `CLOUDFLARE_API_TOKEN` ✅
+
+**How to get it:**
+1. Go to https://dash.cloudflare.com → My Profile → API Tokens → Create Token
+2. Use the "Edit Cloudflare Workers" template, or a custom token with **Account → Cloudflare Pages → Edit**
+3. Generate and copy the token (shown only once)
+
+- [x] Token created ✅
+- [x] Added as `CLOUDFLARE_API_TOKEN` secret at **Organization** level ✅
+
+#### 2. `CLOUDFLARE_ACCOUNT_ID` ✅
+
+**How to get it:** Cloudflare dashboard → right sidebar (or Workers & Pages page)
+
+- [x] Account ID copied ✅
+- [x] Added as `CLOUDFLARE_ACCOUNT_ID` secret at **Organization** level ✅
+
+**What this powers:** every app repo created via `Apps → New app → Create new repo` gets a `.github/workflows/preview-deploy.yml` workflow committed automatically. On every push to `main`, it builds the app and deploys it to Cloudflare Pages, producing a stable preview URL at `https://<repo-name>.pages.dev` (surfaced in the app's **Setup** tab, step "Preview Deploy"). The workflow tolerates a repo with no buildable code yet — it just skips the deploy step and finishes green.
+
+---
+
 ## 📝 Final Configuration Checklist
 
 ### bgp-admin:
@@ -643,6 +676,10 @@ base64 -i ExportOptions.plist | pbcopy
 #### Android Repository:
 - [x] `KEY_ALIAS` ✅
 
+#### Cloudflare Organization:
+- [x] `CLOUDFLARE_API_TOKEN` ✅
+- [x] `CLOUDFLARE_ACCOUNT_ID` ✅
+
 ---
 
 ## 🔗 Direct Configuration Links
@@ -662,6 +699,7 @@ base64 -i ExportOptions.plist | pbcopy
 | App Store Connect API Keys | [App Store Connect Keys](https://appstoreconnect.apple.com/access/integrations/api) |
 | Android Keystore | Generate locally with `keytool` |
 | Google Play Service Account | [Google Cloud Console](https://console.cloud.google.com/iam-admin/serviceaccounts) |
+| Cloudflare API Token + Account ID | [Cloudflare Dashboard](https://dash.cloudflare.com) → My Profile → API Tokens |
 
 ---
 

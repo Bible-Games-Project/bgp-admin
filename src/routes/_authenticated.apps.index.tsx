@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Plus, Boxes, Github, ImageIcon } from "lucide-react";
 import { listApps, createApp } from "@/lib/apps.functions";
+import { createAppRepo } from "@/lib/github.functions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,16 +24,41 @@ function AppsPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(listApps);
   const createFn = useServerFn(createApp);
+  const createRepoFn = useServerFn(createAppRepo);
   const [open, setOpen] = useState(false);
 
   const q = useQuery({ queryKey: ["apps"], queryFn: () => listFn() });
 
   const createM = useMutation({
-    mutationFn: (data: any) => createFn({ data }),
+    mutationFn: ({ viaRepoCreation, ...data }: any) => createFn({ data }),
     onSuccess: () => {
       toast.success("App created");
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["apps"] });
+    },
+    onError: (e: Error, vars: any) => {
+      if (vars.viaRepoCreation) {
+        toast.error(
+          `${e.message} — the GitHub repo ${vars.github_owner}/${vars.github_repo} was already created; switch to "Link existing repo" and use that repo name to retry.`,
+        );
+      } else {
+        toast.error(e.message);
+      }
+    },
+  });
+
+  const createRepoM = useMutation({
+    mutationFn: (v: any) => createRepoFn({ data: { name: v.github_repo } }),
+    onSuccess: (result, v) => {
+      if (result.warning) toast.warning(result.warning, { duration: 12000 });
+      createM.mutate({
+        ...v,
+        github_owner: result.owner,
+        github_repo: result.repo,
+        default_ref: result.defaultBranch,
+        notes: v.notes || null,
+        viaRepoCreation: true,
+      });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -56,13 +82,16 @@ function AppsPage() {
             </DialogHeader>
             <AppForm
               initial={emptyAppForm}
-              submitting={createM.isPending}
+              submitting={createRepoM.isPending || createM.isPending}
               submitLabel="Create app"
-              onSubmit={(v) =>
-                createM.mutate({
-                  ...v,
-                  notes: v.notes || null,
-                })
+              showCreateRepoOption
+              onSubmit={(v, meta) =>
+                meta.createRepo
+                  ? createRepoM.mutate(v)
+                  : createM.mutate({
+                      ...v,
+                      notes: v.notes || null,
+                    })
               }
               onCancel={() => setOpen(false)}
             />

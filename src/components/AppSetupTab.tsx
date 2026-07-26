@@ -24,6 +24,8 @@ import {
   configureIosSecrets,
   checkDeployWorkflow,
   createDeployWorkflow,
+  checkPreviewDeployWorkflow,
+  createPreviewDeployWorkflow,
 } from "@/lib/capacitor.functions";
 import { listSetupSteps, setSetupStep } from "@/lib/app-setup.functions";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -54,6 +56,8 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
   const configureIosSecretsFn = useServerFn(configureIosSecrets);
   const checkDeployFn = useServerFn(checkDeployWorkflow);
   const createDeployFn = useServerFn(createDeployWorkflow);
+  const checkPreviewDeployFn = useServerFn(checkPreviewDeployWorkflow);
+  const createPreviewDeployFn = useServerFn(createPreviewDeployWorkflow);
 
   const capacitorQ = useQuery({
     queryKey: ["capacitor-status", appId],
@@ -78,6 +82,11 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
   const deployQ = useQuery({
     queryKey: ["deploy-workflow", appId],
     queryFn: () => checkDeployFn({ data: { appId } }),
+  });
+
+  const previewDeployQ = useQuery({
+    queryKey: ["preview-deploy-workflow", appId],
+    queryFn: () => checkPreviewDeployFn({ data: { appId } }),
   });
 
   const listSetupFn = useServerFn(listSetupSteps);
@@ -207,12 +216,38 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const previewDeployM = useMutation({
+    mutationFn: () => createPreviewDeployFn({ data: { appId } }),
+    onSuccess: (result) => {
+      toast.success(
+        <div className="flex items-center gap-2">
+          <span>{result.message}</span>
+          {result.commitUrl && (
+            <a
+              href={result.commitUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              View commit <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>,
+        { duration: 8000 },
+      );
+      qc.invalidateQueries({ queryKey: ["preview-deploy-workflow", appId] });
+      onSuccess();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const cs = capacitorQ.data;
   const capacitorDone = cs?.hasConfig && cs?.hasIos && cs?.hasAndroid;
   const androidSigningDone = androidSigningQ.data?.configured ?? false;
   const keystoreDone = keystoreQ.data?.configured ?? false;
   const iosSecretsDone = iosSecretsQ.data?.configured ?? false;
   const deployDone = deployQ.data?.exists ?? false;
+  const previewDeployDone = previewDeployQ.data?.exists ?? false;
 
   return (
     <div className="space-y-1">
@@ -517,7 +552,7 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
             : "Create the deploy.yml workflow that wires iOS and Android deploys to the centralized bgp-admin CI."
         }
         done={deployDone}
-        isLast={true}
+        isLast={false}
         statusContent={
           deployQ.isLoading ? (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -548,6 +583,57 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               aria-label="Refresh"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${deployQ.isFetching ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+        }
+      />
+
+      <SetupStep
+        number={7}
+        title="Preview Deploy"
+        description="Add a GitHub Actions workflow that builds and deploys to Cloudflare Pages on every push to main, so you can preview progress before publishing to the store."
+        done={previewDeployDone}
+        isLast={true}
+        statusContent={
+          previewDeployQ.isLoading ? (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" /> Checking…
+            </span>
+          ) : (
+            <div className="flex flex-col gap-1.5 mt-2">
+              <StatusRow label=".github/workflows/preview-deploy.yml" ok={previewDeployDone} />
+              {previewDeployDone && previewDeployQ.data?.previewUrl && (
+                <a
+                  href={previewDeployQ.data.previewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline w-fit"
+                >
+                  {previewDeployQ.data.previewUrl} <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          )
+        }
+        actionContent={
+          <div className="flex items-center gap-3 mt-3">
+            <Button
+              size="sm"
+              variant={previewDeployDone ? "outline" : "default"}
+              disabled={previewDeployM.isPending}
+              onClick={() => previewDeployM.mutate()}
+            >
+              {previewDeployM.isPending ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Creating…</>
+              ) : previewDeployDone ? "Re-create" : "Create Preview Workflow"}
+            </Button>
+            <button
+              onClick={() => qc.invalidateQueries({ queryKey: ["preview-deploy-workflow", appId] })}
+              disabled={previewDeployQ.isFetching}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Refresh"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${previewDeployQ.isFetching ? "animate-spin" : ""}`} />
             </button>
           </div>
         }
