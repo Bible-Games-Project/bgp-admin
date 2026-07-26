@@ -4,5 +4,15 @@
   // Nitro's cloudflare-module preset merges this with the config it generates at
   // .output/server/wrangler.json (main entry, assets dir, compatibility flags) on `bun run build`.
   // See https://nitro.build/deploy/providers/cloudflare
-  "name": "bgp-admin-preview"
+  "name": "bgp-admin-preview",
+  // Non-secret server-side config the app reads via process.env (see
+  // src/integrations/supabase/client.ts and auth-middleware.ts). Same
+  // values already committed in .env (VITE_SUPABASE_*) — the anon/publishable
+  // key is designed to be public. SUPABASE_SERVICE_ROLE_KEY and GITHUB_PAT
+  // are NOT here: they're real secrets, pushed as Worker secrets from GitHub
+  // Actions secrets in cloudflare-preview.yml instead.
+  "vars": {
+    "SUPABASE_URL": "https://fioplqdupisrrcbrpdrm.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpb3BscWR1cGlzcnJjYnJwZHJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4ODgwMTMsImV4cCI6MjA5NTQ2NDAxM30.IepO5XuWfnGF2Qa7zTDEIOtMRxQpVttlWtlZIpOfE-k"
+  }
 }

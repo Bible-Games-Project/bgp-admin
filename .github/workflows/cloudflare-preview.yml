@@ -34,3 +34,11 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           packageManager: bun
           command: deploy --config .output/server/wrangler.json
+          # Pushed as real Worker secrets (not committed) — required server-side by
+          # src/integrations/supabase/client.server.ts and src/lib/*.functions.ts.
+          secrets: |
+            SUPABASE_SERVICE_ROLE_KEY
+            GITHUB_PAT
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
