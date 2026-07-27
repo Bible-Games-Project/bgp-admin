@@ -1,5 +1,8 @@
 {
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "eslint.config.js"],
+  // Tests run under `bun test`, which supplies its own types. Pulling bun's globals
+  // into this config instead would break the fetch patch in src/start.ts.
+  "exclude": ["src/**/*.test.ts"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",
