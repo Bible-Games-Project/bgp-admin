@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { commitAgentDocs } from "@/lib/agent-docs.server";
 
 const ORG = "Bible-Games-Project";
 
@@ -167,13 +168,26 @@ export const createAppRepo = createServerFn({ method: "POST" })
     const repo = await createRes.json();
     const defaultBranch = repo.default_branch as string;
 
+    const warnings: string[] = [];
+
     let previewWorkflowCommitted = false;
-    let warning: string | undefined;
     try {
       const r = await commitPreviewWorkflow({ owner: ORG, repo: data.name, branch: defaultBranch });
       previewWorkflowCommitted = r.committed;
     } catch (e) {
-      warning = `Repo created, but the preview deploy workflow could not be added automatically (${(e as Error).message}). You can retry it from the app's Setup tab once it exists.`;
+      warnings.push(
+        `The preview deploy workflow could not be added automatically (${(e as Error).message}). You can retry it from the app's Setup tab.`,
+      );
+    }
+
+    let agentDocsCommitted = false;
+    try {
+      await commitAgentDocs({ owner: ORG, repo: data.name, branch: defaultBranch });
+      agentDocsCommitted = true;
+    } catch (e) {
+      warnings.push(
+        `CLAUDE.md / AGENTS.md could not be added automatically (${(e as Error).message}). You can retry it from the app's Setup tab.`,
+      );
     }
 
     return {
@@ -183,6 +197,7 @@ export const createAppRepo = createServerFn({ method: "POST" })
       defaultBranch,
       repoUrl: repo.html_url as string,
       previewWorkflowCommitted,
-      warning,
+      agentDocsCommitted,
+      warning: warnings.length ? `Repo created, but: ${warnings.join(" ")}` : undefined,
     };
   });

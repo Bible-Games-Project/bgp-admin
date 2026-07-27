@@ -27,6 +27,7 @@ import {
   checkPreviewDeployWorkflow,
   createPreviewDeployWorkflow,
 } from "@/lib/capacitor.functions";
+import { checkAgentDocs, syncAgentDocs } from "@/lib/agent-docs.functions";
 import { listSetupSteps, setSetupStep } from "@/lib/app-setup.functions";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -58,6 +59,8 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
   const createDeployFn = useServerFn(createDeployWorkflow);
   const checkPreviewDeployFn = useServerFn(checkPreviewDeployWorkflow);
   const createPreviewDeployFn = useServerFn(createPreviewDeployWorkflow);
+  const checkAgentDocsFn = useServerFn(checkAgentDocs);
+  const syncAgentDocsFn = useServerFn(syncAgentDocs);
 
   const capacitorQ = useQuery({
     queryKey: ["capacitor-status", appId],
@@ -89,6 +92,11 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
     queryFn: () => checkPreviewDeployFn({ data: { appId } }),
   });
 
+  const agentDocsQ = useQuery({
+    queryKey: ["agent-docs", appId],
+    queryFn: () => checkAgentDocsFn({ data: { appId } }),
+  });
+
   const listSetupFn = useServerFn(listSetupSteps);
   const setSetupFn = useServerFn(setSetupStep);
 
@@ -107,7 +115,8 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
       const prev = qc.getQueryData<any>(["app-setup-steps", appId]);
       qc.setQueryData(["app-setup-steps", appId], (old: any) => {
         const steps = (old?.steps ?? []).filter((s: any) => s.step_key !== vars.stepKey);
-        if (vars.completed) steps.push({ step_key: vars.stepKey, completed_at: new Date().toISOString() });
+        if (vars.completed)
+          steps.push({ step_key: vars.stepKey, completed_at: new Date().toISOString() });
         return { steps };
       });
       return { prev };
@@ -241,6 +250,32 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const agentDocsM = useMutation({
+    mutationFn: () => syncAgentDocsFn({ data: { appId } }),
+    onSuccess: (result) => {
+      const commitUrl = result.results.find((r) => r.commitUrl)?.commitUrl;
+      toast.success(
+        <div className="flex items-center gap-2">
+          <span>{result.message}</span>
+          {commitUrl && (
+            <a
+              href={commitUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              View commit <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>,
+        { duration: 8000 },
+      );
+      qc.invalidateQueries({ queryKey: ["agent-docs", appId] });
+      onSuccess();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const cs = capacitorQ.data;
   const capacitorDone = cs?.hasConfig && cs?.hasIos && cs?.hasAndroid;
   const androidSigningDone = androidSigningQ.data?.configured ?? false;
@@ -248,21 +283,23 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
   const iosSecretsDone = iosSecretsQ.data?.configured ?? false;
   const deployDone = deployQ.data?.exists ?? false;
   const previewDeployDone = previewDeployQ.data?.exists ?? false;
+  const agentDocsDone = agentDocsQ.data?.allInSync ?? false;
 
   return (
     <div className="space-y-1">
       <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200 mb-4">
         <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
         <span>
-          The app repository must be <span className="font-semibold">public</span>. The deploy system uses the GitHub Actions API, which requires public repos.
+          The app repository must be <span className="font-semibold">public</span>. The deploy
+          system uses the GitHub Actions API, which requires public repos.
         </span>
       </div>
       {!bundleId && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 mb-4">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           <span>
-            Bundle ID is not set. Configure it in the{" "}
-            <span className="font-semibold">General</span> tab before running setup.
+            Bundle ID is not set. Configure it in the <span className="font-semibold">General</span>{" "}
+            tab before running setup.
           </span>
         </div>
       )}
@@ -297,8 +334,14 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               onClick={() => capacitorM.mutate()}
             >
               {capacitorM.isPending ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Setting up…</>
-              ) : capacitorDone ? "Re-run" : "Setup Capacitor"}
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Setting up…
+                </>
+              ) : capacitorDone ? (
+                "Re-run"
+              ) : (
+                "Setup Capacitor"
+              )}
             </Button>
             <button
               onClick={() => qc.invalidateQueries({ queryKey: ["capacitor-status", appId] })}
@@ -309,7 +352,9 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               <RefreshCw className={`h-3.5 w-3.5 ${capacitorQ.isFetching ? "animate-spin" : ""}`} />
             </button>
             {capacitorM.isPending && (
-              <span className="text-xs text-muted-foreground">Running via GitHub Actions (5–10 min)…</span>
+              <span className="text-xs text-muted-foreground">
+                Running via GitHub Actions (5–10 min)…
+              </span>
             )}
           </div>
         }
@@ -341,8 +386,14 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               onClick={() => androidSigningM.mutate()}
             >
               {androidSigningM.isPending ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Configuring…</>
-              ) : androidSigningDone ? "Re-configure" : "Configure Signing"}
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Configuring…
+                </>
+              ) : androidSigningDone ? (
+                "Re-configure"
+              ) : (
+                "Configure Signing"
+              )}
             </Button>
             <button
               onClick={() => qc.invalidateQueries({ queryKey: ["android-signing", appId] })}
@@ -350,7 +401,9 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               className="text-muted-foreground hover:text-foreground transition-colors"
               aria-label="Refresh"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${androidSigningQ.isFetching ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${androidSigningQ.isFetching ? "animate-spin" : ""}`}
+              />
             </button>
             {!androidSigningQ.data?.fileExists && !androidSigningQ.isLoading && (
               <span className="text-xs text-muted-foreground">Requires Step 1 first</span>
@@ -372,7 +425,10 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
             </span>
           ) : (
             <div className="flex flex-col gap-1.5 mt-2">
-              <StatusRow label="ANDROID_KEYSTORE + KEYSTORE_PASSWORD + KEY_ALIAS" ok={keystoreDone} />
+              <StatusRow
+                label="ANDROID_KEYSTORE + KEYSTORE_PASSWORD + KEY_ALIAS"
+                ok={keystoreDone}
+              />
             </div>
           )
         }
@@ -386,19 +442,31 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
                 onClick={() => keystoreM.mutate()}
               >
                 {keystoreM.isPending ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Generating…</>
-                ) : keystoreDone ? "Regenerate" : "Generate Keystore"}
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Generating…
+                  </>
+                ) : keystoreDone ? (
+                  "Regenerate"
+                ) : (
+                  "Generate Keystore"
+                )}
               </Button>
               <button
-                onClick={() => qc.invalidateQueries({ queryKey: ["android-keystore-secrets", appId] })}
+                onClick={() =>
+                  qc.invalidateQueries({ queryKey: ["android-keystore-secrets", appId] })
+                }
                 disabled={keystoreQ.isFetching}
                 className="text-muted-foreground hover:text-foreground transition-colors"
                 aria-label="Refresh"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${keystoreQ.isFetching ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${keystoreQ.isFetching ? "animate-spin" : ""}`}
+                />
               </button>
               {keystoreM.isPending && (
-                <span className="text-xs text-muted-foreground">Generating via GitHub Actions (~1 min)…</span>
+                <span className="text-xs text-muted-foreground">
+                  Generating via GitHub Actions (~1 min)…
+                </span>
               )}
             </div>
             {keystoreResult && (
@@ -427,7 +495,10 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
             </span>
           ) : (
             <div className="flex flex-col gap-1.5 mt-2">
-              <StatusRow label="IOS_BUILD_PROVISION_PROFILE_BASE64 + IOS_EXPORT_OPTIONS_PLIST" ok={iosSecretsDone} />
+              <StatusRow
+                label="IOS_BUILD_PROVISION_PROFILE_BASE64 + IOS_EXPORT_OPTIONS_PLIST"
+                ok={iosSecretsDone}
+              />
             </div>
           )
         }
@@ -436,20 +507,53 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
             <div className="rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground space-y-2.5">
               <p className="font-medium text-foreground">How to get a .mobileprovision file</p>
               <div>
-                <p className="font-medium text-foreground/80 mb-1">1. Create an App ID (if not yet created)</p>
+                <p className="font-medium text-foreground/80 mb-1">
+                  1. Create an App ID (if not yet created)
+                </p>
                 <ol className="list-decimal pl-4 space-y-1">
-                  <li>Go to <a href="https://developer.apple.com/account/resources/identifiers/list" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Apple Developer → Identifiers</a></li>
-                  <li>Click <strong>+</strong> → App IDs → App → Continue</li>
-                  <li>Set Description and Bundle ID (Explicit): <code>{bundleId ?? "your bundle ID"}</code></li>
+                  <li>
+                    Go to{" "}
+                    <a
+                      href="https://developer.apple.com/account/resources/identifiers/list"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      Apple Developer → Identifiers
+                    </a>
+                  </li>
+                  <li>
+                    Click <strong>+</strong> → App IDs → App → Continue
+                  </li>
+                  <li>
+                    Set Description and Bundle ID (Explicit):{" "}
+                    <code>{bundleId ?? "your bundle ID"}</code>
+                  </li>
                   <li>Register</li>
                 </ol>
               </div>
               <div>
-                <p className="font-medium text-foreground/80 mb-1">2. Create the provisioning profile</p>
+                <p className="font-medium text-foreground/80 mb-1">
+                  2. Create the provisioning profile
+                </p>
                 <ol className="list-decimal pl-4 space-y-1">
-                  <li>Go to <a href="https://developer.apple.com/account/resources/profiles/list" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Apple Developer → Profiles</a></li>
-                  <li>Click <strong>+</strong> → App Store Connect distribution → Continue</li>
-                  <li>Select your App ID for <code>{bundleId ?? "your bundle ID"}</code></li>
+                  <li>
+                    Go to{" "}
+                    <a
+                      href="https://developer.apple.com/account/resources/profiles/list"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      Apple Developer → Profiles
+                    </a>
+                  </li>
+                  <li>
+                    Click <strong>+</strong> → App Store Connect distribution → Continue
+                  </li>
+                  <li>
+                    Select your App ID for <code>{bundleId ?? "your bundle ID"}</code>
+                  </li>
                   <li>Select your distribution certificate → Continue → Download</li>
                 </ol>
               </div>
@@ -482,8 +586,14 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
                 onClick={() => iosSecretsM.mutate()}
               >
                 {iosSecretsM.isPending ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Setting…</>
-                ) : iosSecretsDone ? "Re-upload" : "Set iOS Secrets"}
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Setting…
+                  </>
+                ) : iosSecretsDone ? (
+                  "Re-upload"
+                ) : (
+                  "Set iOS Secrets"
+                )}
               </Button>
               <button
                 onClick={() => qc.invalidateQueries({ queryKey: ["ios-secrets", appId] })}
@@ -491,7 +601,9 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
                 className="text-muted-foreground hover:text-foreground transition-colors"
                 aria-label="Refresh"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${iosSecretsQ.isFetching ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${iosSecretsQ.isFetching ? "animate-spin" : ""}`}
+                />
               </button>
               {iosSecretsM.isPending && (
                 <span className="text-xs text-muted-foreground">Via GitHub Actions (~30 s)…</span>
@@ -525,17 +637,49 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               <div>
                 <p className="font-medium text-foreground/80 mb-1">Google Play Console</p>
                 <ol className="list-decimal pl-4 space-y-1">
-                  <li>Go to <a href="https://play.google.com/console" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">play.google.com/console</a> → Create app</li>
+                  <li>
+                    Go to{" "}
+                    <a
+                      href="https://play.google.com/console"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      play.google.com/console
+                    </a>{" "}
+                    → Create app
+                  </li>
                   <li>Fill in title, language, type and pricing → Create</li>
-                  <li>Complete enough of the store listing to be able to upload to Internal Testing</li>
-                  <li>Go to <strong>Users and permissions</strong> → Invite new users → add the service account (<code>client_email</code> from your <code>GOOGLE_PLAY_SERVICE_ACCOUNT_JSON</code>) with <strong>Release manager</strong> role for this app</li>
+                  <li>
+                    Complete enough of the store listing to be able to upload to Internal Testing
+                  </li>
+                  <li>
+                    Go to <strong>Users and permissions</strong> → Invite new users → add the
+                    service account (<code>client_email</code> from your{" "}
+                    <code>GOOGLE_PLAY_SERVICE_ACCOUNT_JSON</code>) with{" "}
+                    <strong>Release manager</strong> role for this app
+                  </li>
                 </ol>
               </div>
               <div>
                 <p className="font-medium text-foreground/80 mb-1">App Store Connect</p>
                 <ol className="list-decimal pl-4 space-y-1">
-                  <li>Go to <a href="https://appstoreconnect.apple.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">appstoreconnect.apple.com</a> → Apps → <strong>+</strong></li>
-                  <li>Select platform, fill in name, primary language, Bundle ID (<code>{bundleId ?? "your bundle ID"}</code>) and SKU → Create</li>
+                  <li>
+                    Go to{" "}
+                    <a
+                      href="https://appstoreconnect.apple.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      appstoreconnect.apple.com
+                    </a>{" "}
+                    → Apps → <strong>+</strong>
+                  </li>
+                  <li>
+                    Select platform, fill in name, primary language, Bundle ID (
+                    <code>{bundleId ?? "your bundle ID"}</code>) and SKU → Create
+                  </li>
                 </ol>
               </div>
             </div>
@@ -573,8 +717,14 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               onClick={() => deployM.mutate()}
             >
               {deployM.isPending ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Creating…</>
-              ) : deployDone ? "Re-create" : "Create Deploy Workflow"}
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Creating…
+                </>
+              ) : deployDone ? (
+                "Re-create"
+              ) : (
+                "Create Deploy Workflow"
+              )}
             </Button>
             <button
               onClick={() => qc.invalidateQueries({ queryKey: ["deploy-workflow", appId] })}
@@ -593,7 +743,7 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
         title="Preview Deploy"
         description="Add a GitHub Actions workflow that builds and deploys to Cloudflare Pages on every push to main, so you can preview progress before publishing to the store."
         done={previewDeployDone}
-        isLast={true}
+        isLast={false}
         statusContent={
           previewDeployQ.isLoading ? (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -624,8 +774,14 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               onClick={() => previewDeployM.mutate()}
             >
               {previewDeployM.isPending ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Creating…</>
-              ) : previewDeployDone ? "Re-create" : "Create Preview Workflow"}
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Creating…
+                </>
+              ) : previewDeployDone ? (
+                "Re-create"
+              ) : (
+                "Create Preview Workflow"
+              )}
             </Button>
             <button
               onClick={() => qc.invalidateQueries({ queryKey: ["preview-deploy-workflow", appId] })}
@@ -633,7 +789,70 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
               className="text-muted-foreground hover:text-foreground transition-colors"
               aria-label="Refresh"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${previewDeployQ.isFetching ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${previewDeployQ.isFetching ? "animate-spin" : ""}`}
+              />
+            </button>
+          </div>
+        }
+      />
+
+      <SetupStep
+        number={8}
+        title="Agent Docs"
+        description="Commit CLAUDE.md and AGENTS.md from the bgp-admin templates so AI agents working on this repo follow the same rules. Anything the repo added outside the managed block is preserved."
+        done={agentDocsDone}
+        isLast={true}
+        statusContent={
+          agentDocsQ.isLoading ? (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" /> Checking…
+            </span>
+          ) : (
+            <div className="flex flex-col gap-1.5 mt-2">
+              {agentDocsQ.data?.statuses.map((s) => (
+                <div key={s.file} className="flex items-center gap-2">
+                  <StatusRow label={s.file} ok={s.inSync} />
+                  {s.exists && !s.inSync && (
+                    <span className="text-[10px] font-mono uppercase text-amber-600 dark:text-amber-400">
+                      outdated
+                    </span>
+                  )}
+                  {s.hasLocalContent && (
+                    <span className="text-[10px] font-mono uppercase text-muted-foreground">
+                      + local notes
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )
+        }
+        actionContent={
+          <div className="flex items-center gap-3 mt-3">
+            <Button
+              size="sm"
+              variant={agentDocsDone ? "outline" : "default"}
+              disabled={agentDocsM.isPending}
+              onClick={() => agentDocsM.mutate()}
+            >
+              {agentDocsM.isPending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Syncing…
+                </>
+              ) : agentDocsDone ? (
+                "Re-sync"
+              ) : (
+                "Sync Agent Docs"
+              )}
+            </Button>
+            <button
+              onClick={() => qc.invalidateQueries({ queryKey: ["agent-docs", appId] })}
+              disabled={agentDocsQ.isFetching}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Refresh"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${agentDocsQ.isFetching ? "animate-spin" : ""}`} />
             </button>
           </div>
         }
