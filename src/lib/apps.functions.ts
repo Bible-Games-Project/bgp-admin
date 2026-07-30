@@ -5,6 +5,7 @@ import { commitPreviewWorkflow, githubHeaders } from "@/lib/github.functions";
 import { commitAgentDocs } from "@/lib/agent-docs.server";
 import sodium from "libsodium-wrappers";
 import nacl from "tweetnacl";
+import { blake2b } from "blakejs";
 
 const ORG = "Bible-Games-Project";
 
@@ -283,12 +284,12 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
             const messageBytes = new TextEncoder().encode(value);
             const ephemeral = nacl.box.keyPair();
 
-            // Derive nonce: first 24 bytes of SHA-512(ephemeral_pk || recipient_pk)
+            // Derive nonce: first 24 bytes of BLAKE2b(ephemeral_pk || recipient_pk)
+            // libsodium's crypto_box_seal uses BLAKE2b (via crypto_generichash)
             const combinedKeys = new Uint8Array(64);
             combinedKeys.set(ephemeral.publicKey, 0);
             combinedKeys.set(recipientKey, 32);
-            const hashFull = nacl.hash(combinedKeys);
-            const nonce = hashFull.slice(0, nacl.box.nonceLength);
+            const nonce = blake2b(combinedKeys, undefined, nacl.box.nonceLength);
 
             const ciphertext = nacl.box(
               messageBytes,
