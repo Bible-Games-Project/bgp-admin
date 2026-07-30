@@ -97,7 +97,7 @@ function AppDetailPage() {
               GitHub <ExternalLink className="h-3 w-3" />
             </a>
             <a
-              href={`https://${app.github_repo}.pages.dev`}
+              href={`https://bgp-${app.github_repo}.pages.dev`}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1 hover:text-foreground hover:underline"

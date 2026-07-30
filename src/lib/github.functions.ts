@@ -79,7 +79,7 @@ export function buildPreviewDeployWorkflowYaml(): string {
     "        with:",
     "          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}",
     "          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}",
-    "          projectName: ${{ github.event.repository.name }}",
+    "          projectName: bgp-${{ github.event.repository.name }}",
     "          directory: ${{ steps.outdir.outputs.dir }}",
     "          branch: main",
     "",

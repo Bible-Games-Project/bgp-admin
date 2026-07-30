@@ -113,7 +113,7 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
           {
             method: "POST",
             headers: { Authorization: `Bearer ${cfToken}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ name: repoName, production_branch: defaultBranch }),
+            body: JSON.stringify({ name: `bgp-${repoName}`, production_branch: defaultBranch }),
           },
         );
         const cfBody = await cfRes.json();

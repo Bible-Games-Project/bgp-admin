@@ -150,13 +150,13 @@ function AppsPage() {
                 </a>
                 <span>· {a.default_ref}</span>
                 <a
-                  href={`https://${a.github_repo}.pages.dev`}
+                  href={`https://bgp-${a.github_repo}.pages.dev`}
                   target="_blank"
                   rel="noreferrer"
                   onClick={(e) => e.stopPropagation()}
                   className="text-muted-foreground/70 hover:text-foreground hover:underline"
                 >
-                  {a.github_repo}.pages.dev
+                  bgp-{a.github_repo}.pages.dev
                 </a>
               </div>
             </div>
