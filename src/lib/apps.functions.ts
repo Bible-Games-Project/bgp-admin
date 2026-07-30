@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { commitPreviewWorkflow, githubHeaders } from "@/lib/github.functions";
 import { commitAgentDocs } from "@/lib/agent-docs.server";
 import sodium from "libsodium-wrappers";
+import nacl from "tweetnacl";
 
 const ORG = "Bible-Games-Project";
 
@@ -81,9 +82,6 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
-
-    // ── 0. Ensure libsodium is ready before we need it ──────────────
-    await sodium.ready;
 
     const { repoName, ...appData } = data;
 
@@ -274,13 +272,27 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
         );
         if (pkRes.ok) {
           const pkBody = await pkRes.json();
-          await sodium.ready;
 
+          // Libsodium's crypto_box_seal using tweetnacl (pure JS, no WASM)
+          // Format: ephemeral_pk (32) || nonce (24) || ciphertext
           const encryptSecret = (value: string): string => {
-            const binkey = sodium.from_base64(pkBody.key, sodium.base64_variants.ORIGINAL);
-            const binSecret = sodium.from_string(value);
-            const encBytes = sodium.crypto_box_seal(binSecret, binkey);
-            return sodium.to_base64(encBytes, sodium.base64_variants.ORIGINAL);
+            const recipientKey = new Uint8Array(
+              atob(pkBody.key).split("").map((c) => c.charCodeAt(0)),
+            );
+            const messageBytes = new TextEncoder().encode(value);
+            const ephemeral = nacl.box.keyPair();
+            const nonce = nacl.randomBytes(nacl.box.nonceLength);
+            const ciphertext = nacl.box(
+              messageBytes,
+              nonce,
+              recipientKey,
+              ephemeral.secretKey,
+            );
+            const combined = new Uint8Array(32 + 24 + ciphertext.length);
+            combined.set(ephemeral.publicKey, 0);
+            combined.set(nonce, 32);
+            combined.set(ciphertext, 32 + 24);
+            return btoa(String.fromCharCode(...combined));
           };
 
           const secrets = [
