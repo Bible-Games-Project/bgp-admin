@@ -43,9 +43,5 @@ jobs:
           # imports supabaseAdmin) and Lovable Cloud doesn't expose its value anyway.
           secrets: |
             GITHUB_PAT
-            CLOUDFLARE_API_TOKEN
-            CLOUDFLARE_ACCOUNT_ID
         env:
           GITHUB_PAT: ${{ secrets.GH_PAT }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
