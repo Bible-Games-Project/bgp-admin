@@ -140,7 +140,120 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
       warnings.push("CLAUDE.md/AGENTS.md could not be added.");
     }
 
-    // ── 5. Set GitHub secrets on the new repo ───────────────────────
+    // ── 5. Commit placeholder landing page ───────────────────────────
+    // So the first Cloudflare Pages deploy has something to serve
+    try {
+      const placeholderHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${appData.name} — Bible Games Project</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+    }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 3rem 2.5rem;
+      max-width: 560px;
+      backdrop-filter: blur(8px);
+    }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff; }
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      background: rgba(99,102,241,0.25);
+      color: #a5b4fc;
+      margin-bottom: 1.5rem;
+    }
+    p { line-height: 1.7; font-size: 0.95rem; color: #b0b0c0; margin-bottom: 1rem; }
+    .icon { font-size: 2.5rem; margin-bottom: 1rem; }
+    .footer { margin-top: 2rem; font-size: 0.8rem; color: #6b6b80; }
+    a { color: #818cf8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">📖</div>
+    <h1>${appData.name}</h1>
+    <div class="badge">Bible Games Project</div>
+    <p>
+      This project is ready. Push your code to <strong>main</strong>
+      and the preview will update automatically.
+    </p>
+    <p>
+      <a href="https://github.com/${ORG}/${repoName}" target="_blank" rel="noopener">
+        github.com/${ORG}/${repoName}
+      </a>
+    </p>
+    <div class="footer">
+      Start building &mdash; excellence is not an act, but a habit. 🚀
+    </div>
+  </div>
+</body>
+</html>`;
+
+      const packageJson = JSON.stringify({
+        name: repoName,
+        private: true,
+        scripts: {
+          build: "mkdir -p dist && cp index.html dist/",
+        },
+      }, null, 2);
+
+      const apiUrl = `https://api.github.com/repos/${ORG}/${repoName}/contents/index.html`;
+      const pkgUrl = `https://api.github.com/repos/${ORG}/${repoName}/contents/package.json`;
+
+      const ghHeaders = githubHeaders();
+
+      const putFile = async (url: string, content: string, message: string) => {
+        const res = await fetch(url, {
+          method: "PUT",
+          headers: { ...ghHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message,
+            content: Buffer.from(content).toString("base64"),
+            branch: defaultBranch,
+          }),
+        });
+        if (!res.ok) throw new Error(`Failed to commit: ${await res.text()}`);
+        return res.json();
+      };
+
+      // Check if index.html already exists (from auto_init) — if so, skip
+      const checkRes = await fetch(
+        `${apiUrl}?ref=${encodeURIComponent(defaultBranch)}`,
+        { headers: ghHeaders },
+      );
+
+      if (!checkRes.ok) {
+        // index.html doesn't exist yet — create both files
+        await putFile(apiUrl, placeholderHtml, "chore: add placeholder landing page");
+        await putFile(pkgUrl, packageJson, "chore: add placeholder package.json for build");
+      }
+    } catch {
+      warnings.push("Placeholder landing page could not be added.");
+    }
+
+    // ── 6. Set GitHub secrets on the new repo ───────────────────────
     if (cfToken && cfAccount) {
       try {
         // Get the repo's public key for secret encryption
