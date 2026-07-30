@@ -17,7 +17,7 @@ async function assertAdmin(supabase: any, userId: string) {
   if (!data) throw new Error("Forbidden: not an admin");
 }
 
-function githubHeaders() {
+export function githubHeaders() {
   const token = process.env.GITHUB_PAT;
   if (!token) throw new Error("GITHUB_PAT not configured");
   return {

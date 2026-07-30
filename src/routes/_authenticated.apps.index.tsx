@@ -2,9 +2,8 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Boxes, Github, ImageIcon } from "lucide-react";
-import { listApps, createApp } from "@/lib/apps.functions";
-import { createAppRepo } from "@/lib/github.functions";
+import { Plus, Boxes, Github, ImageIcon, ExternalLink } from "lucide-react";
+import { listApps, createApp, createAppWithRepo } from "@/lib/apps.functions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,43 +23,39 @@ function AppsPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(listApps);
   const createFn = useServerFn(createApp);
-  const createRepoFn = useServerFn(createAppRepo);
+  const createAppWithRepoFn = useServerFn(createAppWithRepo);
   const [open, setOpen] = useState(false);
 
   const q = useQuery({ queryKey: ["apps"], queryFn: () => listFn() });
 
   const createM = useMutation({
-    mutationFn: ({ viaRepoCreation, ...data }: any) => createFn({ data }),
+    mutationFn: (data: any) => createFn({ data }),
     onSuccess: () => {
       toast.success("App created");
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["apps"] });
     },
-    onError: (e: Error, vars: any) => {
-      if (vars.viaRepoCreation) {
-        toast.error(
-          `${e.message} — the GitHub repo ${vars.github_owner}/${vars.github_repo} was already created; switch to "Link existing repo" and use that repo name to retry.`,
-        );
-      } else {
-        toast.error(e.message);
-      }
-    },
+    onError: (e: Error) => toast.error(e.message, { duration: 8000 }),
   });
 
-  const createRepoM = useMutation({
-    mutationFn: (v: any) => createRepoFn({ data: { name: v.github_repo } }),
-    onSuccess: (result, v) => {
+  const createWithRepoM = useMutation({
+    mutationFn: (v: any) =>
+      createAppWithRepoFn({
+        data: {
+          ...v,
+          repoName: v.github_repo,
+          notes: v.notes || null,
+          bundle_id: v.bundle_id || null,
+          revenuecat_app_id: v.revenuecat_app_id || null,
+        },
+      }),
+    onSuccess: (result) => {
       if (result.warning) toast.warning(result.warning, { duration: 12000 });
-      createM.mutate({
-        ...v,
-        github_owner: result.owner,
-        github_repo: result.repo,
-        default_ref: result.defaultBranch,
-        notes: v.notes || null,
-        viaRepoCreation: true,
-      });
+      toast.success("App created with new GitHub repo");
+      setOpen(false);
+      qc.invalidateQueries({ queryKey: ["apps"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(e.message, { duration: 12000 }),
   });
 
   return (
@@ -82,15 +77,17 @@ function AppsPage() {
             </DialogHeader>
             <AppForm
               initial={emptyAppForm}
-              submitting={createRepoM.isPending || createM.isPending}
+              submitting={createWithRepoM.isPending || createM.isPending}
               submitLabel="Create app"
               showCreateRepoOption
               onSubmit={(v, meta) =>
                 meta.createRepo
-                  ? createRepoM.mutate(v)
+                  ? createWithRepoM.mutate(v)
                   : createM.mutate({
                       ...v,
                       notes: v.notes || null,
+                      bundle_id: v.bundle_id || null,
+                      revenuecat_app_id: v.revenuecat_app_id || null,
                     })
               }
               onCancel={() => setOpen(false)}
@@ -140,9 +137,27 @@ function AppsPage() {
                   </span>
                 )}
               </div>
-              <div className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1.5">
-                <Github className="h-3 w-3" />
-                {a.github_owner}/{a.github_repo} · {a.default_ref}
+              <div className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1.5 flex-wrap">
+                <Github className="h-3 w-3 shrink-0" />
+                <a
+                  href={`https://github.com/${a.github_owner}/${a.github_repo}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="hover:text-foreground hover:underline"
+                >
+                  {a.github_owner}/{a.github_repo}
+                </a>
+                <span>· {a.default_ref}</span>
+                <a
+                  href={`https://${a.github_repo}.pages.dev`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-muted-foreground/70 hover:text-foreground hover:underline"
+                >
+                  {a.github_repo}.pages.dev
+                </a>
               </div>
             </div>
           </Link>

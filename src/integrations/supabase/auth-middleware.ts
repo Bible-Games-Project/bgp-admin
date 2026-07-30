@@ -69,6 +69,12 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
       throw new Error('Unauthorized: No user ID found in token');
     }
 
+    const allowedEmails = ['pau.sabe@icloud.com', 'biblegamesproject@gmail.com'];
+    const userEmail = data.claims.email as string | undefined;
+    if (!userEmail || !allowedEmails.includes(userEmail)) {
+      throw new Error('Unauthorized: Access restricted to authorized email addresses only.');
+    }
+
     return next({
       context: {
         supabase,

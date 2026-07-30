@@ -9,32 +9,26 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SetupMfaRouteImport } from './routes/setup-mfa'
-import { Route as MfaChallengeRouteImport } from './routes/mfa-challenge'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as ForbiddenRouteImport } from './routes/forbidden'
-import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticated.revenue'
-import { Route as AuthenticatedDocsRouteImport } from './routes/_authenticated.docs'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
+import { Route as ForbiddenRouteImport } from './routes/forbidden'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as MfaChallengeRouteImport } from './routes/mfa-challenge'
+import { Route as SetupMfaRouteImport } from './routes/setup-mfa'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
+import { Route as AuthenticatedDocsRouteImport } from './routes/_authenticated.docs'
+import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticated.revenue'
 import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authenticated.apps.index'
-import { Route as AuthenticatedSettingsSecurityRouteImport } from './routes/_authenticated.settings.security'
 import { Route as AuthenticatedAppsIdRouteImport } from './routes/_authenticated.apps.$id'
+import { Route as AuthenticatedSettingsSecurityRouteImport } from './routes/_authenticated.settings.security'
 
-const SetupMfaRoute = SetupMfaRouteImport.update({
-  id: '/setup-mfa',
-  path: '/setup-mfa',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MfaChallengeRoute = MfaChallengeRouteImport.update({
-  id: '/mfa-challenge',
-  path: '/mfa-challenge',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ForbiddenRoute = ForbiddenRouteImport.update({
@@ -42,18 +36,24 @@ const ForbiddenRoute = ForbiddenRouteImport.update({
   path: '/forbidden',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedRoute = AuthenticatedRouteImport.update({
-  id: '/_authenticated',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const MfaChallengeRoute = MfaChallengeRouteImport.update({
+  id: '/mfa-challenge',
+  path: '/mfa-challenge',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedRevenueRoute = AuthenticatedRevenueRouteImport.update({
-  id: '/revenue',
-  path: '/revenue',
+const SetupMfaRoute = SetupMfaRouteImport.update({
+  id: '/setup-mfa',
+  path: '/setup-mfa',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedDocsRoute = AuthenticatedDocsRouteImport.update({
@@ -61,14 +61,19 @@ const AuthenticatedDocsRoute = AuthenticatedDocsRouteImport.update({
   path: '/docs',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
+const AuthenticatedRevenueRoute = AuthenticatedRevenueRouteImport.update({
+  id: '/revenue',
+  path: '/revenue',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedAppsIndexRoute = AuthenticatedAppsIndexRouteImport.update({
   id: '/apps/',
   path: '/apps/',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAppsIdRoute = AuthenticatedAppsIdRouteImport.update({
+  id: '/apps/$id',
+  path: '/apps/$id',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedSettingsSecurityRoute =
@@ -77,11 +82,6 @@ const AuthenticatedSettingsSecurityRoute =
     path: '/settings/security',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedAppsIdRoute = AuthenticatedAppsIdRouteImport.update({
-  id: '/apps/$id',
-  path: '/apps/$id',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -178,32 +178,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/setup-mfa': {
-      id: '/setup-mfa'
-      path: '/setup-mfa'
-      fullPath: '/setup-mfa'
-      preLoaderRoute: typeof SetupMfaRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/mfa-challenge': {
-      id: '/mfa-challenge'
-      path: '/mfa-challenge'
-      fullPath: '/mfa-challenge'
-      preLoaderRoute: typeof MfaChallengeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/forbidden': {
-      id: '/forbidden'
-      path: '/forbidden'
-      fullPath: '/forbidden'
-      preLoaderRoute: typeof ForbiddenRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated': {
@@ -213,18 +192,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/forbidden': {
+      id: '/forbidden'
+      path: '/forbidden'
+      fullPath: '/forbidden'
+      preLoaderRoute: typeof ForbiddenRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/revenue': {
-      id: '/_authenticated/revenue'
-      path: '/revenue'
-      fullPath: '/revenue'
-      preLoaderRoute: typeof AuthenticatedRevenueRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mfa-challenge': {
+      id: '/mfa-challenge'
+      path: '/mfa-challenge'
+      fullPath: '/mfa-challenge'
+      preLoaderRoute: typeof MfaChallengeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup-mfa': {
+      id: '/setup-mfa'
+      path: '/setup-mfa'
+      fullPath: '/setup-mfa'
+      preLoaderRoute: typeof SetupMfaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/docs': {
@@ -234,11 +234,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDocsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/dashboard': {
-      id: '/_authenticated/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+    '/_authenticated/revenue': {
+      id: '/_authenticated/revenue'
+      path: '/revenue'
+      fullPath: '/revenue'
+      preLoaderRoute: typeof AuthenticatedRevenueRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/apps/': {
@@ -248,18 +248,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppsIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/settings/security': {
-      id: '/_authenticated/settings/security'
-      path: '/settings/security'
-      fullPath: '/settings/security'
-      preLoaderRoute: typeof AuthenticatedSettingsSecurityRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/apps/$id': {
       id: '/_authenticated/apps/$id'
       path: '/apps/$id'
       fullPath: '/apps/$id'
       preLoaderRoute: typeof AuthenticatedAppsIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings/security': {
+      id: '/_authenticated/settings/security'
+      path: '/settings/security'
+      fullPath: '/settings/security'
+      preLoaderRoute: typeof AuthenticatedSettingsSecurityRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
   }

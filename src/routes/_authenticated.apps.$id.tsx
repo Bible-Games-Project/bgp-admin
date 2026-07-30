@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Trash2, ExternalLink } from "lucide-react";
 import { getApp, updateApp, deleteApp } from "@/lib/apps.functions";
 import { Button } from "@/components/ui/button";
 import { AppForm, type AppFormValues } from "@/components/AppForm";
@@ -84,8 +84,26 @@ function AppDetailPage() {
         <div>
           <span className="label-mono">app</span>
           <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">{app.name}</h1>
-          <p className="text-xs text-muted-foreground font-mono mt-1 break-all">
-            {app.github_owner}/{app.github_repo}
+          <p className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-3 flex-wrap">
+            <span className="break-all">
+              {app.github_owner}/{app.github_repo}
+            </span>
+            <a
+              href={`https://github.com/${app.github_owner}/${app.github_repo}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+            >
+              GitHub <ExternalLink className="h-3 w-3" />
+            </a>
+            <a
+              href={`https://${app.github_repo}.pages.dev`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+            >
+              Cloudflare preview <ExternalLink className="h-3 w-3" />
+            </a>
           </p>
         </div>
         <Button
@@ -121,6 +139,8 @@ function AppDetailPage() {
               updateM.mutate({
                 ...v,
                 notes: v.notes || null,
+                bundle_id: v.bundle_id || null,
+                revenuecat_app_id: v.revenuecat_app_id || null,
               })
             }
           />

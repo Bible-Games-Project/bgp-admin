@@ -1,12 +1,15 @@
 import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 
 const GITHUB_ORG = "Bible-Games-Project";
+const SLUG_REGEX = /^[a-z0-9-]+$/;
 
 export type AppFormValues = {
   slug: string;
@@ -49,11 +52,18 @@ export function AppForm({
 }) {
   const [v, setV] = useState<AppFormValues>(initial);
   const [repoError, setRepoError] = useState<string | null>(null);
+  const [slugError, setSlugError] = useState<string | null>(null);
   const [repoMode, setRepoMode] = useState<"link" | "create">("link");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const createRepo = showCreateRepoOption && repoMode === "create";
 
   const upd = <K extends keyof AppFormValues>(k: K, val: AppFormValues[K]) =>
     setV((s) => ({ ...s, [k]: val }));
+
+  const handleSlugChange = (val: string) => {
+    upd("slug", val);
+    setSlugError(val && !SLUG_REGEX.test(val) ? "Lowercase letters, numbers and dashes only." : null);
+  };
 
   // Extracts the repo name from a full GitHub URL if pasted, otherwise returns the input unchanged.
   const normalizeRepo = (raw: string): string => {
@@ -65,6 +75,10 @@ export function AppForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!SLUG_REGEX.test(v.slug)) {
+      setSlugError("Lowercase letters, numbers and dashes only.");
+      return;
+    }
     const normalized = normalizeRepo(v.github_repo);
     if (normalized.includes("/") || /https?:/i.test(normalized) || !normalized) {
       setRepoError(
@@ -102,8 +116,13 @@ export function AppForm({
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Slug" hint="lowercase, dashes (e.g. eden)">
-          <Input value={v.slug} onChange={(e) => upd("slug", e.target.value)} required />
+        <Field label="Slug" hint="Used internally as the unique key (URLs, workflows). Doesn't need to match the repo name.">
+          <Input
+            value={v.slug}
+            onChange={(e) => handleSlugChange(e.target.value)}
+            required
+          />
+          {slugError && <p className="text-[11px] text-destructive">{slugError}</p>}
         </Field>
         <Field label="Display name">
           <Input value={v.name} onChange={(e) => upd("name", e.target.value)} required />
@@ -147,23 +166,6 @@ export function AppForm({
             </Field>
           </>
         )}
-        <Field label="Default branch">
-          <Input value={v.default_ref} onChange={(e) => upd("default_ref", e.target.value)} required />
-        </Field>
-        <Field label="Bundle ID" hint="Store identifier (e.g. com.acme.app)">
-          <Input
-            value={v.bundle_id}
-            onChange={(e) => upd("bundle_id", e.target.value)}
-            placeholder="com.acme.app"
-          />
-        </Field>
-        <Field label="RevenueCat App ID" hint="Starts with 'app' — RevenueCat → Project Settings → Apps">
-          <Input
-            value={v.revenuecat_app_id}
-            onChange={(e) => upd("revenuecat_app_id", e.target.value)}
-            placeholder="app163ea91532"
-          />
-        </Field>
         <Field label="Active">
           <div className="h-9 flex items-center">
             <Switch checked={v.is_active} onCheckedChange={(b) => upd("is_active", b)} />
@@ -171,14 +173,47 @@ export function AppForm({
         </Field>
       </div>
 
-      <Field label="Notes">
-        <Textarea
-          value={v.notes}
-          onChange={(e) => upd("notes", e.target.value)}
-          rows={3}
-          placeholder="Optional internal notes"
-        />
-      </Field>
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-xs font-mono uppercase text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronRight className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-90" : ""}`} />
+            Advanced
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-4 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Default branch">
+              <Input value={v.default_ref} onChange={(e) => upd("default_ref", e.target.value)} required />
+            </Field>
+            <Field label="Bundle ID" hint="Store identifier (e.g. com.acme.app)">
+              <Input
+                value={v.bundle_id}
+                onChange={(e) => upd("bundle_id", e.target.value)}
+                placeholder="com.acme.app"
+              />
+            </Field>
+            <Field label="RevenueCat App ID" hint="Starts with 'app' — RevenueCat → Project Settings → Apps">
+              <Input
+                value={v.revenuecat_app_id}
+                onChange={(e) => upd("revenuecat_app_id", e.target.value)}
+                placeholder="app163ea91532"
+              />
+            </Field>
+          </div>
+
+          <Field label="Notes">
+            <Textarea
+              value={v.notes}
+              onChange={(e) => upd("notes", e.target.value)}
+              rows={3}
+              placeholder="Optional internal notes"
+            />
+          </Field>
+        </CollapsibleContent>
+      </Collapsible>
 
       <div className="flex gap-2">
         <Button type="submit" disabled={submitting}>

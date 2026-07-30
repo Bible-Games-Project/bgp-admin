@@ -1,6 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { commitPreviewWorkflow, githubHeaders } from "@/lib/github.functions";
+import { commitAgentDocs } from "@/lib/agent-docs.server";
+
+const ORG = "Bible-Games-Project";
 
 const appInputSchema = z.object({
   slug: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/, "lowercase, numbers and dashes only"),
@@ -64,6 +68,71 @@ export const createApp = createServerFn({ method: "POST" })
       .single();
     if (error) throw new Error(error.message);
     return { app: row };
+  });
+
+export const createAppWithRepo = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) =>
+    appInputSchema
+      .omit({ github_owner: true, github_repo: true })
+      .extend({ repoName: z.string().min(1).max(100).regex(/^[a-zA-Z0-9._-]+$/) })
+      .parse(i),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+
+    const { repoName, ...appData } = data;
+
+    const createRes = await fetch(`https://api.github.com/orgs/${ORG}/repos`, {
+      method: "POST",
+      headers: { ...githubHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ name: repoName, private: false, auto_init: true }),
+    });
+
+    if (!createRes.ok) {
+      const text = await createRes.text();
+      if (createRes.status === 422) {
+        throw new Error(`A repository named "${repoName}" already exists.`);
+      }
+      throw new Error(`Failed to create GitHub repo: ${text.slice(0, 200)}`);
+    }
+
+    const repo = await createRes.json();
+    const defaultBranch = repo.default_branch as string;
+
+    const warnings: string[] = [];
+    try {
+      await commitPreviewWorkflow({ owner: ORG, repo: repoName, branch: defaultBranch });
+    } catch {
+      warnings.push("Preview workflow could not be added.");
+    }
+
+    try {
+      await commitAgentDocs({ owner: ORG, repo: repoName, branch: defaultBranch });
+    } catch {
+      warnings.push("CLAUDE.md/AGENTS.md could not be added.");
+    }
+
+    const { data: row, error } = await context.supabase
+      .from("apps")
+      .insert({ ...appData, github_owner: ORG, github_repo: repoName, default_ref: defaultBranch })
+      .select("*")
+      .single();
+
+    if (error) {
+      try {
+        await fetch(`https://api.github.com/repos/${ORG}/${repoName}`, {
+          method: "DELETE",
+          headers: githubHeaders(),
+        });
+      } catch {}
+      throw new Error(`${error.message} — the GitHub repo was rolled back automatically.`);
+    }
+
+    return {
+      app: row,
+      warning: warnings.length ? warnings.join(" ") : undefined,
+    };
   });
 
 export const updateApp = createServerFn({ method: "POST" })
