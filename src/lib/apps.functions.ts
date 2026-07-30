@@ -273,25 +273,34 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
         if (pkRes.ok) {
           const pkBody = await pkRes.json();
 
-          // Libsodium's crypto_box_seal using tweetnacl (pure JS, no WASM)
-          // Format: ephemeral_pk (32) || nonce (24) || ciphertext
+          // Libsodium-compatible crypto_box_seal using tweetnacl (pure JS, no WASM)
+          // Format: ephemeral_pk (32) || ciphertext
+          // Nonce is derived as HASH(ephemeral_pk || recipient_pk)[0:24]
           const encryptSecret = (value: string): string => {
             const recipientKey = new Uint8Array(
               atob(pkBody.key).split("").map((c) => c.charCodeAt(0)),
             );
             const messageBytes = new TextEncoder().encode(value);
             const ephemeral = nacl.box.keyPair();
-            const nonce = nacl.randomBytes(nacl.box.nonceLength);
+
+            // Derive nonce: first 24 bytes of SHA-512(ephemeral_pk || recipient_pk)
+            const combinedKeys = new Uint8Array(64);
+            combinedKeys.set(ephemeral.publicKey, 0);
+            combinedKeys.set(recipientKey, 32);
+            const hashFull = nacl.hash(combinedKeys);
+            const nonce = hashFull.slice(0, nacl.box.nonceLength);
+
             const ciphertext = nacl.box(
               messageBytes,
               nonce,
               recipientKey,
               ephemeral.secretKey,
             );
-            const combined = new Uint8Array(32 + 24 + ciphertext.length);
+
+            // Sealed box format: ephemeral_pk (32) || ciphertext
+            const combined = new Uint8Array(32 + ciphertext.length);
             combined.set(ephemeral.publicKey, 0);
-            combined.set(nonce, 32);
-            combined.set(ciphertext, 32 + 24);
+            combined.set(ciphertext, 32);
             return btoa(String.fromCharCode(...combined));
           };
 
