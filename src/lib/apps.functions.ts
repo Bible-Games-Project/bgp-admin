@@ -217,6 +217,13 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
         scripts: {
           build: "mkdir -p dist && cp index.html dist/",
         },
+        devDependencies: {
+          typescript: "^5.0.0",
+          "@capacitor/core": "^8.0.0",
+          "@capacitor/cli": "^8.0.0",
+          "@capacitor/ios": "^8.0.0",
+          "@capacitor/android": "^8.0.0",
+        },
       }, null, 2);
 
       const apiUrl = `https://api.github.com/repos/${ORG}/${repoName}/contents/index.html`;
