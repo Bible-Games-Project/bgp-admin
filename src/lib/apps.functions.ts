@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { commitPreviewWorkflow, githubHeaders } from "@/lib/github.functions";
 import { commitAgentDocs } from "@/lib/agent-docs.server";
+import sodium from "libsodium-wrappers";
 
 const ORG = "Bible-Games-Project";
 
@@ -80,6 +81,9 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
+
+    // ── 0. Ensure libsodium is ready before we need it ──────────────
+    await sodium.ready;
 
     const { repoName, ...appData } = data;
 
@@ -270,8 +274,6 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
         );
         if (pkRes.ok) {
           const pkBody = await pkRes.json();
-          // Use libsodium-wrappers (already a dependency) for encryption
-          const { default: sodium } = await import("libsodium-wrappers");
           await sodium.ready;
 
           const encryptSecret = (value: string): string => {
