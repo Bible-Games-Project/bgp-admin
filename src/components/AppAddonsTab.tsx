@@ -48,6 +48,11 @@ interface AddonDef {
     title: string;
     content: React.ReactNode;
   };
+  /** Optional callout shown above step 1, summarising the end-to-end order when the
+   * steps below can't just be done top to bottom (e.g. a native build step can only
+   * run after the package is installed, so it can't be step 1 even though it's the
+   * thing that unblocks the platform console). */
+  orderNote?: React.ReactNode;
 }
 
 const IAP_ANDROID_BUILD_STEP = (
@@ -163,6 +168,16 @@ const ADDONS: AddonDef[] = [
       title: "Build & upload a new Android version",
       content: IAP_ANDROID_BUILD_STEP,
     },
+    orderNote: (
+      <>
+        Order matters here: <strong>1)</strong> grab your RevenueCat SDK keys and{" "}
+        <strong>install</strong> below, <strong>2)</strong> <strong>build &amp; upload</strong> a
+        new Android version so it ships with the <code>BILLING</code> permission,{" "}
+        <strong>3)</strong> only then create the product in Google Play Console. It can't start with
+        the Android build — that build only gets the permission because the addon was installed
+        first.
+      </>
+    ),
   },
   {
     id: "rewarded-ads",
@@ -323,6 +338,12 @@ function AddonCard({
       </div>
 
       <div className="p-4 space-y-6">
+        {addon.orderNote && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-800 dark:text-amber-300">
+            {addon.orderNote}
+          </div>
+        )}
+
         {/* Step 1 — manual console setup */}
         <AddonStep number={1} title={addon.consoleTitle} done={consoleDone}>
           <div className="rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground">
