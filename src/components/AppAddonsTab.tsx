@@ -85,11 +85,13 @@ const IAP_CONSOLE_STEPS = (
       (Monetization → In-App Purchases). Note the product ID — you'll reuse it on Android.
     </li>
     <li>
-      <strong>Leave the Android product for later.</strong>{" "}
+      <strong>Skip the Android product for now — do not create it yet.</strong>{" "}
       <ConsoleLink href="https://play.google.com/console">Google Play Console</ConsoleLink>{" "}
       (Monetize → Products → In-app products) refuses to create products until it has received a
-      build whose manifest contains the <code>BILLING</code> permission. Do this once step 3 below
-      ("Build &amp; upload a new Android version") has finished — not now.
+      build whose manifest contains the <code>BILLING</code> permission, which this app doesn't have
+      yet. Come back to it only after finishing the separate card step further down this page titled{" "}
+      <strong>"Build &amp; upload a new Android version"</strong> — that step is not part of this
+      numbered list, see the note above for the full order.
     </li>
     <li>
       Go to <ConsoleLink href="https://app.revenuecat.com">RevenueCat</ConsoleLink> and create a{" "}
