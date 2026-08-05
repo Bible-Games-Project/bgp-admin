@@ -40,16 +40,51 @@ interface AddonDef {
   fields: AddonField[];
   promptIntro: string;
   promptPlaceholder: string;
+  /** Optional step shown between "install" and the Lovable prompt, for addons that
+   * require a fresh native build (and, for stores like Google Play, an upload) before
+   * the platform console unlocks something the "console setup" step depends on. */
+  postInstall?: {
+    stepKey: string;
+    title: string;
+    content: React.ReactNode;
+  };
 }
+
+const IAP_ANDROID_BUILD_STEP = (
+  <div className="rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground space-y-2">
+    <p>
+      Google Play only enables <strong>Monetize → Products → In-app products</strong> once it has
+      received an Android build whose manifest declares the <code>BILLING</code> permission. That
+      permission is added automatically by RevenueCat's native SDK during the Gradle build — but
+      only for builds compiled <strong>after</strong> the package was installed in step 2 above. A
+      build uploaded before that point will not have it, even if you re-upload it as-is.
+    </p>
+    <p>
+      Trigger a new Android release for this app (push/merge to its default branch, or run its
+      Android release workflow) so the app gets built and a new AAB is uploaded to Play Console. The{" "}
+      <strong>internal testing</strong> track is enough — you don't need to publish it.
+    </p>
+    <p>
+      Once that upload finishes, go back to{" "}
+      <ConsoleLink href="https://play.google.com/console">Google Play Console</ConsoleLink> and
+      create the in-app product — that's the step that was blocked before.
+    </p>
+  </div>
+);
 
 const IAP_CONSOLE_STEPS = (
   <ol className="list-decimal pl-4 space-y-1.5">
     <li>
       Create the in-app product in{" "}
       <ConsoleLink href="https://appstoreconnect.apple.com">App Store Connect</ConsoleLink>{" "}
-      (Monetization → In-App Purchases) and in{" "}
+      (Monetization → In-App Purchases). Note the product ID — you'll reuse it on Android.
+    </li>
+    <li>
+      <strong>Leave the Android product for later.</strong>{" "}
       <ConsoleLink href="https://play.google.com/console">Google Play Console</ConsoleLink>{" "}
-      (Monetize → Products → In-app products). Use the same product ID in both.
+      (Monetize → Products → In-app products) refuses to create products until it has received a
+      build whose manifest contains the <code>BILLING</code> permission. Do this once step 3 below
+      ("Build &amp; upload a new Android version") has finished — not now.
     </li>
     <li>
       Go to <ConsoleLink href="https://app.revenuecat.com">RevenueCat</ConsoleLink> and create a{" "}
@@ -123,6 +158,11 @@ const ADDONS: AddonDef[] = [
       "This app already has RevenueCat In-App Purchases fully installed and configured (native plugin + API keys committed). Use the existing hook at src/hooks/useIAP.ts — it exposes { hasPremium, isLoading, purchase, restore } — together with the ready-made src/components/Paywall.tsx component (you may restyle Paywall.tsx, but keep its props and the Restore button, which Apple requires). Do NOT install any package and do NOT modify src/hooks/useIAP.ts. Note: in the browser preview hasPremium is always false because purchases only work on a real device.\n\nUsing this system, add a premium gate to: ",
     promptPlaceholder:
       "e.g. lock every level after level 3; tapping a locked level opens the paywall",
+    postInstall: {
+      stepKey: "addon_iap_android_build",
+      title: "Build & upload a new Android version",
+      content: IAP_ANDROID_BUILD_STEP,
+    },
   },
   {
     id: "rewarded-ads",
@@ -211,10 +251,18 @@ function AddonCard({
   });
   const completedKeys = new Set((setupStepsQ.data?.steps ?? []).map((s: any) => s.step_key));
   const consoleDone = completedKeys.has(addon.consoleStepKey);
+  const postInstallDone = addon.postInstall ? completedKeys.has(addon.postInstall.stepKey) : false;
 
   const toggleConsoleM = useMutation({
     mutationFn: (completed: boolean) =>
       setSetupFn({ data: { appId, stepKey: addon.consoleStepKey, completed } }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["app-setup-steps", appId] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const togglePostInstallM = useMutation({
+    mutationFn: (completed: boolean) =>
+      setSetupFn({ data: { appId, stepKey: addon.postInstall!.stepKey, completed } }),
     onSettled: () => qc.invalidateQueries({ queryKey: ["app-setup-steps", appId] }),
     onError: (e: Error) => toast.error(e.message),
   });
@@ -353,8 +401,28 @@ function AddonCard({
           </div>
         </AddonStep>
 
-        {/* Step 3 — Lovable prompt */}
-        <AddonStep number={3} title="Use it: send this prompt to Lovable" done={false} isLast>
+        {/* Step 3 (optional) — native build required before a platform console unlocks */}
+        {addon.postInstall && (
+          <AddonStep number={3} title={addon.postInstall.title} done={postInstallDone}>
+            {addon.postInstall.content}
+            <label className="mt-2 flex items-center gap-2 cursor-pointer w-fit">
+              <Checkbox
+                checked={postInstallDone}
+                disabled={togglePostInstallM.isPending || setupStepsQ.isLoading}
+                onCheckedChange={(checked) => togglePostInstallM.mutate(!!checked)}
+              />
+              <span className="text-xs text-muted-foreground">Mark as completed</span>
+            </label>
+          </AddonStep>
+        )}
+
+        {/* Last step — Lovable prompt */}
+        <AddonStep
+          number={addon.postInstall ? 4 : 3}
+          title="Use it: send this prompt to Lovable"
+          done={false}
+          isLast
+        >
           <p className="text-xs text-muted-foreground mb-2">
             Everything is installed — the app's AI (Lovable) only needs to wire it into the game.
             Describe below where you want it, then copy the full prompt and paste it into Lovable.
