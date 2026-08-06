@@ -566,7 +566,7 @@ export const checkPreviewDeployWorkflow = createServerFn({ method: "POST" })
     const branch = app.default_ref || "main";
     const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/${PREVIEW_WORKFLOW_PATH}?ref=${encodeURIComponent(branch)}`;
     const res = await fetch(url, { headers: githubHeaders() });
-    return { exists: res.ok, previewUrl: `https://${app.github_repo}.pages.dev` };
+    return { exists: res.ok, previewUrl: `https://bgp-${app.github_repo}.pages.dev` };
   });
 
 export const createPreviewDeployWorkflow = createServerFn({ method: "POST" })
