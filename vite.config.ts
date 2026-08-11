@@ -11,7 +11,7 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 // phase breaks both Lovable's pipeline and local builds with the pinned
 // @lovable.dev/vite-tanstack-config, and the SSR web build doesn't need it.
 export default defineConfig({
-  tanstackStart: {
+  tanstackStart: { spa: { enabled: true, prerender: { outputPath: "index.html" } },
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
     server: { entry: "server" },
