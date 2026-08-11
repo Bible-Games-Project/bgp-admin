@@ -1,6 +1,11 @@
 name: Deploy
 
 on:
+  push:
+    branches: [deploy-app]
+  pull_request:
+    branches: [main]
+    types: [closed]
   workflow_dispatch:
     inputs:
       deploy_ios:
@@ -30,11 +35,14 @@ on:
 
 jobs:
   ios:
-    if: inputs.deploy_ios == true
+    if: |
+      github.ref == 'refs/heads/deploy-app' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_ios == true)
     uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-ios.yml@main
     with:
       marketing-version: ${{ inputs.marketing_version }}
-      bundle-identifier: com.biblegames.bgpadmin
+      bundle-identifier: "com.biblegames.bgpadmin"
       submit-for-review: ${{ inputs.production == true }}
       release-notes: ${{ inputs.release_notes }}
     secrets:
@@ -49,7 +57,11 @@ jobs:
       APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
 
   android:
-    if: inputs.deploy_android == true || inputs.generate_aab_only == true
+    if: |
+      github.ref == 'refs/heads/deploy-app' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_android == true) ||
+      (github.event_name == 'workflow_dispatch' && inputs.generate_aab_only == true)
     uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@main
     with:
       package-name: com.biblegames.bgpadmin
