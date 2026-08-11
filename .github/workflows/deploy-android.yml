@@ -37,6 +37,16 @@ on:
         required: false
         type: string
         default: ""
+      release-notes:
+        description: "What's New for the Play Store release. If empty, Play keeps the notes from the previous release"
+        required: false
+        type: string
+        default: ""
+      release-notes-locale:
+        description: "Play Store listing locale the release notes are written for (must already exist in the listing)"
+        required: false
+        type: string
+        default: "en-US"
     secrets:
       ANDROID_KEYSTORE:
         required: true
@@ -278,6 +288,40 @@ jobs:
           echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" | base64 -d > $RUNNER_TEMP/service-account.json
           echo "json-file=$RUNNER_TEMP/service-account.json" >> $GITHUB_OUTPUT
 
+      # A release must never go out with blank notes, so empty input falls back to the
+      # generic text (kept in sync with DEFAULT_RELEASE_NOTES in src/lib/release-notes.ts).
+      # Google Play also caps notes at 500 characters per locale and rejects the whole
+      # release if they are longer, so truncate instead of failing the deploy.
+      - name: Prepare Play Store release notes
+        if: inputs.skip-upload == false
+        id: whatsnew
+        env:
+          RELEASE_NOTES: ${{ inputs.release-notes }}
+          RELEASE_NOTES_LOCALE: ${{ inputs.release-notes-locale }}
+        run: |
+          set -euo pipefail
+          export WHATS_NEW_DIR="$RUNNER_TEMP/whatsnew"
+          mkdir -p "$WHATS_NEW_DIR"
+          node -e '
+            const fs = require("fs");
+            const limit = 500;
+            const fallback = "Bug fixes and performance improvements.";
+            const locale = process.env.RELEASE_NOTES_LOCALE || "en-US";
+            let notes = (process.env.RELEASE_NOTES || "").trim();
+            if (!notes) {
+              notes = fallback;
+              console.log("No release notes provided — using the default text.");
+            }
+            if ([...notes].length > limit) {
+              notes = [...notes].slice(0, limit - 1).join("") + "…";
+              console.log(`Release notes exceeded ${limit} characters — truncated.`);
+            }
+            fs.writeFileSync(`${process.env.WHATS_NEW_DIR}/whatsnew-${locale}`, notes);
+            console.log(`Wrote whatsnew-${locale} (${[...notes].length} chars): ${notes}`);
+          '
+          echo "whats-new-dir=$WHATS_NEW_DIR" >> $GITHUB_OUTPUT
+        shell: bash
+
       - name: Upload to Google Play Console
         if: inputs.skip-upload == false
         uses: r0adkll/upload-google-play@v1
@@ -287,6 +331,7 @@ jobs:
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
           track: ${{ inputs.play-track }}
           status: completed
+          whatsNewDirectory: ${{ steps.whatsnew.outputs.whats-new-dir }}
 
       - name: Upload AAB as artifact
         if: inputs.skip-upload == true
