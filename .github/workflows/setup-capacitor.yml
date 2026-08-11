@@ -67,15 +67,27 @@ jobs:
       - name: Detect app type and set webDir
         run: |
           cd app-repo
-          # TanStack Start apps (@lovable.dev/vite-tanstack-config) output static assets
-          # to dist/client/ instead of dist/. Detect and use the correct webDir.
-          if node -e "const p=require('./package.json'); process.exit(p.dependencies?.['@tanstack/react-start'] || p.devDependencies?.['@tanstack/react-start'] ? 0 : 1)" 2>/dev/null; then
-            echo "WEB_DIR=dist/client" >> $GITHUB_ENV
-            echo "Detected TanStack Start app → webDir: dist/client"
-          else
-            echo "WEB_DIR=dist" >> $GITHUB_ENV
-            echo "Detected standard Vite app → webDir: dist"
-          fi
+          # TanStack Start apps output static assets outside dist/. Which directory
+          # depends on the Lovable config version: >= 2.7 emits .output/public,
+          # older versions emit dist/client. Resolve the installed version rather
+          # than guessing — a wrong webDir makes `cap sync` fail in the deploy
+          # workflows ("Could not find the web assets directory").
+          WEB_DIR=$(node -e "
+            const p = require('./package.json');
+            const dep = n => p.dependencies?.[n] || p.devDependencies?.[n];
+            if (!dep('@tanstack/react-start')) { console.log('dist'); process.exit(0); }
+            let ver = null;
+            try { ver = require('./node_modules/@lovable.dev/vite-tanstack-config/package.json').version; } catch {}
+            if (!ver) {
+              const raw = dep('@lovable.dev/vite-tanstack-config');
+              if (raw) ver = raw.replace(/^[^0-9]*/, '');
+            }
+            if (!ver) { console.log('.output/public'); process.exit(0); }
+            const [major, minor] = ver.split('.').map(Number);
+            console.log(major > 2 || (major === 2 && minor >= 7) ? '.output/public' : 'dist/client');
+          ")
+          echo "WEB_DIR=$WEB_DIR" >> $GITHUB_ENV
+          echo "Detected webDir: $WEB_DIR"
 
       - name: Create capacitor.config.ts
         env:
@@ -108,7 +120,7 @@ jobs:
       - name: Enable SPA mode for TanStack Start apps
         run: |
           cd app-repo
-          if [ "$WEB_DIR" != "dist/client" ]; then
+          if [ "$WEB_DIR" = "dist" ]; then
             echo "Not a TanStack Start app — skipping SPA mode patch"
             exit 0
           fi
@@ -156,7 +168,7 @@ jobs:
       - name: Add postbuild script for TanStack Start apps
         run: |
           cd app-repo
-          if [ "$WEB_DIR" != "dist/client" ]; then
+          if [ "$WEB_DIR" = "dist" ]; then
             echo "Not a TanStack Start app — skipping postbuild script"
             exit 0
           fi

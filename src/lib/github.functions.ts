@@ -64,7 +64,7 @@ export function buildPreviewDeployWorkflowYaml(): string {
     "      - name: Locate build output",
     "        id: outdir",
     "        run: |",
-    "          for d in dist/client dist build out; do",
+    "          for d in .output/public dist/client dist build out; do",
     '            if [ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ]; then',
     '              echo "dir=$d" >> "$GITHUB_OUTPUT"',
     '              echo "found=true" >> "$GITHUB_OUTPUT"',
@@ -86,7 +86,7 @@ export function buildPreviewDeployWorkflowYaml(): string {
     "      - name: No build output yet",
     "        if: steps.outdir.outputs.found != 'true'",
     "        run: |",
-    "          echo \"::notice::No build output found (deps=${{ steps.deps.outcome }}, build=${{ steps.build.outcome }}). Skipping Cloudflare Pages deploy - expected until the app has real code with a working 'bun run build'. Push again once dist/, dist/client/, build/, or out/ contains files.\"",
+    "          echo \"::notice::No build output found (deps=${{ steps.deps.outcome }}, build=${{ steps.build.outcome }}). Skipping Cloudflare Pages deploy - expected until the app has real code with a working 'bun run build'. Push again once .output/public/, dist/, dist/client/, build/, or out/ contains files.\"",
     "",
   ].join("\n");
 }
