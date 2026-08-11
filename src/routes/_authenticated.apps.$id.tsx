@@ -221,6 +221,8 @@ function AppDetailPage() {
               appId={id}
               bundleId={(app as any).bundle_id ?? null}
               appName={app.name}
+              githubOwner={(app as any).github_owner ?? null}
+              githubRepo={(app as any).github_repo ?? null}
               onSuccess={() => {
                 qc.invalidateQueries({ queryKey: ["app", id] });
               }}

@@ -30,16 +30,30 @@ import {
 import { checkAgentDocs, syncAgentDocs } from "@/lib/agent-docs.functions";
 import { listSetupSteps, setSetupStep } from "@/lib/app-setup.functions";
 import { Checkbox } from "@/components/ui/checkbox";
+import { SELF_REPO_BLOCKED_STEPS, isSelfRepo, type SelfRepoBlockedStep } from "@/lib/self-repo";
 
 interface AppSetupTabProps {
   appId: string;
   bundleId: string | null | undefined;
   appName: string;
+  githubOwner: string | null | undefined;
+  githubRepo: string | null | undefined;
   onSuccess: () => void;
 }
 
-export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTabProps) {
+export function AppSetupTab({
+  appId,
+  bundleId,
+  appName,
+  githubOwner,
+  githubRepo,
+  onSuccess,
+}: AppSetupTabProps) {
   const qc = useQueryClient();
+
+  // The console's own repo: some steps would overwrite its hand-tuned setup.
+  // See src/lib/self-repo.ts — the server functions reject these too.
+  const self = isSelfRepo(githubOwner, githubRepo);
 
   const [keystoreResult, setKeystoreResult] = useState<{
     password: string;
@@ -312,7 +326,9 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
         done={!!capacitorDone}
         isLast={false}
         statusContent={
-          capacitorQ.isLoading ? (
+          self ? (
+            <SelfRepoNotice step="capacitor" />
+          ) : capacitorQ.isLoading ? (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Loader2 className="w-3 h-3 animate-spin" /> Checking…
             </span>
@@ -331,7 +347,7 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
             <Button
               size="sm"
               variant={capacitorDone ? "outline" : "default"}
-              disabled={capacitorM.isPending || !bundleId}
+              disabled={capacitorM.isPending || !bundleId || self}
               onClick={() => capacitorM.mutate()}
             >
               {capacitorM.isPending ? (
@@ -709,7 +725,9 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
         done={deployDone}
         isLast={false}
         statusContent={
-          deployQ.isLoading ? (
+          self ? (
+            <SelfRepoNotice step="deploy-workflow" />
+          ) : deployQ.isLoading ? (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Loader2 className="w-3 h-3 animate-spin" /> Checking…
             </span>
@@ -741,7 +759,7 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
             <Button
               size="sm"
               variant={deployDone && !deployOutdated ? "outline" : "default"}
-              disabled={deployM.isPending || !bundleId}
+              disabled={deployM.isPending || !bundleId || self}
               onClick={() => deployM.mutate()}
             >
               {deployM.isPending ? (
@@ -773,7 +791,9 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
         done={previewDeployDone}
         isLast={false}
         statusContent={
-          previewDeployQ.isLoading ? (
+          self ? (
+            <SelfRepoNotice step="preview-deploy" />
+          ) : previewDeployQ.isLoading ? (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Loader2 className="w-3 h-3 animate-spin" /> Checking…
             </span>
@@ -798,7 +818,7 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
             <Button
               size="sm"
               variant={previewDeployDone ? "outline" : "default"}
-              disabled={previewDeployM.isPending}
+              disabled={previewDeployM.isPending || self}
               onClick={() => previewDeployM.mutate()}
             >
               {previewDeployM.isPending ? (
@@ -832,7 +852,9 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
         done={agentDocsDone}
         isLast={true}
         statusContent={
-          agentDocsQ.isLoading ? (
+          self ? (
+            <SelfRepoNotice step="agent-docs" />
+          ) : agentDocsQ.isLoading ? (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Loader2 className="w-3 h-3 animate-spin" /> Checking…
             </span>
@@ -861,7 +883,7 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
             <Button
               size="sm"
               variant={agentDocsDone ? "outline" : "default"}
-              disabled={agentDocsM.isPending}
+              disabled={agentDocsM.isPending || self}
               onClick={() => agentDocsM.mutate()}
             >
               {agentDocsM.isPending ? (
@@ -966,6 +988,19 @@ function SetupStep({
         <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
         {statusContent}
         {actionContent}
+      </div>
+    </div>
+  );
+}
+
+/** Shown in place of the status rows when the step is off for the console's own repo. */
+function SelfRepoNotice({ step }: { step: SelfRepoBlockedStep }) {
+  return (
+    <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs">
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+      <div>
+        <p className="font-medium">Disabled for bgp-admin itself.</p>
+        <p className="text-muted-foreground mt-0.5">{SELF_REPO_BLOCKED_STEPS[step]}</p>
       </div>
     </div>
   );

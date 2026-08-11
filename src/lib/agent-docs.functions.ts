@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { commitAgentDocs, inspectAgentDocs } from "@/lib/agent-docs.server";
+import { assertNotSelfRepo } from "@/lib/self-repo";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -40,6 +41,7 @@ export const syncAgentDocs = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
     const app = await loadApp(context.supabase, data.appId);
+    assertNotSelfRepo(app, "agent-docs");
     const results = await commitAgentDocs({
       owner: app.github_owner,
       repo: app.github_repo,

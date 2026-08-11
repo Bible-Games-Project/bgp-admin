@@ -3,6 +3,7 @@ import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { PREVIEW_WORKFLOW_PATH, commitPreviewWorkflow } from "@/lib/github.functions";
+import { assertNotSelfRepo } from "@/lib/self-repo";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -432,6 +433,7 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
     const app = await loadApp(context.supabase, data.appId);
+    assertNotSelfRepo(app, "deploy-workflow");
 
     if (!app.bundle_id) {
       throw new Error("Bundle ID is required. Set it in the General tab first.");
@@ -594,6 +596,7 @@ export const createPreviewDeployWorkflow = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
     const app = await loadApp(context.supabase, data.appId);
+    assertNotSelfRepo(app, "preview-deploy");
     const branch = app.default_ref || "main";
     const result = await commitPreviewWorkflow({
       owner: app.github_owner,
@@ -666,6 +669,7 @@ export const setupCapacitor = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
     const app = await loadApp(context.supabase, data.appId);
+    assertNotSelfRepo(app, "capacitor");
 
     if (!app.bundle_id) {
       throw new Error(
