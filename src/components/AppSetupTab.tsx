@@ -282,6 +282,7 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
   const keystoreDone = keystoreQ.data?.configured ?? false;
   const iosSecretsDone = iosSecretsQ.data?.configured ?? false;
   const deployDone = deployQ.data?.exists ?? false;
+  const deployOutdated = deployQ.data?.outdated ?? false;
   const previewDeployDone = previewDeployQ.data?.exists ?? false;
   const agentDocsDone = agentDocsQ.data?.allInSync ?? false;
 
@@ -633,6 +634,16 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
         }
         actionContent={
           <div className="mt-3 space-y-3">
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+              <p className="font-medium">Complete this before the first Release to Production.</p>
+              <p className="text-muted-foreground mt-1">
+                Uploading builds is automated; creating and filling a store listing is not. Until
+                screenshots, description, category, privacy policy, and age rating are in place in
+                App Store Connect — and the content rating, data safety form, and a closed test in
+                Play Console — the production release will fail at the submission step. Every
+                release after that is fully automatic.
+              </p>
+            </div>
             <div className="rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground space-y-2.5">
               <div>
                 <p className="font-medium text-foreground/80 mb-1">Google Play Console</p>
@@ -705,6 +716,23 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
           ) : (
             <div className="flex flex-col gap-1.5 mt-2">
               <StatusRow label=".github/workflows/deploy.yml" ok={deployDone} />
+              {deployOutdated && (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs">
+                  <p className="font-medium">This deploy.yml is out of date.</p>
+                  <p className="text-muted-foreground mt-0.5">
+                    It was committed by an older version of bgp-admin and is missing:
+                  </p>
+                  <ul className="list-disc list-inside text-muted-foreground mt-1">
+                    {(deployQ.data?.missingFeatures ?? []).map((f) => (
+                      <li key={f}>{f}</li>
+                    ))}
+                  </ul>
+                  <p className="text-muted-foreground mt-1">
+                    Hit Re-create to update it. Deploys keep working meanwhile, but those features
+                    stay off.
+                  </p>
+                </div>
+              )}
             </div>
           )
         }
@@ -712,7 +740,7 @@ export function AppSetupTab({ appId, bundleId, appName, onSuccess }: AppSetupTab
           <div className="flex items-center gap-3 mt-3">
             <Button
               size="sm"
-              variant={deployDone ? "outline" : "default"}
+              variant={deployDone && !deployOutdated ? "outline" : "default"}
               disabled={deployM.isPending || !bundleId}
               onClick={() => deployM.mutate()}
             >

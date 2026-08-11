@@ -492,9 +492,12 @@ jobs:
             echo "❌ submit-for-review is true but bundle-identifier was not provided."
             exit 1
           fi
-          if [ -z "$RELEASE_NOTES" ]; then
-            echo "❌ submit-for-review is true but release-notes was not provided."
-            exit 1
+          # Apple rejects a submission with no "What's New", and a failed deploy is worse
+          # than generic notes, so fall back instead of bailing out. Kept in sync with
+          # DEFAULT_RELEASE_NOTES in src/lib/release-notes.ts.
+          if [ -z "${RELEASE_NOTES//[[:space:]]/}" ]; then
+            export RELEASE_NOTES="Bug fixes and performance improvements."
+            echo "ℹ️ No release notes provided — using the default text: $RELEASE_NOTES"
           fi
 
           node - <<'EOF'
@@ -536,6 +539,19 @@ jobs:
               throw new Error(`${method} ${path} -> ${res.status}: ${text.slice(0, 500)}`);
             }
             return json;
+          }
+
+          // Whether a review submission already carries the given App Store version as an
+          // item. `include=appStoreVersion` is what populates the item relationship data.
+          async function submissionHasVersion(submissionId, versionId) {
+            const itemsRes = await api(
+              'GET',
+              `/v1/reviewSubmissions/${submissionId}/items?include=appStoreVersion&limit=50`,
+            );
+            return (itemsRes.data || []).some((item) => {
+              const rel = item.relationships && item.relationships.appStoreVersion;
+              return !!(rel && rel.data && rel.data.id === versionId);
+            });
           }
 
           async function main() {
@@ -582,7 +598,9 @@ jobs:
               const created = await api('POST', '/v1/appStoreVersions', {
                 data: {
                   type: 'appStoreVersions',
-                  attributes: { platform: 'IOS', versionString },
+                  // AFTER_APPROVAL makes the version go live as soon as Apple approves it,
+                  // so no manual "Release this version" click is needed in App Store Connect.
+                  attributes: { platform: 'IOS', versionString, releaseType: 'AFTER_APPROVAL' },
                   relationships: { app: { data: { type: 'apps', id: appId } } },
                 },
               });
@@ -596,11 +614,15 @@ jobs:
             }
             console.log(`Using App Store version ${version.id}`);
 
-            console.log('Attaching build to version...');
+            console.log('Attaching build to version and forcing automatic release after approval...');
             await api('PATCH', `/v1/appStoreVersions/${version.id}`, {
               data: {
                 type: 'appStoreVersions',
                 id: version.id,
+                // Re-assert AFTER_APPROVAL: a version created earlier (by hand or by a
+                // previous run) may be set to MANUAL, which would leave the approved
+                // build waiting for a click in App Store Connect.
+                attributes: { releaseType: 'AFTER_APPROVAL' },
                 relationships: { build: { data: { type: 'builds', id: build.id } } },
               },
             });
@@ -616,15 +638,72 @@ jobs:
               console.log('No localization found to attach release notes to — skipping (set one up in App Store Connect first).');
             }
 
-            console.log('Submitting version for App Store review...');
-            await api('POST', '/v1/appStoreVersionSubmissions', {
+            // Submission uses the reviewSubmissions API (the older
+            // appStoreVersionSubmissions endpoint is deprecated): create or reuse an open
+            // submission for the app, add this version to it as an item, then submit it.
+            console.log('Looking for an existing review submission...');
+            const submissionsRes = await api(
+              'GET',
+              `/v1/reviewSubmissions?filter[app]=${appId}&filter[platform]=IOS&limit=50`,
+            );
+            const submissions = submissionsRes.data || [];
+
+            const inFlight = submissions.find((s) =>
+              ['WAITING_FOR_REVIEW', 'IN_REVIEW', 'UNRESOLVED_ISSUES'].includes(s.attributes.state),
+            );
+            if (inFlight) {
+              // Apple allows only one submission in flight per app and platform. If it is
+              // already carrying this version the run is a retry and there is nothing to do;
+              // if it carries a different one, submitting silently would be a lie.
+              if (await submissionHasVersion(inFlight.id, version.id)) {
+                console.log(`✅ Version ${versionString} is already in review submission ${inFlight.id} (state ${inFlight.attributes.state}).`);
+                return;
+              }
+              throw new Error(
+                `Review submission ${inFlight.id} is already ${inFlight.attributes.state} for a different version. Cancel it in App Store Connect before submitting ${versionString}.`,
+              );
+            }
+
+            let submission = submissions.find((s) => s.attributes.state === 'READY_FOR_REVIEW');
+            if (submission) {
+              console.log(`Reusing open review submission ${submission.id}`);
+            } else {
+              const createdSubmission = await api('POST', '/v1/reviewSubmissions', {
+                data: {
+                  type: 'reviewSubmissions',
+                  attributes: { platform: 'IOS' },
+                  relationships: { app: { data: { type: 'apps', id: appId } } },
+                },
+              });
+              submission = createdSubmission.data;
+              console.log(`Created review submission ${submission.id}`);
+            }
+
+            if (await submissionHasVersion(submission.id, version.id)) {
+              console.log('Version is already an item of this submission.');
+            } else {
+              console.log('Adding the version to the review submission...');
+              await api('POST', '/v1/reviewSubmissionItems', {
+                data: {
+                  type: 'reviewSubmissionItems',
+                  relationships: {
+                    reviewSubmission: { data: { type: 'reviewSubmissions', id: submission.id } },
+                    appStoreVersion: { data: { type: 'appStoreVersions', id: version.id } },
+                  },
+                },
+              });
+            }
+
+            console.log('Submitting for App Store review...');
+            await api('PATCH', `/v1/reviewSubmissions/${submission.id}`, {
               data: {
-                type: 'appStoreVersionSubmissions',
-                relationships: { appStoreVersion: { data: { type: 'appStoreVersions', id: version.id } } },
+                type: 'reviewSubmissions',
+                id: submission.id,
+                attributes: { submitted: true },
               },
             });
 
-            console.log(`✅ Submitted App Store version ${versionString} (build ${build.id}) for review.`);
+            console.log(`✅ Submitted App Store version ${versionString} (build ${build.id}) for review. It will be released automatically once Apple approves it.`);
           }
 
           main().catch((err) => {

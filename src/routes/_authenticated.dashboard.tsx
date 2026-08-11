@@ -19,6 +19,7 @@ import {
   getCommitsAheadOfLatestTag,
 } from "@/lib/deploy.functions";
 import { listApps } from "@/lib/apps.functions";
+import { DEFAULT_RELEASE_NOTES } from "@/lib/release-notes";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -108,7 +109,9 @@ function DeployPanel({
   const [deployIos, setDeployIos] = useState(true);
   const [deployAndroid, setDeployAndroid] = useState(true);
   const [prodDialogOpen, setProdDialogOpen] = useState(false);
-  const [releaseNotes, setReleaseNotes] = useState("");
+  const [releaseNotes, setReleaseNotes] = useState(DEFAULT_RELEASE_NOTES);
+  // Never ship blank notes: an emptied box falls back to the generic text.
+  const effectiveReleaseNotes = releaseNotes.trim() || DEFAULT_RELEASE_NOTES;
 
   useEffect(() => setRef(defaultRef), [defaultRef]);
 
@@ -175,7 +178,7 @@ function DeployPanel({
             deploy_android: deployAndroid,
             marketing_version: marketingVersion.trim() || undefined,
             production: true,
-            release_notes: releaseNotes.trim(),
+            release_notes: effectiveReleaseNotes,
           },
         },
       }),
@@ -184,15 +187,17 @@ function DeployPanel({
       if (deployIos) platforms.push("iOS");
       if (deployAndroid) platforms.push("Android");
       const versionStr = marketingVersion.trim() ? ` v${marketingVersion}` : "";
-      toast.success(`Publicando a producción ${platforms.join(" + ")}${versionStr} on ${ref}`);
+      toast.success(`Releasing to production ${platforms.join(" + ")}${versionStr} on ${ref}`);
       setProdDialogOpen(false);
-      setReleaseNotes("");
+      setReleaseNotes(DEFAULT_RELEASE_NOTES);
       setTimeout(() => qc.invalidateQueries({ queryKey: ["runs", appId] }), 1500);
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const releaseNotesMissing = deployIos && !releaseNotes.trim();
+  const usingDefaultNotes = !releaseNotes.trim();
+  const actionsDisabled =
+    deployM.isPending || prodDeployM.isPending || !ref.trim() || (!deployIos && !deployAndroid);
 
   return (
     <section className="mb-10">
@@ -247,7 +252,7 @@ function DeployPanel({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 h-9">
+          <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 h-9 shrink-0">
             <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
             <input
               value={ref}
@@ -278,89 +283,117 @@ function DeployPanel({
             <span className="text-muted-foreground">.</span>
             <span className="text-xs font-mono text-muted-foreground italic" title="Auto-incremented by CI on every deploy">auto</span>
           </div>
+        </div>
 
-          <Button
-            onClick={() => deployM.mutate()}
-            disabled={deployM.isPending || !ref.trim() || (!deployIos && !deployAndroid)}
-            className="gap-2"
-          >
-            {deployM.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Rocket className="h-4 w-4" />
-            )}
-            Publicar
-          </Button>
+        <div className="grid gap-3 sm:grid-cols-2 border-t border-border pt-4">
+          <div className="space-y-1.5">
+            <Button
+              onClick={() => deployM.mutate()}
+              disabled={actionsDisabled}
+              className="w-full gap-2"
+            >
+              {deployM.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Rocket className="h-4 w-4" />
+              )}
+              Deploy to Testing
+            </Button>
+            <p className="text-[11px] font-mono text-muted-foreground text-center">
+              Play internal track · TestFlight
+            </p>
+          </div>
 
-          <Button
-            variant="destructive"
-            onClick={() => setProdDialogOpen(true)}
-            disabled={deployM.isPending || prodDeployM.isPending || !ref.trim() || (!deployIos && !deployAndroid)}
-            className="gap-2"
-          >
-            {prodDeployM.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <TriangleAlert className="h-4 w-4" />
-            )}
-            Publicar a producción
-          </Button>
+          <div className="space-y-1.5">
+            <Button
+              variant="destructive"
+              onClick={() => setProdDialogOpen(true)}
+              disabled={actionsDisabled}
+              className="w-full gap-2"
+            >
+              {prodDeployM.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <TriangleAlert className="h-4 w-4" />
+              )}
+              Release to Production
+            </Button>
+            <p className="text-[11px] font-mono text-muted-foreground text-center">
+              Play production · App Store review
+            </p>
+          </div>
         </div>
       </div>
 
       <Dialog open={prodDialogOpen} onOpenChange={(open) => !prodDeployM.isPending && setProdDialogOpen(open)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Publicar a producción</DialogTitle>
+            <DialogTitle>Release to Production</DialogTitle>
             <DialogDescription>
-              Esto publica en la pista de producción de Google Play
-              {deployIos ? " y envía el build a revisión de Apple para su publicación en la App Store" : ""}.
-              No es una acción trivialmente reversible.
+              This builds {ref} and ships it to the Google Play production track
+              {deployIos ? " and submits the build for Apple review, set to release automatically once approved" : ""}.
+              Not trivially reversible.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="rounded-md border border-border bg-muted/30 p-3 text-xs font-mono space-y-1">
-              <div>rama: <span className="text-foreground">{ref}</span></div>
-              <div>versión: <span className="text-foreground">{marketingVersion || "—"}</span></div>
+              <div>branch: <span className="text-foreground">{ref}</span></div>
+              <div>version: <span className="text-foreground">{marketingVersion || "—"}</span></div>
               <div>
-                plataformas:{" "}
+                platforms:{" "}
                 <span className="text-foreground">
-                  {[deployIos && "iOS", deployAndroid && "Android"].filter(Boolean).join(" + ") || "ninguna"}
+                  {[deployIos && "iOS", deployAndroid && "Android"].filter(Boolean).join(" + ") || "none"}
                 </span>
               </div>
             </div>
 
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                Release notes / What&apos;s New {deployIos && <span className="text-destructive">*</span>}
+                Release notes / What&apos;s New
               </label>
               <Textarea
                 value={releaseNotes}
                 onChange={(e) => setReleaseNotes(e.target.value)}
-                placeholder="Qué ha cambiado en esta versión…"
+                placeholder={DEFAULT_RELEASE_NOTES}
                 rows={4}
               />
-              {releaseNotesMissing && (
-                <p className="text-xs text-destructive mt-1">
-                  Obligatorio: el envío a revisión de Apple requiere release notes.
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground mt-1">
+                {usingDefaultNotes ? (
+                  <>
+                    Left empty, so both stores get the default text:{" "}
+                    <span className="text-foreground">{DEFAULT_RELEASE_NOTES}</span>
+                  </>
+                ) : (
+                  <>Sent to both stores. Play truncates anything past 500 characters.</>
+                )}
+              </p>
+            </div>
+
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+              <p className="font-medium">First release of an app? Expect this to fail.</p>
+              <p className="text-muted-foreground mt-1">
+                An app&apos;s first production release needs its store listing completed by hand:
+                screenshots, description, category, privacy policy, and age rating in App Store
+                Connect, plus the content rating, data safety form, and a closed test in Play
+                Console. Nothing here can fill those in. Once the listing is complete, every later
+                release is fully automatic.
+              </p>
             </div>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setProdDialogOpen(false)} disabled={prodDeployM.isPending}>
-              Cancelar
+              Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={() => prodDeployM.mutate()}
-              disabled={prodDeployM.isPending || releaseNotesMissing}
+              disabled={prodDeployM.isPending}
               className="gap-2"
             >
               {prodDeployM.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Confirmar publicación a producción
+              Confirm production release
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -544,9 +577,7 @@ function DashboardPage() {
       {!selected && (
         <div className="rounded-md border border-dashed border-border bg-card p-8 text-center">
           <Boxes className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">
-            Selecciona un proyecto para ver el panel de deploy.
-          </p>
+          <p className="text-sm text-muted-foreground">Select a project to see the deploy panel.</p>
         </div>
       )}
 

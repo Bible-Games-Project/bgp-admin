@@ -416,7 +416,8 @@ function SetupReference() {
           with its own secrets.
         </p>
         <p className="text-muted-foreground">
-          When you hit <strong>Publicar</strong>, it triggers <code>deploy.yml</code> in the
+          When you hit <strong>Deploy to Testing</strong> or <strong>Release to Production</strong>,
+          it triggers <code>deploy.yml</code> in the
           app repo via <code>workflow_dispatch</code>. That file then calls the centralized
           workflows with the app's specific configuration.
         </p>

@@ -405,7 +405,25 @@ export const checkDeployWorkflow = createServerFn({ method: "POST" })
     const branch = app.default_ref || "main";
     const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/.github/workflows/deploy.yml?ref=${encodeURIComponent(branch)}`;
     const res = await fetch(url, { headers: githubHeaders() });
-    return { exists: res.ok };
+    if (!res.ok) return { exists: false, outdated: false, missingFeatures: [] as string[] };
+
+    // Workflows committed by older versions of bgp-admin lack inputs that the reusable
+    // workflows now expect, so flag them for regeneration instead of failing at deploy time.
+    const file = (await res.json()) as { content?: string; encoding?: string };
+    const content =
+      file.content && file.encoding === "base64"
+        ? Buffer.from(file.content, "base64").toString("utf-8")
+        : "";
+
+    const missingFeatures: string[] = [];
+    if (!content.includes("bundle-identifier:")) {
+      missingFeatures.push("iOS App Store review submission (bundle-identifier)");
+    }
+    if (!content.includes("release-notes:")) {
+      missingFeatures.push("Play Store release notes (release-notes)");
+    }
+
+    return { exists: true, outdated: missingFeatures.length > 0, missingFeatures };
   });
 
 export const createDeployWorkflow = createServerFn({ method: "POST" })
@@ -494,6 +512,7 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
       "      marketing-version: ${{ inputs.marketing_version }}",
       "      skip-upload: ${{ inputs.generate_aab_only == true }}",
       "      play-track: ${{ inputs.production == true && 'production' || 'internal' }}",
+      "      release-notes: ${{ inputs.release_notes }}",
       "    secrets:",
       "      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}",
       "      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}",

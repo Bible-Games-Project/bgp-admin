@@ -19,15 +19,26 @@ Instructions for AI coding agents (GitHub Copilot, Claude, Cursor, etc.) working
 - ✅ Database schemas (table names, column names, comments)
 - ✅ API endpoints and route names
 - ✅ Environment variable names
+- ✅ **Every UI string in this console** — button labels, dialog copy, toasts, empty
+  states, placeholders, tooltips, validation messages, docs pages
+
+## The bgp-admin Console UI Is English-Only
+
+bgp-admin is an internal operator tool, not a player-facing product. There is no i18n
+layer here and none is wanted: **write every visible string in English**, hardcoded.
+Never introduce Spanish UI copy, and translate any Spanish string you come across while
+working nearby.
 
 ## What Can Be in Other Languages
 
-Only **end-user-facing content** may be localized:
+Only **player-facing content in the game repos** may be localized:
 
-- ✅ UI strings shown to end users (via i18n files)
+- ✅ Game UI strings shown to players (via their i18n files)
 - ✅ Marketing copy / App Store / Play Store descriptions
-- ✅ User-facing email templates
+- ✅ Player-facing email templates
 - ✅ Translated content stored in i18n/locale files (e.g., `es.json`, `en.json`)
+
+This exception does **not** extend to bgp-admin's own interface.
 
 ## Communication With the Maintainer
 
