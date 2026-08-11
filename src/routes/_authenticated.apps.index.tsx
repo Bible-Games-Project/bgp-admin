@@ -128,9 +128,6 @@ function AppsPage() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="font-display font-semibold">{a.name}</span>
-                <span className="text-[10px] font-mono uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">
-                  {a.slug}
-                </span>
                 {!a.is_active && (
                   <span className="text-[10px] font-mono uppercase text-destructive border border-destructive/40 rounded px-1.5 py-0.5">
                     disabled

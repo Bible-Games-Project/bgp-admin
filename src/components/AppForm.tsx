@@ -7,12 +7,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { slugify } from "@/lib/utils";
 
 const GITHUB_ORG = "Bible-Games-Project";
-const SLUG_REGEX = /^[a-z0-9-]+$/;
 
 export type AppFormValues = {
-  slug: string;
   name: string;
   github_owner: string;
   github_repo: string;
@@ -24,7 +23,6 @@ export type AppFormValues = {
 };
 
 export const emptyAppForm: AppFormValues = {
-  slug: "",
   name: "",
   github_owner: "Bible-Games-Project",
   github_repo: "",
@@ -52,17 +50,27 @@ export function AppForm({
 }) {
   const [v, setV] = useState<AppFormValues>(initial);
   const [repoError, setRepoError] = useState<string | null>(null);
-  const [slugError, setSlugError] = useState<string | null>(null);
   const [repoMode, setRepoMode] = useState<"link" | "create">("link");
+  const [repoTouched, setRepoTouched] = useState(Boolean(initial.github_repo));
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const createRepo = showCreateRepoOption && repoMode === "create";
 
   const upd = <K extends keyof AppFormValues>(k: K, val: AppFormValues[K]) =>
     setV((s) => ({ ...s, [k]: val }));
 
-  const handleSlugChange = (val: string) => {
-    upd("slug", val);
-    setSlugError(val && !SLUG_REGEX.test(val) ? "Lowercase letters, numbers and dashes only." : null);
+  // While creating a repo, its name follows the app name until the user edits it.
+  const handleNameChange = (val: string) => {
+    setV((s) => ({
+      ...s,
+      name: val,
+      github_repo: !repoTouched && showCreateRepoOption ? slugify(val) : s.github_repo,
+    }));
+  };
+
+  const handleRepoChange = (val: string) => {
+    setRepoTouched(true);
+    upd("github_repo", val);
+    if (repoError) setRepoError(null);
   };
 
   // Extracts the repo name from a full GitHub URL if pasted, otherwise returns the input unchanged.
@@ -75,10 +83,6 @@ export function AppForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!SLUG_REGEX.test(v.slug)) {
-      setSlugError("Lowercase letters, numbers and dashes only.");
-      return;
-    }
     const normalized = normalizeRepo(v.github_repo);
     if (normalized.includes("/") || /https?:/i.test(normalized) || !normalized) {
       setRepoError(
@@ -115,32 +119,38 @@ export function AppForm({
         </div>
       )}
 
+      <Field
+        label="App name"
+        hint={
+          showCreateRepoOption
+            ? "The name players see: home screen, store listing and splash. It's the only name — everything else is derived from it."
+            : "The name players see: home screen, store listing and splash. Saving a new name commits it to the app repo — you then need to publish a new build for players to see it on their device."
+        }
+      >
+        <Input
+          value={v.name}
+          onChange={(e) => handleNameChange(e.target.value)}
+          placeholder="Eden's Choice: Chronicles"
+          maxLength={100}
+          required
+        />
+      </Field>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Slug" hint="Used internally as the unique key (URLs, workflows). Doesn't need to match the repo name.">
-          <Input
-            value={v.slug}
-            onChange={(e) => handleSlugChange(e.target.value)}
-            required
-          />
-          {slugError && <p className="text-[11px] text-destructive">{slugError}</p>}
-        </Field>
-        <Field label="Display name">
-          <Input value={v.name} onChange={(e) => upd("name", e.target.value)} required />
-        </Field>
         {createRepo ? (
           <>
             <Field label="GitHub org" hint="fixed for all apps">
               <Input value={GITHUB_ORG} disabled />
             </Field>
-            <Field label="New repo name" hint="will be created as a public repo, e.g. eden-choice-chronicles">
+            <Field
+              label="New repo name"
+              hint="filled in from the app name — change it only if you need a different repo"
+            >
               <Input
                 value={v.github_repo}
-                onChange={(e) => {
-                  upd("github_repo", e.target.value);
-                  if (repoError) setRepoError(null);
-                }}
+                onChange={(e) => handleRepoChange(e.target.value)}
                 onBlur={(e) => upd("github_repo", normalizeRepo(e.target.value))}
-                placeholder={v.slug || "eden-choice-chronicles"}
+                placeholder={slugify(v.name) || "eden-choice-chronicles"}
                 required
               />
               {repoError && <p className="text-[11px] text-destructive">{repoError}</p>}
@@ -154,10 +164,7 @@ export function AppForm({
             <Field label="Repo name" hint="just the repo name, e.g. eden-choice-chronicles">
               <Input
                 value={v.github_repo}
-                onChange={(e) => {
-                  upd("github_repo", e.target.value);
-                  if (repoError) setRepoError(null);
-                }}
+                onChange={(e) => handleRepoChange(e.target.value)}
                 onBlur={(e) => upd("github_repo", normalizeRepo(e.target.value))}
                 placeholder="eden-choice-chronicles"
                 required

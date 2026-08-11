@@ -3,15 +3,17 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { commitPreviewWorkflow, githubHeaders } from "@/lib/github.functions";
 import { commitAgentDocs } from "@/lib/agent-docs.server";
+import { syncAppNameToRepo } from "@/lib/app-name.server";
+import { slugify } from "@/lib/utils";
 import sodium from "libsodium-wrappers";
 import nacl from "tweetnacl";
 import { blake2b } from "blakejs";
 
 const ORG = "Bible-Games-Project";
 
+// `slug` is never sent by the client — it is derived from the name server-side.
 const appInputSchema = z.object({
-  slug: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/, "lowercase, numbers and dashes only"),
-  name: z.string().min(1).max(255),
+  name: z.string().min(1).max(100),
   github_owner: z.string().min(1).max(255),
   github_repo: z.string().min(1).max(255),
   default_ref: z.string().min(1).max(255).default("main"),
@@ -30,6 +32,25 @@ async function assertAdmin(supabase: any, userId: string) {
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("Forbidden: not an admin");
+}
+
+/**
+ * Internal key for the app, derived from its name. Collisions get a numeric
+ * suffix so the user never has to think about it.
+ */
+async function uniqueSlug(supabase: any, name: string, excludeId?: string) {
+  const base = slugify(name);
+  const { data, error } = await supabase.from("apps").select("id, slug").like("slug", `${base}%`);
+  if (error) throw new Error(error.message);
+  const taken = new Set(
+    (data ?? []).filter((r: any) => r.id !== excludeId).map((r: any) => r.slug as string),
+  );
+  if (!taken.has(base)) return base;
+  for (let i = 2; i < 1000; i++) {
+    const candidate = `${base}-${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base}-${Date.now()}`;
 }
 
 export const listApps = createServerFn({ method: "GET" })
@@ -64,9 +85,10 @@ export const createApp = createServerFn({ method: "POST" })
   .inputValidator((i) => appInputSchema.parse(i))
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
+    const slug = await uniqueSlug(context.supabase, data.name);
     const { data: row, error } = await context.supabase
       .from("apps")
-      .insert(data)
+      .insert({ ...data, slug })
       .select("*")
       .single();
     if (error) throw new Error(error.message);
@@ -78,13 +100,23 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
   .inputValidator((i) =>
     appInputSchema
       .omit({ github_owner: true, github_repo: true })
-      .extend({ repoName: z.string().min(1).max(100).regex(/^[a-zA-Z0-9._-]+$/) })
+      .extend({
+        repoName: z
+          .string()
+          .min(1)
+          .max(100)
+          .regex(/^[a-zA-Z0-9._-]+$/)
+          .optional(),
+      })
       .parse(i),
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
 
-    const { repoName, ...appData } = data;
+    const { repoName: requestedRepo, ...appData } = data;
+    const slug = await uniqueSlug(context.supabase, appData.name);
+    // Default the repo name to the internal slug so there is nothing extra to type.
+    const repoName = requestedRepo || slug;
 
     // ── 1. Create GitHub repo ──────────────────────────────────────
     const createRes = await fetch(`https://api.github.com/orgs/${ORG}/repos`, {
@@ -336,7 +368,13 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
     // ── 6. Insert into Supabase ─────────────────────────────────────
     const { data: row, error } = await context.supabase
       .from("apps")
-      .insert({ ...appData, github_owner: ORG, github_repo: repoName, default_ref: defaultBranch })
+      .insert({
+        ...appData,
+        slug,
+        github_owner: ORG,
+        github_repo: repoName,
+        default_ref: defaultBranch,
+      })
       .select("*")
       .single();
 
@@ -364,14 +402,46 @@ export const updateApp = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
+
+    const { data: current, error: currentError } = await context.supabase
+      .from("apps")
+      .select("*")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (currentError) throw new Error(currentError.message);
+    if (!current) throw new Error("App not found");
+
+    const renamed = data.patch.name != null && data.patch.name !== current.name;
+    const patch = renamed
+      ? { ...data.patch, slug: await uniqueSlug(context.supabase, data.patch.name!, data.id) }
+      : data.patch;
+
     const { data: row, error } = await context.supabase
       .from("apps")
-      .update(data.patch)
+      .update(patch)
       .eq("id", data.id)
       .select("*")
       .single();
     if (error) throw new Error(error.message);
-    return { app: row };
+
+    // Keep the name players see on their device in sync with the one stored here.
+    let warning: string | undefined;
+    let nameSync: { committed: number; repo: string } | undefined;
+    if (renamed) {
+      const repo = `${row.github_owner}/${row.github_repo}`;
+      const { updated, failed } = await syncAppNameToRepo({
+        owner: row.github_owner,
+        repo: row.github_repo,
+        ref: row.default_ref || "main",
+        appName: row.name,
+      });
+      nameSync = { committed: updated.length, repo };
+      if (failed.length) {
+        warning = `The new name could not be written to ${failed.join(", ")} in ${repo}.`;
+      }
+    }
+
+    return { app: row, warning, nameSync };
   });
 
 export const deleteApp = createServerFn({ method: "POST" })

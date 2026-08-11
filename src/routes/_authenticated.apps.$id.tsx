@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { AppForm, type AppFormValues } from "@/components/AppForm";
 import { AppAssetUpload } from "@/components/AppAssetUpload";
 import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
-import { AppNameEditor } from "@/components/AppNameEditor";
 import { AppSetupTab } from "@/components/AppSetupTab";
 import { AppAddonsTab } from "@/components/AppAddonsTab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -33,8 +32,23 @@ function AppDetailPage() {
 
   const updateM = useMutation({
     mutationFn: (patch: any) => updateFn({ data: { id, patch } }),
-    onSuccess: () => {
-      toast.success("Saved");
+    onSuccess: (result) => {
+      if (result.warning) toast.warning(result.warning, { duration: 12000 });
+      const sync = result.nameSync;
+      if (sync?.committed) {
+        toast.success("Name saved — commit pushed to the app repo", {
+          description: `The new name was committed to ${sync.repo}. Publish a new build for players to see it on their device.`,
+          duration: 12000,
+        });
+      } else if (sync && !result.warning) {
+        toast.success("Name saved", {
+          description:
+            "The repo has no Capacitor files yet, so nothing was committed — the name will be applied when you run Capacitor setup.",
+          duration: 10000,
+        });
+      } else {
+        toast.success("Saved");
+      }
       qc.invalidateQueries({ queryKey: ["app", id] });
       qc.invalidateQueries({ queryKey: ["apps"] });
     },
@@ -60,7 +74,6 @@ function AppDetailPage() {
   const app = q.data!.app;
 
   const initial: AppFormValues = {
-    slug: app.slug,
     name: app.name,
     github_owner: app.github_owner,
     github_repo: app.github_repo,
@@ -148,15 +161,6 @@ function AppDetailPage() {
 
         <TabsContent value="branding">
           <div className="space-y-8">
-            <AppNameEditor
-              appId={id}
-              onSuccess={() => {
-                qc.invalidateQueries({ queryKey: ["app", id] });
-              }}
-            />
-
-            <Separator />
-
             <div className="space-y-4">
               <div>
                 <h2 className="text-xl font-semibold mb-2">App Icon</h2>
