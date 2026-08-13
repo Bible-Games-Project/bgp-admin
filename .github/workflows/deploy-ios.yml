@@ -372,18 +372,21 @@ jobs:
           const fs = require('fs');
           const pbxPath = process.env.PBXPROJ;
           const ppUuid = process.env.PP_UUID;
+          const ppName = process.env.PP_NAME;
           const teamId = process.env.PP_TEAM;
           let content = fs.readFileSync(pbxPath, 'utf8');
 
           // Switch all CODE_SIGN_STYLE from Automatic to Manual
           content = content.replace(/CODE_SIGN_STYLE = Automatic;/g, 'CODE_SIGN_STYLE = Manual;');
 
-          // In the App target Release buildSettings (identified by PRODUCT_BUNDLE_IDENTIFIER),
-          // inject manual signing keys. PRODUCT_BUNDLE_IDENTIFIER only appears in the
-          // App target Release config, not in project-level or Debug configs.
+          // Inject manual signing keys into every buildSettings block that has a
+          // PRODUCT_BUNDLE_IDENTIFIER (Debug + Release of the App target). Project-level
+          // configs don't have it, and SPM package targets aren't in the pbxproj at all,
+          // so the signing settings stay scoped to the app and never reach SPM targets
+          // like RevenueCat_RevenueCat, which reject provisioning profiles.
           content = content.replace(
-            /([ \t]+PRODUCT_BUNDLE_IDENTIFIER = [^;]+;)/,
-            `$1\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tDEVELOPMENT_TEAM = "${teamId}";\n\t\t\t\tPROVISIONING_PROFILE = "${ppUuid}";`
+            /([ \t]+PRODUCT_BUNDLE_IDENTIFIER = [^;]+;)/g,
+            `$1\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tDEVELOPMENT_TEAM = "${teamId}";\n\t\t\t\tPROVISIONING_PROFILE = "${ppUuid}";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "${ppName}";`
           );
 
           fs.writeFileSync(pbxPath, content);
@@ -415,9 +418,6 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             DEVELOPMENT_TEAM=${{ secrets.IOS_TEAM_ID }} \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE="$PP_UUID" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
             archive
 
