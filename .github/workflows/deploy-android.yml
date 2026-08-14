@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       play-track:
-        description: "Google Play track (internal, alpha, beta, production)"
+        description: "Google Play track (internal, alpha, beta, production). production skips the build entirely and promotes the release already sitting on the internal track instead — run a normal (internal) deploy first so there is one to promote"
         required: false
         type: string
         default: "internal"
@@ -60,6 +60,13 @@ on:
 jobs:
   deploy-android:
     name: Build & Deploy Android
+    # "Deploy to Testing" (play-track=internal) builds fresh and uploads to the internal
+    # track. "Release to Production" (play-track=production) never lands here — it skips
+    # this whole build, and promotes the release the internal track already has via
+    # promote-android-production below, so the artifact reviewed for production is
+    # provably the one that was already tested. generate_aab_only (skip-upload) always
+    # builds, even when play-track is production, since there is nothing to promote to.
+    if: inputs.play-track != 'production' || inputs.skip-upload == true
     runs-on: ubuntu-latest
 
     steps:
@@ -340,3 +347,155 @@ jobs:
           name: android-release-${{ github.run_number }}
           path: android/app/build/outputs/bundle/release/app-release.aab
           retention-days: 7
+
+  promote-android-production:
+    name: Promote internal release to Production
+    # The inverse of deploy-android: only runs for "Release to Production". No checkout, no
+    # Gradle, no signing — it never touches the source tree or builds anything. It reads the
+    # release the internal track already has (built and tested by a previous "Deploy to
+    # Testing" run) and moves that exact versionCode to the production track via the Play
+    # Developer API, so the AAB that reaches players is provably the one that was tested.
+    if: inputs.play-track == 'production' && inputs.skip-upload == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Decode Google Play Service Account JSON
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" | base64 -d > $RUNNER_TEMP/service-account.json
+
+      - name: Promote the already-tested internal release to production
+        env:
+          SERVICE_ACCOUNT_PATH: ${{ runner.temp }}/service-account.json
+          PACKAGE_NAME: ${{ inputs.package-name }}
+          RELEASE_NOTES: ${{ inputs.release-notes }}
+          RELEASE_NOTES_LOCALE: ${{ inputs.release-notes-locale }}
+        run: |
+          set -euo pipefail
+          node - <<'EOF'
+          const crypto = require('crypto');
+          const fs = require('fs');
+
+          const packageName = process.env.PACKAGE_NAME;
+          const serviceAccountPath = process.env.SERVICE_ACCOUNT_PATH;
+          const releaseNotes = process.env.RELEASE_NOTES;
+          const releaseNotesLocale = process.env.RELEASE_NOTES_LOCALE || 'en-US';
+
+          function base64url(input) {
+            return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+          }
+
+          // Play Developer API auth: a service account JWT signed with its own private key,
+          // exchanged for a short-lived OAuth2 access token. No user consent screen involved
+          // since the service account was already granted Release manager access by hand
+          // (Play Console → Users and permissions), same as the upload-google-play action uses.
+          async function getAccessToken() {
+            const sa = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf-8'));
+            const now = Math.floor(Date.now() / 1000);
+            const header = { alg: 'RS256', typ: 'JWT' };
+            const claims = {
+              iss: sa.client_email,
+              scope: 'https://www.googleapis.com/auth/androidpublisher',
+              aud: 'https://oauth2.googleapis.com/token',
+              iat: now,
+              exp: now + 3600,
+            };
+            const unsigned = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(claims))}`;
+            const signature = crypto.sign('RSA-SHA256', Buffer.from(unsigned), sa.private_key);
+            const jwt = `${unsigned}.${base64url(signature)}`;
+
+            const res = await fetch('https://oauth2.googleapis.com/token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                assertion: jwt,
+              }),
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(`Failed to mint Play Developer API access token: ${JSON.stringify(json)}`);
+            return json.access_token;
+          }
+
+          async function api(token, method, path, body) {
+            const res = await fetch(`https://androidpublisher.googleapis.com/androidpublisher/v3${path}`, {
+              method,
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: body ? JSON.stringify(body) : undefined,
+            });
+            const text = await res.text();
+            const json = text ? JSON.parse(text) : {};
+            if (!res.ok) {
+              throw new Error(`${method} ${path} -> ${res.status}: ${text.slice(0, 500)}`);
+            }
+            return json;
+          }
+
+          // Same fallback + truncation rules as the regular deploy's "Prepare Play Store
+          // release notes" step (kept in sync with DEFAULT_RELEASE_NOTES in src/lib/release-notes.ts).
+          function prepareReleaseNotes() {
+            const limit = 500;
+            const fallback = 'Bug fixes and performance improvements.';
+            let notes = (releaseNotes || '').trim();
+            if (!notes) {
+              notes = fallback;
+              console.log('No release notes provided — using the default text.');
+            }
+            if ([...notes].length > limit) {
+              notes = [...notes].slice(0, limit - 1).join('') + '…';
+              console.log(`Release notes exceeded ${limit} characters — truncated.`);
+            }
+            return notes;
+          }
+
+          async function main() {
+            const token = await getAccessToken();
+
+            console.log('Creating an edit...');
+            const edit = await api(token, 'POST', `/applications/${packageName}/edits`, {});
+            const editId = edit.id;
+
+            console.log('Reading the current Internal testing release...');
+            const internalTrack = await api(token, 'GET', `/applications/${packageName}/edits/${editId}/tracks/internal`);
+            const releases = internalTrack.releases || [];
+            let release = releases.find((r) => r.status === 'completed');
+            if (!release && releases.length === 1) {
+              console.log(`No "completed" release on internal — using the only one present (status ${releases[0].status}).`);
+              release = releases[0];
+            }
+            if (!release) {
+              throw new Error(
+                releases.length === 0
+                  ? 'No release found on the Internal testing track. Run "Deploy to Testing" first.'
+                  : `Internal testing track has ${releases.length} releases and none is "completed" — finish the rollout in Play Console before promoting.`,
+              );
+            }
+            console.log(`Promoting versionCodes [${release.versionCodes.join(', ')}] from Internal testing to Production (already built and tested, not rebuilt).`);
+
+            const notes = prepareReleaseNotes();
+            await api(token, 'PUT', `/applications/${packageName}/edits/${editId}/tracks/production`, {
+              track: 'production',
+              releases: [
+                {
+                  versionCodes: release.versionCodes,
+                  status: 'completed',
+                  releaseNotes: [{ language: releaseNotesLocale, text: notes }],
+                },
+              ],
+            });
+
+            console.log('Committing the edit...');
+            await api(token, 'POST', `/applications/${packageName}/edits/${editId}:commit`, {});
+
+            console.log(`✅ Promoted versionCodes [${release.versionCodes.join(', ')}] to Production.`);
+          }
+
+          main().catch((err) => {
+            console.error('❌ ' + err.message);
+            process.exit(1);
+          });
+          EOF

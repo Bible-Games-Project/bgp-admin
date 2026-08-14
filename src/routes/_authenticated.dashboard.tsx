@@ -330,8 +330,9 @@ function DeployPanel({
           <DialogHeader>
             <DialogTitle>Release to Production</DialogTitle>
             <DialogDescription>
-              This builds {ref} and ships it to the Google Play production track
-              {deployIos ? " and submits the build for Apple review, set to release automatically once approved" : ""}.
+              This does not build anything new. It promotes the build already tested on the
+              Play internal track to production
+              {deployIos ? " and submits the build already in TestFlight for Apple review, set to release automatically once approved" : ""}.
               Not trivially reversible.
             </DialogDescription>
           </DialogHeader>
@@ -367,6 +368,15 @@ function DeployPanel({
                 ) : (
                   <>Sent to both stores. Play truncates anything past 500 characters.</>
                 )}
+              </p>
+            </div>
+
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+              <p className="font-medium">Requires a tested build already in place.</p>
+              <p className="text-muted-foreground mt-1">
+                This promotes whatever is already on the Play internal track / already in
+                TestFlight — it does not compile {ref}. Run &quot;Deploy to Testing&quot; first if
+                you haven&apos;t for this version.
               </p>
             </div>
 

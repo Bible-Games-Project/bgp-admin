@@ -39,7 +39,7 @@ on:
         type: string
         default: ""
       marketing-version:
-        description: "Marketing version (e.g., 1.0, 2.1). If empty, uses package.json"
+        description: "Marketing version (e.g., 1.0, 2.1). If empty, uses package.json. When submit-for-review is true, also filters which TestFlight build to promote — empty promotes the most recently processed one regardless of version"
         required: false
         type: string
         default: ""
@@ -49,7 +49,7 @@ on:
         type: string
         default: ""
       submit-for-review:
-        description: "After uploading, attach the build to an App Store version and submit it for Apple review"
+        description: "Promote the build already sitting in TestFlight to an App Store version and submit it for Apple review. Does not build or upload anything — run a normal (false) deploy first so there is a TestFlight build to promote"
         required: false
         type: boolean
         default: false
@@ -81,6 +81,11 @@ on:
 jobs:
   deploy-ios:
     name: Build & Deploy iOS
+    # "Deploy to Testing" (submit-for-review=false) builds fresh and uploads to TestFlight.
+    # "Release to Production" (submit-for-review=true) never lands here — it skips this whole
+    # build, and promotes the build TestFlight already has via promote-ios-production below,
+    # so the binary Apple reviews is byte-for-byte what was already tested.
+    if: inputs.submit-for-review == false
     runs-on: ${{ inputs.runner }}
 
     env:
@@ -478,13 +483,37 @@ jobs:
             --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
             --verbose
 
-      - name: Submit build for App Store review
-        if: inputs.submit-for-review == true
+      - name: Upload IPA as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release-${{ github.run_number }}
+          path: ${{ runner.temp }}/build/*.ipa
+          retention-days: 7
+
+      - name: Clean up keychain and provisioning profiles
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+          rm -rf ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision || true
+
+  promote-ios-production:
+    name: Promote TestFlight build to Production
+    # The inverse of deploy-ios: only runs for "Release to Production". No checkout, no
+    # Xcode, no signing — it never touches the source tree or builds anything. It just
+    # finds the build TestFlight already has (uploaded and tested by a previous "Deploy to
+    # Testing" run) and attaches that exact build to an App Store version for review, so the
+    # binary Apple reviews is provably the one that was already tested.
+    if: inputs.submit-for-review == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Submit the already-tested TestFlight build for App Store review
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
           BUNDLE_IDENTIFIER: ${{ inputs.bundle-identifier }}
+          MARKETING_VERSION_FILTER: ${{ inputs.marketing-version }}
           RELEASE_NOTES: ${{ inputs.release-notes }}
         run: |
           set -euo pipefail
@@ -507,8 +536,7 @@ jobs:
           const issuerId = process.env.APP_STORE_CONNECT_ISSUER_ID;
           const privateKey = Buffer.from(process.env.APP_STORE_CONNECT_API_KEY_BASE64, 'base64').toString('utf-8');
           const bundleId = process.env.BUNDLE_IDENTIFIER;
-          const versionString = process.env.MARKETING_VERSION;
-          const buildNumber = process.env.BUILD_NUMBER;
+          const versionFilter = process.env.MARKETING_VERSION_FILTER || '';
           const releaseNotes = process.env.RELEASE_NOTES;
 
           function base64url(input) {
@@ -562,30 +590,28 @@ jobs:
             const appId = app.id;
             console.log(`App id: ${appId}`);
 
-            console.log(`Waiting for build ${buildNumber} (version ${versionString}) to finish processing...`);
-            const deadline = Date.now() + 45 * 60 * 1000;
-            let build = null;
-            while (Date.now() < deadline) {
-              const buildsRes = await api(
-                'GET',
-                `/v1/builds?filter[app]=${appId}&filter[version]=${encodeURIComponent(buildNumber)}&filter[preReleaseVersion.version]=${encodeURIComponent(versionString)}&fields[builds]=processingState,version`,
-              );
-              const candidate = buildsRes.data && buildsRes.data[0];
-              if (candidate) {
-                console.log(`Build ${candidate.id} processingState=${candidate.attributes.processingState}`);
-                if (candidate.attributes.processingState === 'VALID') {
-                  build = candidate;
-                  break;
-                }
-                if (candidate.attributes.processingState === 'INVALID' || candidate.attributes.processingState === 'FAILED') {
-                  throw new Error(`Build processing failed with state ${candidate.attributes.processingState}`);
-                }
-              } else {
-                console.log('Build not visible in App Store Connect yet...');
-              }
-              await new Promise((r) => setTimeout(r, 30000));
+            console.log('Looking for the most recently processed TestFlight build to promote...');
+            let buildsPath =
+              `/v1/builds?filter[app]=${appId}&filter[processingState]=VALID&sort=-uploadedDate&limit=1` +
+              `&include=preReleaseVersion&fields[builds]=processingState,version,uploadedDate&fields[preReleaseVersions]=version`;
+            if (versionFilter) {
+              buildsPath += `&filter[preReleaseVersion.version]=${encodeURIComponent(versionFilter)}`;
             }
-            if (!build) throw new Error('Timed out waiting for build to finish processing in App Store Connect.');
+            const buildsRes = await api('GET', buildsPath);
+            const build = buildsRes.data && buildsRes.data[0];
+            if (!build) {
+              throw new Error(
+                versionFilter
+                  ? `No processed TestFlight build found for version ${versionFilter}. Run "Deploy to Testing" first.`
+                  : 'No processed TestFlight build found to promote. Run "Deploy to Testing" first.',
+              );
+            }
+            const preReleaseVersionId = build.relationships.preReleaseVersion.data.id;
+            const preReleaseVersion = (buildsRes.included || []).find(
+              (i) => i.type === 'preReleaseVersions' && i.id === preReleaseVersionId,
+            );
+            const versionString = preReleaseVersion.attributes.version;
+            console.log(`Promoting build ${build.id}: marketing version ${versionString}, build number ${build.attributes.version} (already in TestFlight, not rebuilt).`);
 
             console.log('Looking for an editable App Store version...');
             const versionsRes = await api(
@@ -703,7 +729,7 @@ jobs:
               },
             });
 
-            console.log(`✅ Submitted App Store version ${versionString} (build ${build.id}) for review. It will be released automatically once Apple approves it.`);
+            console.log(`✅ Submitted App Store version ${versionString} (build ${build.id}, already in TestFlight) for review. It will be released automatically once Apple approves it.`);
           }
 
           main().catch((err) => {
@@ -711,16 +737,3 @@ jobs:
             process.exit(1);
           });
           EOF
-
-      - name: Upload IPA as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-release-${{ github.run_number }}
-          path: ${{ runner.temp }}/build/*.ipa
-          retention-days: 7
-
-      - name: Clean up keychain and provisioning profiles
-        if: always()
-        run: |
-          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
-          rm -rf ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision || true

@@ -6,10 +6,28 @@ Reusable GitHub Actions workflows for Bible Games Project apps.
 
 | Workflow | Description | File |
 |----------|-------------|------|
-| Deploy iOS | Build, sign, and upload to App Store Connect | `deploy-ios.yml` |
-| Deploy Android | Build, sign, and upload to Google Play | `deploy-android.yml` |
+| Deploy iOS | Build, sign, and upload to TestFlight (App Store Connect) | `deploy-ios.yml` |
+| Deploy Android | Build, sign, and upload to the Google Play internal track | `deploy-android.yml` |
 | Notify Telegram | Send deployment notification | `notify-telegram.yml` |
 | Tag Release | Create and push a git tag | `tag-release.yml` |
+
+### Production releases don't rebuild
+
+`play-track: production` (Android) and `submit-for-review: true` (iOS) do not compile
+anything. Both workflows skip their whole build job and instead run a separate,
+lightweight `ubuntu-latest` job that promotes the build already sitting on the internal
+track / already in TestFlight:
+
+- **Android** — reads the current internal-track release via the Play Developer API
+  (`androidpublisher/v3`) and re-publishes the same `versionCodes` on the production
+  track. No AAB is built or uploaded.
+- **iOS** — looks up the most recently processed `VALID` build in App Store Connect
+  (optionally filtered by `marketing-version`), attaches that build to an App Store
+  version, and submits it for review. No archive, signing, or upload happens.
+
+This means the binary that ships to users is provably the same one that was already
+tested — a "Deploy to Testing" run must exist first, or the promote job fails with a
+clear error asking for one.
 
 ## Usage
 
