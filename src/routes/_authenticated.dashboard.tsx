@@ -50,6 +50,24 @@ function humanState(state: string): string {
   return state.toLowerCase().replace(/_/g, " ");
 }
 
+// The four rejection states mean genuinely different things, and the difference decides
+// whether there is anything to fix at all — "developer rejected" is someone on our side
+// pulling the submission, not Apple refusing it.
+function rejectionNotice(state: string, versionString: string): string | null {
+  switch (state) {
+    case "REJECTED":
+      return `Apple rejected version ${versionString} after review. Read why before sending it again — the same problem gets the same answer.`;
+    case "METADATA_REJECTED":
+      return `Apple rejected version ${versionString} over its store listing, not the build itself. Fix what they flagged; a fresh build is not what is missing.`;
+    case "DEVELOPER_REJECTED":
+      return `Version ${versionString} was pulled out of review from your side, not rejected by Apple. If that was deliberate and already dealt with, this release is fine to send.`;
+    case "INVALID_BINARY":
+      return `Apple found the build attached to version ${versionString} invalid. This release uploads a new one, which is usually what fixes it.`;
+    default:
+      return null;
+  }
+}
+
 function StatusDot({ status, conclusion }: { status: string; conclusion: string | null }) {
   let color = "bg-muted-foreground";
   let label = status;
@@ -152,6 +170,11 @@ function DeployPanel({
   // Apple takes one submission at a time, and refuses a version that is not higher than
   // the one on sale. Both are knowable before building, so refuse here rather than
   // failing twenty minutes into a run.
+  const ascRejection =
+    deployIos && ascState?.available && !ascState.error && ascState.editable
+      ? rejectionNotice(ascState.editable.state, ascState.editable.versionString)
+      : null;
+
   const ascBlocker = (() => {
     if (!deployIos || !ascState?.available || ascState.error) return null;
     if (ascState.inFlight) {
@@ -513,6 +536,27 @@ function DeployPanel({
                     )}
                   </>
                 )}
+              </div>
+            )}
+
+            {ascRejection && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+                <p className="font-medium">This app has a rejected version.</p>
+                <p className="text-muted-foreground mt-1">{ascRejection}</p>
+                {ascState?.ascAppId && (
+                  <a
+                    href={`https://appstoreconnect.apple.com/apps/${ascState.ascAppId}/resolutioncenter`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 mt-1.5 text-primary hover:underline"
+                  >
+                    Open Resolution Center <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+                <p className="text-muted-foreground mt-1.5">
+                  Apple does not expose the rejection message itself over its API, so the reason
+                  only lives in there.
+                </p>
               </div>
             )}
 

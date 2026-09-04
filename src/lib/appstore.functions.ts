@@ -94,6 +94,8 @@ export type AppStoreVersionState = {
   /** Set when we could not read the store; the UI falls back to manual entry. */
   error?: string;
   appName?: string;
+  /** App Store Connect's own id for the app, for deep links into its pages. */
+  ascAppId?: string;
   editable?: AscVersion | null;
   inFlight?: AscVersion | null;
   live?: AscVersion | null;
@@ -186,6 +188,7 @@ export const getAppStoreVersionState = createServerFn({ method: "POST" })
       return {
         available: true,
         appName: ascApp.attributes?.name,
+        ascAppId: ascApp.id,
         editable,
         inFlight,
         live,
