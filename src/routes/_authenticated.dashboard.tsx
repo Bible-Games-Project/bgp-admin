@@ -192,19 +192,23 @@ function DeployPanel({
   // lookup leaves isFetching false, so the button never sticks disabled.
   const ascPending = deployIos && ascFetching && !ascState;
 
-  const ascBlocker: { message: string; cancellable?: boolean } | null = (() => {
+  const ascBlocker: {
+    message: string;
+    cancellable?: boolean;
+    rejectedSteps?: boolean;
+  } | null = (() => {
     if (!deployIos || !ascState?.available || ascState.error) return null;
     const open = ascState.openSubmission;
     if (open?.state === "UNRESOLVED_ISSUES") {
       return {
         message:
-          "Apple raised issues on the last submission and it is still open, so it counts as the one submission this app is allowed. If you have already fixed what they asked for, cancel it to free the slot — but if they only asked a question, answer it in Resolution Center instead, because cancelling starts the queue over.",
-        cancellable: true,
+          "Apple rejected the last submission and it is still open, holding the one submission slot this app gets. Do not try to force a production release past it — swap the build on the existing submission instead, which answers Apple on the same thread rather than starting the queue over.",
+        rejectedSteps: true,
       };
     }
     if (open) {
       return {
-        message: `A submission is already ${humanState(open.state)} with Apple, and only one is allowed at a time. Wait for it to finish, or cancel it to send this one instead.`,
+        message: `A submission is already ${humanState(open.state)} with Apple, and only one is allowed at a time. Nothing can be edited while Apple has it, so either wait for a verdict or withdraw it to send this one instead.`,
         cancellable: true,
       };
     }
@@ -613,6 +617,32 @@ function DeployPanel({
                   >
                     Open Resolution Center <ExternalLink className="h-3 w-3" />
                   </a>
+                )}
+                {ascBlocker.rejectedSteps && (
+                  <ol className="mt-2 space-y-1.5 text-muted-foreground list-decimal pl-4">
+                    <li>
+                      Read what Apple actually asked for in Resolution Center. Everything below
+                      depends on it.
+                    </li>
+                    <li>
+                      If it is the store listing — screenshots, description, privacy, age rating —
+                      fix it in App Store Connect. No new build is involved.
+                    </li>
+                    <li>
+                      If it is the app itself, fix the code, merge to {ref}, then use{" "}
+                      <span className="text-foreground">Deploy to Testing</span>. That uploads the
+                      build to App Store Connect the same way a production release does — it just
+                      does not submit it.
+                    </li>
+                    <li>
+                      In App Store Connect, open the version, remove the old build and select the
+                      one you just uploaded.
+                    </li>
+                    <li>
+                      Submit from there, replying to Apple on the existing thread. The release does
+                      not come back through this button.
+                    </li>
+                  </ol>
                 )}
                 {ascBlocker.cancellable && (
                   <div className="mt-2.5 flex items-center gap-2">
