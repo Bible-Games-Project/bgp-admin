@@ -118,6 +118,90 @@ function splitVersion(v: string): { major: string; minor: string } {
   return { major: parts[0] ?? "0", minor: parts[1] ?? "0" };
 }
 
+type AscApi = {
+  get: (path: string) => Promise<any>;
+  patch: (path: string, body: unknown) => Promise<any>;
+};
+
+async function createAscApi(): Promise<AscApi | null> {
+  const keyId = process.env.APP_STORE_CONNECT_API_KEY_ID;
+  const issuerId = process.env.APP_STORE_CONNECT_ISSUER_ID;
+  const keyBase64 = process.env.APP_STORE_CONNECT_API_KEY_BASE64;
+  if (!keyId || !issuerId || !keyBase64) return null;
+
+  const privateKey = new TextDecoder().decode(
+    Uint8Array.from(atob(keyBase64), (c) => c.charCodeAt(0)),
+  );
+  const token = await mintToken(keyId, issuerId, privateKey);
+  const call = async (method: string, path: string, body?: unknown) => {
+    const res = await fetch(`https://api.appstoreconnect.apple.com${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`App Store Connect returned ${res.status}: ${text.slice(0, 300)}`);
+    }
+    return text ? JSON.parse(text) : {};
+  };
+  return {
+    get: (path) => call("GET", path),
+    patch: (path, body) => call("PATCH", path, body),
+  };
+}
+
+async function findOpenSubmission(api: AscApi, ascAppId: string): Promise<AscSubmission | null> {
+  const res = await api.get(
+    `/v1/reviewSubmissions?filter[app]=${ascAppId}&filter[platform]=IOS&limit=50`,
+  );
+  return (
+    (res.data ?? [])
+      .map((sub: any) => ({ id: sub.id, state: sub.attributes.state }))
+      .find((sub: AscSubmission) => OPEN_SUBMISSION_STATES.includes(sub.state)) ?? null
+  );
+}
+
+async function findAscApp(api: AscApi, bundleId: string) {
+  const res = await api.get(`/v1/apps?filter[bundleId]=${encodeURIComponent(bundleId)}`);
+  return res.data?.[0] ?? null;
+}
+
+/**
+ * Frees the one submission slot Apple allows, so a fixed build can be sent again.
+ * The submission id is looked up server-side from the app rather than taken from the
+ * caller, so this can only ever cancel a submission belonging to this app.
+ */
+export const cancelOpenReviewSubmission = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ appId: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const bundleId = app.bundle_id as string | null;
+    if (!bundleId) throw new Error("This app has no bundle ID set.");
+
+    const api = await createAscApi();
+    if (!api) throw new Error("App Store Connect credentials are not configured.");
+
+    const ascApp = await findAscApp(api, bundleId);
+    if (!ascApp) throw new Error(`No app in App Store Connect matches ${bundleId}.`);
+
+    const open = await findOpenSubmission(api, ascApp.id);
+    if (!open) return { cancelled: false, message: "There is no open submission to cancel." };
+
+    await api.patch(`/v1/reviewSubmissions/${open.id}`, {
+      data: { type: "reviewSubmissions", id: open.id, attributes: { canceled: true } },
+    });
+    return {
+      cancelled: true,
+      message: `Submission cancelled. The slot is free — a new release can be sent.`,
+    };
+  });
+
 export const getAppStoreVersionState = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ appId: z.string().uuid() }).parse(input))

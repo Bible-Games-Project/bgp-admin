@@ -18,7 +18,7 @@ import {
   getRepoMarketingVersion,
   getCommitsAheadOfLatestTag,
 } from "@/lib/deploy.functions";
-import { getAppStoreVersionState } from "@/lib/appstore.functions";
+import { cancelOpenReviewSubmission, getAppStoreVersionState } from "@/lib/appstore.functions";
 import { listApps } from "@/lib/apps.functions";
 import { DEFAULT_RELEASE_NOTES } from "@/lib/release-notes";
 import { supabase } from "@/integrations/supabase/client";
@@ -175,22 +175,43 @@ function DeployPanel({
       ? rejectionNotice(ascState.editable.state, ascState.editable.versionString)
       : null;
 
+  const cancelSubmissionFn = useServerFn(cancelOpenReviewSubmission);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const cancelSubmissionM = useMutation({
+    mutationFn: () => cancelSubmissionFn({ data: { appId } }),
+    onSuccess: (result) => {
+      toast.success(result.message);
+      setConfirmingCancel(false);
+      qc.invalidateQueries({ queryKey: ["appStoreVersionState", appId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   // Confirming before the store answers would skip both the blocker checks and the
   // version prefill, so the number typed would be whatever was there before. A failed
   // lookup leaves isFetching false, so the button never sticks disabled.
   const ascPending = deployIos && ascFetching && !ascState;
 
-  const ascBlocker = (() => {
+  const ascBlocker: { message: string; cancellable?: boolean } | null = (() => {
     if (!deployIos || !ascState?.available || ascState.error) return null;
     const open = ascState.openSubmission;
     if (open?.state === "UNRESOLVED_ISSUES") {
-      return "Apple raised issues on the last submission and it is still open, so it counts as the one submission this app is allowed. Resolve or cancel it in App Store Connect — and read what they asked for, because it has not gone away just because a new build was attached.";
+      return {
+        message:
+          "Apple raised issues on the last submission and it is still open, so it counts as the one submission this app is allowed. If you have already fixed what they asked for, cancel it to free the slot — but if they only asked a question, answer it in Resolution Center instead, because cancelling starts the queue over.",
+        cancellable: true,
+      };
     }
     if (open) {
-      return `A submission is already ${humanState(open.state)} with Apple, and only one is allowed at a time. Wait for it, or cancel it in App Store Connect.`;
+      return {
+        message: `A submission is already ${humanState(open.state)} with Apple, and only one is allowed at a time. Wait for it to finish, or cancel it to send this one instead.`,
+        cancellable: true,
+      };
     }
     if (ascState.inFlight) {
-      return `Version ${ascState.inFlight.versionString} is already with Apple (${humanState(ascState.inFlight.state)}). Wait for it to finish or cancel it in App Store Connect before sending another.`;
+      return {
+        message: `Version ${ascState.inFlight.versionString} is already with Apple (${humanState(ascState.inFlight.state)}). Wait for it to finish or cancel it in App Store Connect before sending another.`,
+      };
     }
     const live = ascState.live;
     if (live) {
@@ -198,7 +219,9 @@ function DeployPanel({
       const chosen = Number(major || 0) * 10000 + Number(minor || 0);
       const published = Number(liveMajor || 0) * 10000 + Number(liveMinor || 0);
       if (chosen < published) {
-        return `Version ${major}.${minor} is below ${live.versionString}, which is already on sale. Apple only accepts higher numbers.`;
+        return {
+          message: `Version ${major}.${minor} is below ${live.versionString}, which is already on sale. Apple only accepts higher numbers.`,
+        };
       }
     }
     return null;
@@ -440,7 +463,12 @@ function DeployPanel({
 
       <Dialog
         open={prodDialogOpen}
-        onOpenChange={(open) => !prodDeployM.isPending && setProdDialogOpen(open)}
+        onOpenChange={(open) => {
+          if (prodDeployM.isPending) return;
+          // A half-armed cancel must not still be armed next time the dialog opens.
+          if (!open) setConfirmingCancel(false);
+          setProdDialogOpen(open);
+        }}
       >
         <DialogContent>
           <DialogHeader>
@@ -575,7 +603,43 @@ function DeployPanel({
             {ascBlocker && (
               <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs">
                 <p className="font-medium">This release cannot go out yet.</p>
-                <p className="text-muted-foreground mt-1">{ascBlocker}</p>
+                <p className="text-muted-foreground mt-1">{ascBlocker.message}</p>
+                {ascState?.ascAppId && (
+                  <a
+                    href={`https://appstoreconnect.apple.com/apps/${ascState.ascAppId}/resolutioncenter`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 mt-1.5 text-primary hover:underline"
+                  >
+                    Open Resolution Center <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+                {ascBlocker.cancellable && (
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant={confirmingCancel ? "destructive" : "outline"}
+                      disabled={cancelSubmissionM.isPending}
+                      onClick={() =>
+                        confirmingCancel ? cancelSubmissionM.mutate() : setConfirmingCancel(true)
+                      }
+                      className="gap-1.5 h-7 text-xs"
+                    >
+                      {cancelSubmissionM.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                      {confirmingCancel
+                        ? "Yes, withdraw it from Apple"
+                        : "Cancel the open submission"}
+                    </Button>
+                    {confirmingCancel && !cancelSubmissionM.isPending && (
+                      <button
+                        onClick={() => setConfirmingCancel(false)}
+                        className="text-muted-foreground hover:text-foreground underline underline-offset-2"
+                      >
+                        Keep it
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
