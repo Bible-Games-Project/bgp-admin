@@ -26,6 +26,7 @@ import {
   createDeployWorkflow,
   checkPreviewDeployWorkflow,
   createPreviewDeployWorkflow,
+  setPreviewDeployEnabled,
 } from "@/lib/capacitor.functions";
 import { checkAgentDocs, syncAgentDocs } from "@/lib/agent-docs.functions";
 import { listSetupSteps, setSetupStep } from "@/lib/app-setup.functions";
@@ -73,6 +74,7 @@ export function AppSetupTab({
   const createDeployFn = useServerFn(createDeployWorkflow);
   const checkPreviewDeployFn = useServerFn(checkPreviewDeployWorkflow);
   const createPreviewDeployFn = useServerFn(createPreviewDeployWorkflow);
+  const setPreviewEnabledFn = useServerFn(setPreviewDeployEnabled);
   const checkAgentDocsFn = useServerFn(checkAgentDocs);
   const syncAgentDocsFn = useServerFn(syncAgentDocs);
 
@@ -264,6 +266,21 @@ export function AppSetupTab({
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const previewEnabledM = useMutation({
+    mutationFn: (enabled: boolean) => setPreviewEnabledFn({ data: { appId, enabled } }),
+    onSuccess: (result) => {
+      toast.success(
+        result.enabled
+          ? "Preview deploys turned back on for this app."
+          : result.workflowRemoved
+            ? "Preview turned off and preview-deploy.yml removed from the repo."
+            : "Preview turned off for this app.",
+      );
+      qc.invalidateQueries({ queryKey: ["preview-deploy-workflow", appId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const agentDocsM = useMutation({
     mutationFn: () => syncAgentDocsFn({ data: { appId } }),
     onSuccess: (result) => {
@@ -298,6 +315,7 @@ export function AppSetupTab({
   const deployDone = deployQ.data?.exists ?? false;
   const deployOutdated = deployQ.data?.outdated ?? false;
   const previewDeployDone = previewDeployQ.data?.exists ?? false;
+  const previewDisabled = previewDeployQ.data?.disabled ?? false;
   const agentDocsDone = agentDocsQ.data?.allInSync ?? false;
 
   return (
@@ -797,7 +815,7 @@ export function AppSetupTab({
         number={7}
         title="Preview Deploy"
         description="Add a GitHub Actions workflow that builds and deploys to Cloudflare Pages on every push to main, so you can preview progress before publishing to the store."
-        done={previewDeployDone}
+        done={previewDeployDone || previewDisabled}
         isLast={false}
         statusContent={
           self ? (
@@ -806,6 +824,10 @@ export function AppSetupTab({
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Loader2 className="w-3 h-3 animate-spin" /> Checking…
             </span>
+          ) : previewDisabled ? (
+            <p className="text-xs text-muted-foreground mt-2">
+              Turned off for this app. Nothing is deployed here and no workflow runs on push.
+            </p>
           ) : (
             <div className="flex flex-col gap-1.5 mt-2">
               <StatusRow label=".github/workflows/preview-deploy.yml" ok={previewDeployDone} />
@@ -823,33 +845,53 @@ export function AppSetupTab({
           )
         }
         actionContent={
-          <div className="flex items-center gap-3 mt-3">
-            <Button
-              size="sm"
-              variant={previewDeployDone ? "outline" : "default"}
-              disabled={previewDeployM.isPending || self}
-              onClick={() => previewDeployM.mutate()}
-            >
-              {previewDeployM.isPending ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Creating…
-                </>
-              ) : previewDeployDone ? (
-                "Re-create"
-              ) : (
-                "Create Preview Workflow"
-              )}
-            </Button>
-            <button
-              onClick={() => qc.invalidateQueries({ queryKey: ["preview-deploy-workflow", appId] })}
-              disabled={previewDeployQ.isFetching}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Refresh"
-            >
-              <RefreshCw
-                className={`h-3.5 w-3.5 ${previewDeployQ.isFetching ? "animate-spin" : ""}`}
+          <div className="mt-3 space-y-3">
+            {!previewDisabled && (
+              <div className="flex items-center gap-3">
+                <Button
+                  size="sm"
+                  variant={previewDeployDone ? "outline" : "default"}
+                  disabled={previewDeployM.isPending || self}
+                  onClick={() => previewDeployM.mutate()}
+                >
+                  {previewDeployM.isPending ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Creating…
+                    </>
+                  ) : previewDeployDone ? (
+                    "Re-create"
+                  ) : (
+                    "Create Preview Workflow"
+                  )}
+                </Button>
+                <button
+                  onClick={() =>
+                    qc.invalidateQueries({ queryKey: ["preview-deploy-workflow", appId] })
+                  }
+                  disabled={previewDeployQ.isFetching}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Refresh"
+                >
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 ${previewDeployQ.isFetching ? "animate-spin" : ""}`}
+                  />
+                </button>
+              </div>
+            )}
+
+            <label className="flex items-start gap-2 cursor-pointer w-fit">
+              <Checkbox
+                className="mt-0.5"
+                checked={previewDisabled}
+                disabled={previewEnabledM.isPending || previewDeployQ.isLoading || self}
+                onCheckedChange={(checked) => previewEnabledM.mutate(!checked)}
               />
-            </button>
+              <span className="text-xs text-muted-foreground max-w-md">
+                This app previews somewhere else (Lovable, Vercel…), so skip preview deploys.
+                Ticking this removes <code>preview-deploy.yml</code> from the repo, which otherwise
+                fails on every push when no Cloudflare Pages project exists for it.
+              </span>
+            </label>
           </div>
         }
       />

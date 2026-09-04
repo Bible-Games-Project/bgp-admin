@@ -16,11 +16,7 @@ async function assertAdmin(supabase: any, userId: string) {
 }
 
 async function loadApp(supabase: any, appId: string) {
-  const { data, error } = await supabase
-    .from("apps")
-    .select("*")
-    .eq("id", appId)
-    .maybeSingle();
+  const { data, error } = await supabase.from("apps").select("*").eq("id", appId).maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("App not found");
   return data;
@@ -127,7 +123,10 @@ export const generateAndroidKeystoreSecrets = createServerFn({ method: "POST" })
         const match = (runsData.workflow_runs ?? []).find(
           (r: any) => new Date(r.created_at) >= new Date(dispatchedAt),
         );
-        if (match) { runId = match.id; break; }
+        if (match) {
+          runId = match.id;
+          break;
+        }
       }
       await new Promise((r) => setTimeout(r, 3000));
     }
@@ -148,14 +147,21 @@ export const generateAndroidKeystoreSecrets = createServerFn({ method: "POST" })
       );
       if (!runRes.ok) continue;
       const runData = (await runRes.json()) as any;
-      if (runData.status === "completed") { conclusion = runData.conclusion; break; }
+      if (runData.status === "completed") {
+        conclusion = runData.conclusion;
+        break;
+      }
     }
 
     if (!conclusion) {
-      throw new Error(`Keystore workflow timed out. Check: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`);
+      throw new Error(
+        `Keystore workflow timed out. Check: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`,
+      );
     }
     if (conclusion !== "success") {
-      throw new Error(`Keystore workflow failed (${conclusion}). See: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`);
+      throw new Error(
+        `Keystore workflow failed (${conclusion}). See: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`,
+      );
     }
 
     return {
@@ -267,12 +273,16 @@ export const configureIosSecrets = createServerFn({ method: "POST" })
         const match = (runsData.workflow_runs ?? []).find(
           (r: any) => new Date(r.created_at) >= new Date(dispatchedAt),
         );
-        if (match) { runId = match.id; break; }
+        if (match) {
+          runId = match.id;
+          break;
+        }
       }
       await new Promise((r) => setTimeout(r, 3000));
     }
 
-    if (!runId) throw new Error("iOS secrets workflow triggered but run not found. Check GitHub Actions.");
+    if (!runId)
+      throw new Error("iOS secrets workflow triggered but run not found. Check GitHub Actions.");
 
     const pollTimeoutMs = 3 * 60 * 1000;
     const pollStart = Date.now();
@@ -286,11 +296,20 @@ export const configureIosSecrets = createServerFn({ method: "POST" })
       );
       if (!runRes.ok) continue;
       const runData = (await runRes.json()) as any;
-      if (runData.status === "completed") { conclusion = runData.conclusion; break; }
+      if (runData.status === "completed") {
+        conclusion = runData.conclusion;
+        break;
+      }
     }
 
-    if (!conclusion) throw new Error(`iOS secrets workflow timed out. Check: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`);
-    if (conclusion !== "success") throw new Error(`iOS secrets workflow failed (${conclusion}). See: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`);
+    if (!conclusion)
+      throw new Error(
+        `iOS secrets workflow timed out. Check: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`,
+      );
+    if (conclusion !== "success")
+      throw new Error(
+        `iOS secrets workflow failed (${conclusion}). See: https://github.com/Bible-Games-Project/bgp-admin/actions/runs/${runId}`,
+      );
 
     return {
       success: true,
@@ -327,15 +346,17 @@ export const configureAndroidSigning = createServerFn({ method: "POST" })
       headers: githubHeaders(),
     });
     if (!getRes.ok) {
-      throw new Error(
-        "android/app/build.gradle not found. Run Capacitor setup first (Step 1).",
-      );
+      throw new Error("android/app/build.gradle not found. Run Capacitor setup first (Step 1).");
     }
     const existing = (await getRes.json()) as any;
     const original = Buffer.from(existing.content, "base64").toString("utf-8");
 
     if (original.includes("signingConfigs")) {
-      return { success: true, message: "Android signing was already configured.", commitUrl: undefined as string | undefined };
+      return {
+        success: true,
+        message: "Android signing was already configured.",
+        commitUrl: undefined as string | undefined,
+      };
     }
 
     const KEYSTORE_BLOCK = [
@@ -578,6 +599,22 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
     };
   });
 
+// Not every app wants a Cloudflare Pages preview: a repo that came from Lovable already
+// previews there, and pointing this workflow at a Pages project nobody created means a
+// failed run on every single push. Stored as a setup-step row rather than a column on
+// `apps` so turning it off needs no database migration.
+const PREVIEW_DISABLED_STEP = "preview_disabled";
+
+async function isPreviewDisabled(supabase: any, appId: string) {
+  const { data } = await supabase
+    .from("app_setup_steps")
+    .select("step_key")
+    .eq("app_id", appId)
+    .eq("step_key", PREVIEW_DISABLED_STEP)
+    .maybeSingle();
+  return !!data;
+}
+
 export const checkPreviewDeployWorkflow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i) => z.object({ appId: z.string().uuid() }).parse(i))
@@ -587,7 +624,64 @@ export const checkPreviewDeployWorkflow = createServerFn({ method: "POST" })
     const branch = app.default_ref || "main";
     const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/${PREVIEW_WORKFLOW_PATH}?ref=${encodeURIComponent(branch)}`;
     const res = await fetch(url, { headers: githubHeaders() });
-    return { exists: res.ok, previewUrl: `https://bgp-${app.github_repo}.pages.dev` };
+    return {
+      exists: res.ok,
+      disabled: await isPreviewDisabled(context.supabase, data.appId),
+      previewUrl: `https://bgp-${app.github_repo}.pages.dev`,
+    };
+  });
+
+export const setPreviewDeployEnabled = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ appId: z.string().uuid(), enabled: z.boolean() }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+
+    if (data.enabled) {
+      const { error } = await context.supabase
+        .from("app_setup_steps")
+        .delete()
+        .eq("app_id", data.appId)
+        .eq("step_key", PREVIEW_DISABLED_STEP);
+      if (error) throw new Error(error.message);
+      return { enabled: true, workflowRemoved: false };
+    }
+
+    const { error } = await context.supabase.from("app_setup_steps").upsert({
+      app_id: data.appId,
+      step_key: PREVIEW_DISABLED_STEP,
+      completed_by: context.userId,
+      completed_at: new Date().toISOString(),
+    });
+    if (error) throw new Error(error.message);
+
+    // Leaving the workflow in place would keep failing on every push, which is the whole
+    // reason for switching this off. Delete it if it is there.
+    const branch = app.default_ref || "main";
+    const apiUrl = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/${PREVIEW_WORKFLOW_PATH}`;
+    const getRes = await fetch(`${apiUrl}?ref=${encodeURIComponent(branch)}`, {
+      headers: githubHeaders(),
+    });
+    if (!getRes.ok) return { enabled: false, workflowRemoved: false };
+
+    const existing = (await getRes.json()) as any;
+    const delRes = await fetch(apiUrl, {
+      method: "DELETE",
+      headers: { ...githubHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "chore: remove Cloudflare Pages preview workflow via bgp-admin",
+        sha: existing.sha,
+        branch,
+      }),
+    });
+    if (!delRes.ok) {
+      const text = await delRes.text();
+      throw new Error(
+        `Preview turned off, but the workflow file could not be deleted: ${delRes.status} ${text.slice(0, 200)}`,
+      );
+    }
+    return { enabled: false, workflowRemoved: true };
   });
 
 export const createPreviewDeployWorkflow = createServerFn({ method: "POST" })
@@ -623,12 +717,14 @@ export const generateAndroidAab = createServerFn({ method: "POST" })
           ref: branch,
           inputs: { deploy_android: true, generate_aab_only: true },
         }),
-      }
+      },
     );
 
     if (!dispatchRes.ok) {
       const text = await dispatchRes.text();
-      throw new Error(`Failed to dispatch AAB generation: ${dispatchRes.status} ${text.slice(0, 200)}`);
+      throw new Error(
+        `Failed to dispatch AAB generation: ${dispatchRes.status} ${text.slice(0, 200)}`,
+      );
     }
 
     await new Promise((r) => setTimeout(r, 4000));
@@ -653,7 +749,11 @@ export const generateAndroidAab = createServerFn({ method: "POST" })
             };
           }
           if (run.status !== "queued" && run.status !== "in_progress") {
-            return { success: false, runUrl: run.html_url as string, message: `Unexpected status: ${run.status}` };
+            return {
+              success: false,
+              runUrl: run.html_url as string,
+              message: `Unexpected status: ${run.status}`,
+            };
           }
         }
       }
@@ -699,9 +799,7 @@ export const setupCapacitor = createServerFn({ method: "POST" })
 
     if (!workflowRes.ok) {
       const text = await workflowRes.text();
-      throw new Error(
-        `Failed to trigger Capacitor setup workflow: ${workflowRes.status} ${text}`,
-      );
+      throw new Error(`Failed to trigger Capacitor setup workflow: ${workflowRes.status} ${text}`);
     }
 
     // Wait for GitHub to register the run
