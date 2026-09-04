@@ -41,6 +41,13 @@ const IN_FLIGHT_STATES = [
 
 const LIVE_STATES = ["READY_FOR_SALE"];
 
+// Review submissions outlive the version state: attaching a build moves a REJECTED
+// version back to PREPARE_FOR_SUBMISSION, so by the time anyone opens this dialog the
+// rejection is invisible on the version itself. The submission still carries it. These
+// are also exactly the states deploy-ios.yml refuses to submit alongside, so surfacing
+// them here turns a failure twenty minutes into a build into a disabled button.
+const OPEN_SUBMISSION_STATES = ["WAITING_FOR_REVIEW", "IN_REVIEW", "UNRESOLVED_ISSUES"];
+
 function base64url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -87,6 +94,7 @@ async function mintToken(keyId: string, issuerId: string, privateKeyPem: string)
 }
 
 type AscVersion = { versionString: string; state: string };
+type AscSubmission = { id: string; state: string };
 
 export type AppStoreVersionState = {
   /** False when the Worker has no App Store Connect credentials configured. */
@@ -99,6 +107,8 @@ export type AppStoreVersionState = {
   editable?: AscVersion | null;
   inFlight?: AscVersion | null;
   live?: AscVersion | null;
+  /** An unfinished review submission, which blocks sending another one. */
+  openSubmission?: AscSubmission | null;
   /** Major.Minor the dialog should prefill, and why. */
   suggested?: { major: string; minor: string; reason: string };
 };
@@ -159,6 +169,14 @@ export const getAppStoreVersionState = createServerFn({ method: "POST" })
         state: v.attributes.appVersionState ?? v.attributes.appStoreState,
       }));
 
+      const submissionsRes = await get(
+        `/v1/reviewSubmissions?filter[app]=${ascApp.id}&filter[platform]=IOS&limit=50`,
+      );
+      const openSubmission: AscSubmission | null =
+        (submissionsRes.data ?? [])
+          .map((sub: any) => ({ id: sub.id, state: sub.attributes.state }))
+          .find((sub: AscSubmission) => OPEN_SUBMISSION_STATES.includes(sub.state)) ?? null;
+
       const editable = versions.find((v) => EDITABLE_STATES.includes(v.state)) ?? null;
       const inFlight = versions.find((v) => IN_FLIGHT_STATES.includes(v.state)) ?? null;
       const live = versions.find((v) => LIVE_STATES.includes(v.state)) ?? null;
@@ -192,6 +210,7 @@ export const getAppStoreVersionState = createServerFn({ method: "POST" })
         editable,
         inFlight,
         live,
+        openSubmission,
         suggested,
       };
     } catch (err: any) {

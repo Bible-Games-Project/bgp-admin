@@ -177,6 +177,13 @@ function DeployPanel({
 
   const ascBlocker = (() => {
     if (!deployIos || !ascState?.available || ascState.error) return null;
+    const open = ascState.openSubmission;
+    if (open?.state === "UNRESOLVED_ISSUES") {
+      return "Apple raised issues on the last submission and it is still open, so it counts as the one submission this app is allowed. Resolve or cancel it in App Store Connect — and read what they asked for, because it has not gone away just because a new build was attached.";
+    }
+    if (open) {
+      return `A submission is already ${humanState(open.state)} with Apple, and only one is allowed at a time. Wait for it, or cancel it in App Store Connect.`;
+    }
     if (ascState.inFlight) {
       return `Version ${ascState.inFlight.versionString} is already with Apple (${humanState(ascState.inFlight.state)}). Wait for it to finish or cancel it in App Store Connect before sending another.`;
     }
