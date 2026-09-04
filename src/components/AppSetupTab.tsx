@@ -686,6 +686,15 @@ export function AppSetupTab({
                     <code>GOOGLE_PLAY_SERVICE_ACCOUNT_JSON</code>) with{" "}
                     <strong>Release manager</strong> role for this app
                   </li>
+                  <li>
+                    In that same user&apos;s <strong>App permissions</strong>, confirm{" "}
+                    <strong>
+                      &ldquo;Release to production, exclude devices, and use Play App Signing&rdquo;
+                    </strong>{" "}
+                    is ticked. Without it uploads still succeed and only the final commit fails,
+                    with <code>The caller does not have permission</code> — testing deploys work
+                    while every production release fails.
+                  </li>
                 </ol>
               </div>
               <div>

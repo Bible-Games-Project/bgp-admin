@@ -1,4 +1,4 @@
-.PHONY: help run dev install clean format lint check supabase-start supabase-stop supabase-reset sync-ios sync-android
+.PHONY: help run dev install clean format lint check supabase-start supabase-stop supabase-reset sync-ios sync-android release-ci
 
 # Default target
 .DEFAULT_GOAL := help
@@ -74,6 +74,19 @@ migrate: ## Create a new migration
 	@echo "📝 Creating new migration..."
 	@read -p "Migration name: " name; \
 	cd supabase && supabase migration new $$name
+
+release-ci: ## Move the v1 tag so game repos pick up the current reusable workflows
+	@echo "🏷️  Pointing v1 at $$(git rev-parse --short HEAD) on $$(git rev-parse --abbrev-ref HEAD)..."
+	@git rev-parse --abbrev-ref HEAD | grep -qx main || \
+		{ echo "❌ Refusing: release-ci must run on main."; exit 1; }
+	@test -z "$$(git status --porcelain)" || \
+		{ echo "❌ Refusing: working tree is dirty."; exit 1; }
+	@git fetch origin main --quiet
+	@test "$$(git rev-parse HEAD)" = "$$(git rev-parse origin/main)" || \
+		{ echo "❌ Refusing: local main differs from origin/main. Push first."; exit 1; }
+	git tag -f v1
+	git push origin v1 --force
+	@echo "✅ v1 moved. Every game repo now builds with these workflows."
 
 setup: install ## Complete setup (install deps)
 	@echo ""

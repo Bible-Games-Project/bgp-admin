@@ -93,6 +93,73 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # A production release fails late and expensively — after a full archive, export,
+      # upload and up to 45 minutes of App Store processing — when the app record or the
+      # bundle id is wrong. Check that in the first minute instead.
+      - name: Preflight App Store Connect
+        if: inputs.submit-for-review == true
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          BUNDLE_IDENTIFIER: ${{ inputs.bundle-identifier }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BUNDLE_IDENTIFIER" ]; then
+            echo "❌ submit-for-review is true but bundle-identifier was not provided."
+            exit 1
+          fi
+          node - <<'EOF'
+          const crypto = require('crypto');
+
+          const keyId = process.env.APP_STORE_CONNECT_API_KEY_ID;
+          const issuerId = process.env.APP_STORE_CONNECT_ISSUER_ID;
+          const privateKey = Buffer.from(process.env.APP_STORE_CONNECT_API_KEY_BASE64, 'base64').toString('utf-8');
+          const bundleId = process.env.BUNDLE_IDENTIFIER;
+
+          const base64url = (i) =>
+            Buffer.from(i).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+          function mintToken() {
+            const now = Math.floor(Date.now() / 1000);
+            const unsigned =
+              base64url(JSON.stringify({ alg: 'ES256', kid: keyId, typ: 'JWT' })) +
+              '.' +
+              base64url(JSON.stringify({ iss: issuerId, iat: now, exp: now + 600, aud: 'appstoreconnect-v1' }));
+            const signature = crypto.sign('sha256', Buffer.from(unsigned), { key: privateKey, dsaEncoding: 'ieee-p1363' });
+            return `${unsigned}.${base64url(signature)}`;
+          }
+
+          async function get(path) {
+            const res = await fetch(`https://api.appstoreconnect.apple.com${path}`, {
+              headers: { Authorization: `Bearer ${mintToken()}` },
+            });
+            const text = await res.text();
+            if (!res.ok) throw new Error(`GET ${path} -> ${res.status}: ${text.slice(0, 300)}`);
+            return text ? JSON.parse(text) : {};
+          }
+
+          get(`/v1/apps?filter[bundleId]=${encodeURIComponent(bundleId)}`)
+            .then(async (appsRes) => {
+              const app = (appsRes.data || [])[0];
+              if (!app) {
+                throw new Error(
+                  `No app found in App Store Connect for bundle id ${bundleId}. Create the app record there first, or fix bundle-identifier in .github/workflows/deploy.yml.`,
+                );
+              }
+              console.log(`✅ App Store Connect app ${app.id} (${app.attributes.name}) matches ${bundleId}`);
+              const versions = await get(`/v1/apps/${app.id}/appStoreVersions?filter[platform]=IOS&limit=50`);
+              const list = (versions.data || []).map(
+                (v) => `${v.attributes.versionString} (${v.attributes.appVersionState || v.attributes.appStoreState})`,
+              );
+              console.log(list.length ? `Existing iOS versions: ${list.join(', ')}` : 'No iOS versions yet.');
+            })
+            .catch((err) => {
+              console.error('❌ ' + err.message);
+              process.exit(1);
+            });
+          EOF
+
       - name: Patch package.json version with build number
         run: |
           set -euo pipefail
@@ -541,6 +608,18 @@ jobs:
             return json;
           }
 
+          // Apple is migrating `appStoreState` to `appVersionState`; read whichever the
+          // API returns so the editable check keeps working after the old one is dropped.
+          const EDITABLE_STATES = [
+            'PREPARE_FOR_SUBMISSION',
+            'DEVELOPER_REJECTED',
+            'REJECTED',
+            'METADATA_REJECTED',
+            'INVALID_BINARY',
+          ];
+          const stateOf = (v) => v.attributes.appVersionState || v.attributes.appStoreState;
+          const isEditable = (v) => EDITABLE_STATES.includes(stateOf(v));
+
           // Whether a review submission already carries the given App Store version as an
           // item. `include=appStoreVersion` is what populates the item relationship data.
           async function submissionHasVersion(submissionId, versionId) {
@@ -590,26 +669,45 @@ jobs:
             console.log('Looking for an editable App Store version...');
             const versionsRes = await api(
               'GET',
-              `/v1/apps/${appId}/appStoreVersions?filter[platform]=IOS&filter[versionString]=${encodeURIComponent(versionString)}`,
+              `/v1/apps/${appId}/appStoreVersions?filter[platform]=IOS&limit=50`,
             );
-            let version = versionsRes.data && versionsRes.data[0];
-            if (!version) {
-              console.log(`No existing App Store version ${versionString} — creating one.`);
-              const created = await api('POST', '/v1/appStoreVersions', {
-                data: {
-                  type: 'appStoreVersions',
-                  // AFTER_APPROVAL makes the version go live as soon as Apple approves it,
-                  // so no manual "Release this version" click is needed in App Store Connect.
-                  attributes: { platform: 'IOS', versionString, releaseType: 'AFTER_APPROVAL' },
-                  relationships: { app: { data: { type: 'apps', id: appId } } },
-                },
-              });
-              version = created.data;
+            const allVersions = versionsRes.data || [];
+            let version = allVersions.find((v) => v.attributes.versionString === versionString && isEditable(v));
+            if (version) {
+              console.log(`Reusing App Store version ${versionString} (state ${stateOf(version)}).`);
             } else {
-              const state = version.attributes.appStoreState;
-              const editableStates = ['PREPARE_FOR_SUBMISSION', 'DEVELOPER_REJECTED', 'REJECTED', 'METADATA_REJECTED', 'INVALID_BINARY'];
-              if (!editableStates.includes(state)) {
-                throw new Error(`App Store version ${versionString} is in state ${state}, which is not editable. Resolve it manually in App Store Connect.`);
+              const sameString = allVersions.find((v) => v.attributes.versionString === versionString);
+              if (sameString) {
+                throw new Error(
+                  `App Store version ${versionString} is in state ${stateOf(sameString)}, which is not editable. Resolve it manually in App Store Connect.`,
+                );
+              }
+              // Apple allows only one editable version at a time, and creates 1.0
+              // automatically when the app record is created. Creating a second one gets a
+              // 409 "You cannot create a new version of the App in the current state", so
+              // rename the editable one instead — that is what the App Store Connect UI
+              // does when you edit the version number of an unsubmitted version.
+              const editable = allVersions.find(isEditable);
+              if (editable) {
+                console.log(
+                  `Renaming editable version ${editable.attributes.versionString} (state ${stateOf(editable)}) to ${versionString}.`,
+                );
+                const patched = await api('PATCH', `/v1/appStoreVersions/${editable.id}`, {
+                  data: { type: 'appStoreVersions', id: editable.id, attributes: { versionString } },
+                });
+                version = patched.data;
+              } else {
+                console.log(`No editable App Store version — creating ${versionString}.`);
+                const created = await api('POST', '/v1/appStoreVersions', {
+                  data: {
+                    type: 'appStoreVersions',
+                    // AFTER_APPROVAL makes the version go live as soon as Apple approves it,
+                    // so no manual "Release this version" click is needed in App Store Connect.
+                    attributes: { platform: 'IOS', versionString, releaseType: 'AFTER_APPROVAL' },
+                    relationships: { app: { data: { type: 'apps', id: appId } } },
+                  },
+                });
+                version = created.data;
               }
             }
             console.log(`Using App Store version ${version.id}`);

@@ -222,7 +222,18 @@ buildTypes {
 
 ## Updating Workflows
 
-When you update a workflow in this repo:
-- All projects using `@main` get the update on their next run automatically
-- To pin a version: use `@v1.0.0` or a commit SHA instead of `@main`
-- To test changes: use a branch reference like `@feature/new-telegram-format`
+Game repos pin `@v1`, a moving tag. bgp-admin's own `deploy.yml` stays on `@main` and acts
+as the canary. So a CI change ships in two steps:
+
+1. Push to `main`. Only bgp-admin's own app builds with it — every game repo keeps running
+   whatever `v1` points at, including any release in flight.
+2. Deploy bgp-admin (or one game repo temporarily switched to `@main`) to prove the change
+   works end to end, then run `make release-ci` to move `v1` onto that commit.
+
+The point is that a half-finished change to a reusable workflow cannot break someone else's
+release. Before `v1` existed, every push to `main` was a live deploy to all apps at once.
+
+- To test a change without moving `v1`: point one repo at a branch, e.g.
+  `@feature/new-telegram-format`
+- `checkDeployWorkflow` flags repos whose `deploy.yml` still says `@main`, so the console's
+  Setup tab shows them as out of date until they are regenerated

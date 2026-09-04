@@ -323,6 +323,7 @@ jobs:
         shell: bash
 
       - name: Upload to Google Play Console
+        id: play_upload
         if: inputs.skip-upload == false
         uses: r0adkll/upload-google-play@v1
         with:
@@ -332,6 +333,24 @@ jobs:
           track: ${{ inputs.play-track }}
           status: completed
           whatsNewDirectory: ${{ steps.whatsnew.outputs.whats-new-dir }}
+
+      # "The caller does not have permission" from the commit is the service account
+      # missing one checkbox, and the raw message says nothing about which.
+      - name: Explain a Google Play permission failure
+        if: failure() && steps.play_upload.outcome == 'failure'
+        run: |
+          echo "The upload to the '${{ inputs.play-track }}' track failed."
+          echo
+          echo "If the log says 'The caller does not have permission' at 'Committing the Edit',"
+          echo "the service account can upload but not publish. In Play Console →"
+          echo "Users and permissions → the service account → App permissions for"
+          echo "${{ inputs.package-name }}, tick:"
+          echo "  • Release to testing tracks"
+          echo "  • Release to production, exclude devices, and use Play App Signing"
+          echo
+          echo "Note a brand new app on a personal (non-organization) developer account"
+          echo "also needs a closed test with 12 testers for 14 days before Play unlocks"
+          echo "the production track at all."
 
       - name: Upload AAB as artifact
         if: inputs.skip-upload == true

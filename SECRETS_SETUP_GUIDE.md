@@ -568,12 +568,17 @@ base64 -i ExportOptions.plist | pbcopy
    - Go to: https://play.google.com/console/u/0/developers/YOUR_DEVELOPER_ID/users-and-permissions
    - Click **"Invite new users"**
    - Email address: `github-actions-deploy@YOUR-PROJECT.iam.gserviceaccount.com`
-   - App permissions: Select **"Eden Choice Chronicles"** with:
+   - App permissions: Select the app with (current Play Console wording):
      - ✅ View app information and download bulk reports
      - ✅ Manage testing tracks and edit tester lists
-     - ✅ Manage production releases
-     - ✅ Manage testing track releases
+     - ✅ Release to testing tracks
+     - ✅ **Release to production, exclude devices, and use Play App Signing**
    - Click **"Invite user"**
+
+   > ⚠️ The production checkbox is the one that gets missed. Without it the upload still
+   > succeeds and only the final `Committing the Edit` step fails with
+   > `The caller does not have permission` — so "Deploy to Testing" keeps working while
+   > every "Release to Production" fails.
 
 6. **Convert the JSON to base64:**
    ```bash

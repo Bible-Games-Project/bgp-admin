@@ -5,6 +5,11 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { PREVIEW_WORKFLOW_PATH, commitPreviewWorkflow } from "@/lib/github.functions";
 import { assertNotSelfRepo } from "@/lib/self-repo";
 
+// Game repos call bgp-admin's reusable workflows, so anything pushed to main here would
+// change CI for every app at once, mid-release included. They pin a moving tag instead:
+// `make release-ci` moves it once a CI change has been tried on one repo.
+const WORKFLOW_REF = "v1";
+
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
     .from("admins")
@@ -423,6 +428,11 @@ export const checkDeployWorkflow = createServerFn({ method: "POST" })
     if (!content.includes("release-notes:")) {
       missingFeatures.push("Play Store release notes (release-notes)");
     }
+    if (content.includes("/bgp-admin/.github/workflows/deploy-ios.yml@main")) {
+      missingFeatures.push(
+        `Pinned CI (reusable workflows still track @main instead of @${WORKFLOW_REF})`,
+      );
+    }
 
     return { exists: true, outdated: missingFeatures.length > 0, missingFeatures };
   });
@@ -485,7 +495,7 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
       "      github.ref == 'refs/heads/deploy-app' ||",
       "      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||",
       "      (github.event_name == 'workflow_dispatch' && inputs.deploy_ios == true)",
-      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-ios.yml@main",
+      `    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-ios.yml@${WORKFLOW_REF}`,
       "    with:",
       "      marketing-version: ${{ inputs.marketing_version }}",
       `      bundle-identifier: ${JSON.stringify(bundleId)}`,
@@ -508,7 +518,7 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
       "      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||",
       "      (github.event_name == 'workflow_dispatch' && inputs.deploy_android == true) ||",
       "      (github.event_name == 'workflow_dispatch' && inputs.generate_aab_only == true)",
-      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@main",
+      `    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@${WORKFLOW_REF}`,
       "    with:",
       `      package-name: ${bundleId}`,
       "      marketing-version: ${{ inputs.marketing_version }}",
@@ -524,7 +534,7 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
       "  notify:",
       "    needs: [ios, android]",
       "    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')",
-      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/notify-telegram.yml@main",
+      `    uses: Bible-Games-Project/bgp-admin/.github/workflows/notify-telegram.yml@${WORKFLOW_REF}`,
       "    with:",
       `      app-name: ${JSON.stringify(appName)}`,
       "    secrets:",
@@ -536,7 +546,7 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
       "    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')",
       "    permissions:",
       "      contents: write",
-      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/tag-release.yml@main",
+      `    uses: Bible-Games-Project/bgp-admin/.github/workflows/tag-release.yml@${WORKFLOW_REF}`,
       "",
     ].join("\n");
 
