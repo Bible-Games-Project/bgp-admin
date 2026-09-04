@@ -175,6 +175,11 @@ function DeployPanel({
       ? rejectionNotice(ascState.editable.state, ascState.editable.versionString)
       : null;
 
+  // Confirming before the store answers would skip both the blocker checks and the
+  // version prefill, so the number typed would be whatever was there before. A failed
+  // lookup leaves isFetching false, so the button never sticks disabled.
+  const ascPending = deployIos && ascFetching && !ascState;
+
   const ascBlocker = (() => {
     if (!deployIos || !ascState?.available || ascState.error) return null;
     const open = ascState.openSubmission;
@@ -597,11 +602,13 @@ function DeployPanel({
             <Button
               variant="destructive"
               onClick={() => prodDeployM.mutate()}
-              disabled={prodDeployM.isPending || !!ascBlocker}
+              disabled={prodDeployM.isPending || !!ascBlocker || ascPending}
               className="gap-2"
             >
-              {prodDeployM.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Confirm production release
+              {(prodDeployM.isPending || ascPending) && (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
+              {ascPending ? "Checking App Store Connect…" : "Confirm production release"}
             </Button>
           </DialogFooter>
         </DialogContent>
