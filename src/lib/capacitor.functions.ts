@@ -550,6 +550,18 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
       "",
     ].join("\n");
 
+    // Writing a deploy.yml that points at a tag nobody created yet would break every
+    // deploy in that repo instantly, with an unhelpful "unable to resolve reference".
+    const refRes = await fetch(
+      `https://api.github.com/repos/Bible-Games-Project/bgp-admin/git/ref/tags/${WORKFLOW_REF}`,
+      { headers: githubHeaders() },
+    );
+    if (!refRes.ok) {
+      throw new Error(
+        `bgp-admin has no ${WORKFLOW_REF} tag yet, and the generated workflow would point at it. Run \`make release-ci\` in bgp-admin first.`,
+      );
+    }
+
     const filePath = ".github/workflows/deploy.yml";
     const apiUrl = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/${filePath}`;
 
