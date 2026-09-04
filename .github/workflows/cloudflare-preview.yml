@@ -41,7 +41,17 @@ jobs:
           # (what process.env.GITHUB_PAT reads) needs to match the app's code.
           # SUPABASE_SERVICE_ROLE_KEY isn't listed here: it's unused (no code
           # imports supabaseAdmin) and Lovable Cloud doesn't expose its value anyway.
+          # APP_STORE_CONNECT_* are the same org-level secrets the deploy workflows use.
+          # The console reads them to show, before a production release, which version
+          # App Store Connect is expecting — see src/lib/appstore.functions.ts. Read-only
+          # use: it never writes to the store, that stays in deploy-ios.yml.
           secrets: |
             GITHUB_PAT
+            APP_STORE_CONNECT_API_KEY_ID
+            APP_STORE_CONNECT_ISSUER_ID
+            APP_STORE_CONNECT_API_KEY_BASE64
         env:
           GITHUB_PAT: ${{ secrets.GH_PAT }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}

@@ -18,6 +18,7 @@ import {
   getRepoMarketingVersion,
   getCommitsAheadOfLatestTag,
 } from "@/lib/deploy.functions";
+import { getAppStoreVersionState } from "@/lib/appstore.functions";
 import { listApps } from "@/lib/apps.functions";
 import { DEFAULT_RELEASE_NOTES } from "@/lib/release-notes";
 import { supabase } from "@/integrations/supabase/client";
@@ -43,6 +44,11 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: DashboardPage,
 });
+
+// App Store Connect states are SHOUTED_CONSTANTS; nobody should have to read those.
+function humanState(state: string): string {
+  return state.toLowerCase().replace(/_/g, " ");
+}
 
 function StatusDot({ status, conclusion }: { status: string; conclusion: string | null }) {
   let color = "bg-muted-foreground";
@@ -80,15 +86,15 @@ function formatTime(iso: string) {
   return d.toLocaleDateString();
 }
 
-function DeployPanel({ 
-  appId, 
-  defaultRef, 
+function DeployPanel({
+  appId,
+  defaultRef,
   currentVersion,
   githubOwner,
-  githubRepo 
-}: { 
-  appId: string; 
-  defaultRef: string; 
+  githubRepo,
+}: {
+  appId: string;
+  defaultRef: string;
   currentVersion: string | null;
   githubOwner: string;
   githubRepo: string;
@@ -105,6 +111,8 @@ function DeployPanel({
   const [initMajor, initMinor] = parseVersion(currentVersion);
   const [major, setMajor] = useState(initMajor);
   const [minor, setMinor] = useState(initMinor);
+  // Once the number has been typed by hand, nothing may overwrite it.
+  const [versionTouched, setVersionTouched] = useState(false);
   const marketingVersion = `${major || "0"}.${minor || "0"}`;
   const [deployIos, setDeployIos] = useState(true);
   const [deployAndroid, setDeployAndroid] = useState(true);
@@ -123,8 +131,50 @@ function DeployPanel({
   });
   const repoVersion = repoVersionData?.version ?? null;
 
+  // Nobody should have to know what number to type: App Store Connect already holds the
+  // answer, so read it and prefill. Only queried while the production dialog is open,
+  // since it is the only place the number actually matters.
+  const fetchAscState = useServerFn(getAppStoreVersionState);
+  const { data: ascState, isFetching: ascFetching } = useQuery({
+    queryKey: ["appStoreVersionState", appId],
+    queryFn: () => fetchAscState({ data: { appId } }),
+    enabled: !!appId && prodDialogOpen,
+    staleTime: 30_000,
+  });
+
+  const ascSuggested = ascState?.suggested;
+  useEffect(() => {
+    if (!ascSuggested || versionTouched) return;
+    setMajor(ascSuggested.major);
+    setMinor(ascSuggested.minor);
+  }, [ascSuggested, versionTouched]);
+
+  // Apple takes one submission at a time, and refuses a version that is not higher than
+  // the one on sale. Both are knowable before building, so refuse here rather than
+  // failing twenty minutes into a run.
+  const ascBlocker = (() => {
+    if (!deployIos || !ascState?.available || ascState.error) return null;
+    if (ascState.inFlight) {
+      return `Version ${ascState.inFlight.versionString} is already with Apple (${humanState(ascState.inFlight.state)}). Wait for it to finish or cancel it in App Store Connect before sending another.`;
+    }
+    const live = ascState.live;
+    if (live) {
+      const [liveMajor, liveMinor] = live.versionString.split(".");
+      const chosen = Number(major || 0) * 10000 + Number(minor || 0);
+      const published = Number(liveMajor || 0) * 10000 + Number(liveMinor || 0);
+      if (chosen < published) {
+        return `Version ${major}.${minor} is below ${live.versionString}, which is already on sale. Apple only accepts higher numbers.`;
+      }
+    }
+    return null;
+  })();
+
   const fetchCommitsAhead = useServerFn(getCommitsAheadOfLatestTag);
-  const { data: aheadData, isFetching: aheadFetching, refetch: refetchAhead } = useQuery({
+  const {
+    data: aheadData,
+    isFetching: aheadFetching,
+    refetch: refetchAhead,
+  } = useQuery({
     queryKey: ["commitsAhead", appId, ref],
     queryFn: () => fetchCommitsAhead({ data: { appId, ref } }),
     enabled: !!appId && !!ref,
@@ -142,17 +192,17 @@ function DeployPanel({
       const platforms = [];
       if (deployIos) platforms.push("iOS");
       if (deployAndroid) platforms.push("Android");
-      return deployFn({ 
-        data: { 
-          appId, 
-          workflowFile: "deploy.yml", 
+      return deployFn({
+        data: {
+          appId,
+          workflowFile: "deploy.yml",
           ref,
           inputs: {
             deploy_ios: deployIos,
             deploy_android: deployAndroid,
             marketing_version: marketingVersion.trim() || undefined,
-          }
-        } 
+          },
+        },
       });
     },
     onSuccess: () => {
@@ -236,12 +286,22 @@ function DeployPanel({
               className="inline-flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
               title={`Compare ${aheadData.tag}...${ref}`}
             >
-              <RefreshCw className={`h-3 w-3 ${aheadFetching ? "animate-spin" : ""}`} onClick={(e) => { e.preventDefault(); refetchAhead(); }} />
+              <RefreshCw
+                className={`h-3 w-3 ${aheadFetching ? "animate-spin" : ""}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  refetchAhead();
+                }}
+              />
               {aheadData.ahead === 0 ? (
-                <span>up to date with <span className="text-foreground">{aheadData.tag}</span></span>
+                <span>
+                  up to date with <span className="text-foreground">{aheadData.tag}</span>
+                </span>
               ) : (
                 <span>
-                  <span className="text-foreground font-semibold">{aheadData.ahead}</span> commit{aheadData.ahead === 1 ? "" : "s"} ahead of <span className="text-foreground">{aheadData.tag}</span>
+                  <span className="text-foreground font-semibold">{aheadData.ahead}</span> commit
+                  {aheadData.ahead === 1 ? "" : "s"} ahead of{" "}
+                  <span className="text-foreground">{aheadData.tag}</span>
                 </span>
               )}
               <ExternalLink className="h-3 w-3" />
@@ -262,26 +322,44 @@ function DeployPanel({
             />
           </div>
 
-          <div className="flex items-center gap-1 rounded-md border border-border bg-background px-2.5 h-9" title="Marketing version: Major.Minor. The build number is appended automatically by CI (GITHUB_RUN_NUMBER).">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground mr-1">Major</span>
+          <div
+            className="flex items-center gap-1 rounded-md border border-border bg-background px-2.5 h-9"
+            title="Marketing version: Major.Minor. The build number is appended automatically by CI (GITHUB_RUN_NUMBER)."
+          >
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground mr-1">
+              Major
+            </span>
             <input
               value={major}
-              onChange={(e) => setMajor(e.target.value.replace(/\D/g, ""))}
+              onChange={(e) => {
+                setVersionTouched(true);
+                setMajor(e.target.value.replace(/\D/g, ""));
+              }}
               className="bg-transparent text-sm font-mono w-8 outline-none text-center"
               placeholder="0"
               inputMode="numeric"
             />
             <span className="text-muted-foreground">.</span>
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground mx-1">Minor</span>
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground mx-1">
+              Minor
+            </span>
             <input
               value={minor}
-              onChange={(e) => setMinor(e.target.value.replace(/\D/g, ""))}
+              onChange={(e) => {
+                setVersionTouched(true);
+                setMinor(e.target.value.replace(/\D/g, ""));
+              }}
               className="bg-transparent text-sm font-mono w-8 outline-none text-center"
               placeholder="0"
               inputMode="numeric"
             />
             <span className="text-muted-foreground">.</span>
-            <span className="text-xs font-mono text-muted-foreground italic" title="Auto-incremented by CI on every deploy">auto</span>
+            <span
+              className="text-xs font-mono text-muted-foreground italic"
+              title="Auto-incremented by CI on every deploy"
+            >
+              auto
+            </span>
           </div>
         </div>
 
@@ -325,25 +403,35 @@ function DeployPanel({
         </div>
       </div>
 
-      <Dialog open={prodDialogOpen} onOpenChange={(open) => !prodDeployM.isPending && setProdDialogOpen(open)}>
+      <Dialog
+        open={prodDialogOpen}
+        onOpenChange={(open) => !prodDeployM.isPending && setProdDialogOpen(open)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Release to Production</DialogTitle>
             <DialogDescription>
               This builds {ref} and ships it to the Google Play production track
-              {deployIos ? " and submits the build for Apple review, set to release automatically once approved" : ""}.
-              Not trivially reversible.
+              {deployIos
+                ? " and submits the build for Apple review, set to release automatically once approved"
+                : ""}
+              . Not trivially reversible.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="rounded-md border border-border bg-muted/30 p-3 text-xs font-mono space-y-1">
-              <div>branch: <span className="text-foreground">{ref}</span></div>
-              <div>version: <span className="text-foreground">{marketingVersion || "—"}</span></div>
+              <div>
+                branch: <span className="text-foreground">{ref}</span>
+              </div>
+              <div>
+                version: <span className="text-foreground">{marketingVersion || "—"}</span>
+              </div>
               <div>
                 platforms:{" "}
                 <span className="text-foreground">
-                  {[deployIos && "iOS", deployAndroid && "Android"].filter(Boolean).join(" + ") || "none"}
+                  {[deployIos && "iOS", deployAndroid && "Android"].filter(Boolean).join(" + ") ||
+                    "none"}
                 </span>
               </div>
             </div>
@@ -370,6 +458,71 @@ function DeployPanel({
               </p>
             </div>
 
+            {deployIos && (
+              <div className="rounded-md border border-border bg-muted/30 p-3 text-xs space-y-1.5">
+                <p className="font-medium flex items-center gap-1.5">
+                  {ascFetching && <Loader2 className="h-3 w-3 animate-spin" />}
+                  App Store Connect
+                </p>
+                {ascFetching && !ascState ? (
+                  <p className="text-muted-foreground">Checking what version the store expects…</p>
+                ) : !ascState?.available ? (
+                  <p className="text-muted-foreground">
+                    Not connected, so the version above was not checked against the store. Make sure
+                    it is higher than whatever is published.
+                  </p>
+                ) : ascState.error ? (
+                  <p className="text-muted-foreground">{ascState.error}</p>
+                ) : (
+                  <>
+                    {ascState.editable && (
+                      <p className="text-muted-foreground">
+                        Open and waiting for a build:{" "}
+                        <span className="text-foreground font-mono">
+                          {ascState.editable.versionString}
+                        </span>{" "}
+                        ({humanState(ascState.editable.state)})
+                      </p>
+                    )}
+                    {ascState.live && (
+                      <p className="text-muted-foreground">
+                        On sale now:{" "}
+                        <span className="text-foreground font-mono">
+                          {ascState.live.versionString}
+                        </span>
+                      </p>
+                    )}
+                    {!ascState.editable && !ascState.live && !ascState.inFlight && (
+                      <p className="text-muted-foreground">No versions yet — this is the first.</p>
+                    )}
+                    {ascState.suggested && !versionTouched && (
+                      <p className="text-muted-foreground">{ascState.suggested.reason}</p>
+                    )}
+                    {versionTouched && ascState.suggested && (
+                      <p className="text-muted-foreground">
+                        You changed the version by hand. The store suggested{" "}
+                        <button
+                          type="button"
+                          className="text-foreground font-mono underline underline-offset-2"
+                          onClick={() => setVersionTouched(false)}
+                        >
+                          {ascState.suggested.major}.{ascState.suggested.minor}
+                        </button>
+                        .
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {ascBlocker && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs">
+                <p className="font-medium">This release cannot go out yet.</p>
+                <p className="text-muted-foreground mt-1">{ascBlocker}</p>
+              </div>
+            )}
+
             <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
               <p className="font-medium">First release of an app? Expect this to fail.</p>
               <p className="text-muted-foreground mt-1">
@@ -383,13 +536,17 @@ function DeployPanel({
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setProdDialogOpen(false)} disabled={prodDeployM.isPending}>
+            <Button
+              variant="outline"
+              onClick={() => setProdDialogOpen(false)}
+              disabled={prodDeployM.isPending}
+            >
               Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={() => prodDeployM.mutate()}
-              disabled={prodDeployM.isPending}
+              disabled={prodDeployM.isPending || !!ascBlocker}
               className="gap-2"
             >
               {prodDeployM.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -499,8 +656,8 @@ function DashboardPage() {
       <div className="p-8 max-w-md">
         <h1 className="text-xl font-display font-semibold">Access denied</h1>
         <p className="text-sm text-muted-foreground mt-2">
-          Your account is signed in but not authorized to use this console. Ask an admin to
-          add your user to the allow list.
+          Your account is signed in but not authorized to use this console. Ask an admin to add your
+          user to the allow list.
         </p>
         {sessionQ.data && (
           <div className="mt-4 rounded-md border border-border bg-card p-3 text-xs font-mono space-y-1">
@@ -584,8 +741,8 @@ function DashboardPage() {
       {selected && (
         <>
           <DeployPanel
-            appId={selected.id} 
-            defaultRef={selected.default_ref} 
+            appId={selected.id}
+            defaultRef={selected.default_ref}
             currentVersion={selected.marketing_version}
             githubOwner={selected.github_owner}
             githubRepo={selected.github_repo}
