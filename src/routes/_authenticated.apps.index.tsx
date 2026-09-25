@@ -30,7 +30,8 @@ function AppsPage() {
 
   const createM = useMutation({
     mutationFn: (data: any) => createFn({ data }),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result?.warning) toast.warning(result.warning, { duration: 12000 });
       toast.success("App created");
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["apps"] });

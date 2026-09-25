@@ -2,12 +2,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { commitPreviewWorkflow, findRepoProblem, githubHeaders } from "@/lib/github.functions";
+import { setPublishTelegramSecrets, setRepoSecrets, telegramSecrets } from "@/lib/repo-secrets.server";
 import { commitAgentDocs } from "@/lib/agent-docs.server";
 import { syncAppNameToRepo } from "@/lib/app-name.server";
 import { slugify } from "@/lib/utils";
-import sodium from "libsodium-wrappers";
-import nacl from "tweetnacl";
-import { blake2b } from "blakejs";
+
+// Secret-setting (including the sealed-box crypto) lives in repo-secrets.server.ts.
 
 const ORG = "Bible-Games-Project";
 
@@ -98,7 +98,16 @@ export const createApp = createServerFn({ method: "POST" })
       .select("*")
       .single();
     if (error) throw new Error(error.message);
-    return { app: row };
+
+    // Linked repos report to the publish chat too — best effort, a secret
+    // failing to land never fails the registration itself.
+    const tgFailed = await setPublishTelegramSecrets(row.github_repo);
+    let warning: string | undefined;
+    if (tgFailed.length) {
+      warning = `${tgFailed.join(", ")} could not be set on ${row.github_owner}/${row.github_repo}; publish runs there will not notify Telegram until it is.`;
+    }
+
+    return { app: row, warning };
   });
 
 export const createAppWithRepo = createServerFn({ method: "POST" })
@@ -304,80 +313,24 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
     }
 
     // ── 6. Set GitHub secrets on the new repo ───────────────────────
-    if (cfToken && cfAccount || tgToken && tgChat) {
-      try {
-        // Get the repo's public key for secret encryption
-        const pkRes = await fetch(
-          `https://api.github.com/repos/${ORG}/${repoName}/actions/secrets/public-key`,
-          { headers: githubHeaders() },
-        );
-        if (pkRes.ok) {
-          const pkBody = await pkRes.json();
-
-          // Libsodium-compatible crypto_box_seal using tweetnacl (pure JS, no WASM)
-          // Format: ephemeral_pk (32) || ciphertext
-          // Nonce is derived as HASH(ephemeral_pk || recipient_pk)[0:24]
-          const encryptSecret = (value: string): string => {
-            const recipientKey = new Uint8Array(
-              atob(pkBody.key).split("").map((c) => c.charCodeAt(0)),
-            );
-            const messageBytes = new TextEncoder().encode(value);
-            const ephemeral = nacl.box.keyPair();
-
-            // Derive nonce: first 24 bytes of BLAKE2b(ephemeral_pk || recipient_pk)
-            // libsodium's crypto_box_seal uses BLAKE2b (via crypto_generichash)
-            const combinedKeys = new Uint8Array(64);
-            combinedKeys.set(ephemeral.publicKey, 0);
-            combinedKeys.set(recipientKey, 32);
-            const nonce = blake2b(combinedKeys, undefined, nacl.box.nonceLength);
-
-            const ciphertext = nacl.box(
-              messageBytes,
-              nonce,
-              recipientKey,
-              ephemeral.secretKey,
-            );
-
-            // Sealed box format: ephemeral_pk (32) || ciphertext
-            const combined = new Uint8Array(32 + ciphertext.length);
-            combined.set(ephemeral.publicKey, 0);
-            combined.set(ciphertext, 32);
-            return btoa(String.fromCharCode(...combined));
-          };
-
-          const secrets = [
-            { name: "CLOUDFLARE_API_TOKEN", value: cfToken as string },
-            { name: "CLOUDFLARE_ACCOUNT_ID", value: cfAccount as string },
-          ];
-          if (tgToken && tgChat) {
-            // Publish notifications arrive on Telegram without a manual step
-            secrets.push(
-              { name: "TELEGRAM_BOT_TOKEN", value: tgToken },
-              { name: "TELEGRAM_CHAT_ID", value: tgChat },
-            );
-          }
-
-          for (const s of secrets) {
-            const encValue = encryptSecret(s.value);
-            const setRes = await fetch(
-              `https://api.github.com/repos/${ORG}/${repoName}/actions/secrets/${s.name}`,
-              {
-                method: "PUT",
-                headers: { ...githubHeaders(), "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  encrypted_value: encValue,
-                  key_id: pkBody.key_id,
-                }),
-              },
-            );
-            if (!setRes.ok) {
-              warnings.push(`Could not set ${s.name} secret.`);
-            }
-          }
-        }
-      } catch {
-        warnings.push("Could not configure deployment secrets.");
+    try {
+      const cfSecrets =
+        cfToken && cfAccount
+          ? [
+              { name: "CLOUDFLARE_API_TOKEN", value: cfToken },
+              { name: "CLOUDFLARE_ACCOUNT_ID", value: cfAccount },
+            ]
+          : [];
+      const failed = await setRepoSecrets(repoName, [
+        ...cfSecrets,
+        // Publish notifications arrive on Telegram without a manual step
+        ...(tgToken && tgChat ? telegramSecrets() : []),
+      ]);
+      for (const name of failed) {
+        warnings.push(`Could not set ${name} secret.`);
       }
+    } catch {
+      warnings.push("Could not configure deployment secrets.");
     }
 
     // ── 6. Insert into Supabase ─────────────────────────────────────
