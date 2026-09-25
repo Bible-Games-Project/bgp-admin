@@ -12,6 +12,14 @@ on:
         required: false
         type: string
         default: "iOS + Android"
+      ios-result:
+        description: "Result of the iOS job (success/failure/skipped)"
+        required: false
+        type: string
+      android-result:
+        description: "Android job result (success/failure/skipped)"
+        required: false
+        type: string
     secrets:
       TELEGRAM_BOT_TOKEN:
         required: true
@@ -42,21 +50,44 @@ jobs:
           VERSION: ${{ steps.get_version.outputs.version }}
           APP_NAME: ${{ inputs.app-name }}
           PLATFORMS: ${{ inputs.platforms }}
+          IOS_RESULT: ${{ inputs.ios-result }}
+          ANDROID_RESULT: ${{ inputs.android-result }}
           REPO_NAME: ${{ github.repository }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           PR_TITLE: ${{ github.event.pull_request.title || github.event.head_commit.message }}
-          PR_URL: ${{ github.event.pull_request.html_url || format('{0}/{1}/commit/{2}', github.server_url, github.repository, github.sha) }}
+          PR_URL: ${{ github.event.pull_request.html_url || format('{0}/actions/runs/{1}', github.server_url, github.run_id) }}
           ACTOR: ${{ github.actor }}
         run: |
-          MESSAGE="🚀 <b>Beta published successfully</b>%0A%0A"
+          # Status line per platform, spoken plainly
+          say() {
+            case "$1" in
+              success) echo "✅" ;;
+              failure) echo "❌" ;;
+              *)       echo "➖" ;;  # cancelled or unknown
+            esac
+          }
+          IOS_EMOJI=$(say "${IOS_RESULT}")
+          AND_EMOJI=$(say "${ANDROID_RESULT}")
+
+          # Pick a headline that matches what actually happened
+          if [ "${IOS_RESULT}" = "failure" ] || [ "${ANDROID_RESULT}" = "failure" ]; then
+            HEADLINE="⚠️ <b>Publish had a problem</b>"
+          else
+            HEADLINE="🚀 <b>Beta published successfully</b>"
+          fi
+
+          MESSAGE="${HEADLINE}%0A%0A"
           MESSAGE+="📱 <b>App:</b> ${APP_NAME}%0A"
           MESSAGE+="📦 <b>Version:</b> ${VERSION}%0A"
-          MESSAGE+="🖥️ <b>Platforms:</b> ${PLATFORMS}%0A"
+          MESSAGE+="🖥️ <b>Platforms:</b> ${IOS_EMOJI} iOS   ${AND_EMOJI} Android%0A"
           MESSAGE+="🌿 <b>Repo:</b> <a href='${REPO_URL}'>${REPO_NAME}</a>%0A"
-          MESSAGE+="🔹 <b>Change:</b> <a href='${PR_URL}'>${PR_TITLE}</a>%0A"
+          MESSAGE+="🔹 <b>Change:</b> <a href='${PR_URL}'>run details</a>%0A"
           MESSAGE+="🧑🏻‍💻 <b>Published by:</b> ${ACTOR}"
 
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d chat_id="${TELEGRAM_CHAT_ID}" \
-            -d parse_mode="HTML" \
-            -d text="${MESSAGE}"
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode chat_id="${TELEGRAM_CHAT_ID}" \
+            --data-urlencode parse_mode="HTML" \
+            --data-urlencode disable_web_page_preview=true \
+            --data-urlencode text="${MESSAGE}" \
+            --fail-with-body --output /dev/null
+          echo "Sent Telegram notification."
