@@ -522,6 +522,13 @@ function DeployPanel({
                 ) : (
                   <>Sent to both stores. Play truncates anything past 500 characters.</>
                 )}
+                {deployIos && (
+                  <>
+                    {" "}
+                    Apple needs a What&apos;s New in every language of the listing, so each language
+                    that has none yet gets this text too.
+                  </>
+                )}
               </p>
             </div>
 
