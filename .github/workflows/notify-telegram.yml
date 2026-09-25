@@ -97,12 +97,15 @@ jobs:
             HEADLINE="🚀 <b>Beta published successfully</b>"
           fi
 
-          MESSAGE="${HEADLINE}%0A%0A"
-          MESSAGE+="📱 <b>App:</b> ${APP_NAME}%0A"
-          MESSAGE+="📦 <b>Version:</b> ${VERSION}%0A"
-          MESSAGE+="🖥️ <b>Platforms:</b> ${IOS_EMOJI} iOS   ${AND_EMOJI} Android%0A"
-          MESSAGE+="🌿 <b>Repo:</b> <a href='${REPO_URL}'>${REPO_NAME}</a>%0A"
-          MESSAGE+="🔹 <b>Change:</b> <a href='${PR_URL}'>run details</a>%0A"
+          # Real newlines: --data-urlencode encodes the text as-is, so a URL-escaped
+          # newline would reach Telegram as the literal characters, not a line break
+          NL=$'\n'
+          MESSAGE="${HEADLINE}${NL}${NL}"
+          MESSAGE+="📱 <b>App:</b> ${APP_NAME}${NL}"
+          MESSAGE+="📦 <b>Version:</b> ${VERSION}${NL}"
+          MESSAGE+="🖥️ <b>Platforms:</b> ${IOS_EMOJI} iOS   ${AND_EMOJI} Android${NL}"
+          MESSAGE+="🌿 <b>Repo:</b> <a href='${REPO_URL}'>${REPO_NAME}</a>${NL}"
+          MESSAGE+="🔹 <b>Change:</b> <a href='${PR_URL}'>run details</a>${NL}"
           MESSAGE+="🧑🏻‍💻 <b>Published by:</b> ${ACTOR}"
 
           curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \

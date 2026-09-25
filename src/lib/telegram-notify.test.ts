@@ -47,6 +47,13 @@ describe("notify-telegram.yml speaks about failures", () => {
     expect(workflow).toContain("Publish had a problem");
     expect(workflow).toContain("Beta published successfully");
   });
+
+  // curl --data-urlencode escapes "%" itself, so a pre-escaped %0A shows up in
+  // the chat as the literal text "%0A" instead of a line break.
+  it("builds the message with real newlines, not URL-escaped ones", () => {
+    expect(workflow).toContain("--data-urlencode text=");
+    expect(workflow).not.toContain("%0A");
+  });
 });
 
 // Linked repos ask for the same Telegram secrets the create flow sets: the
