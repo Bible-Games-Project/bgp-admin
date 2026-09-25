@@ -43,12 +43,33 @@ jobs:
           VERSION="${PARTS[0]}.${PARTS[1]}.${{ github.run_number }}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+      # bgp-admin rewrites capacitor.config.ts on every rename, so the name read from it
+      # is current. The app-name input is only a fallback: it was frozen into each repo's
+      # deploy.yml when that file was generated, and renames never touch it.
+      - name: Resolve app name
+        id: app_name
+        env:
+          FALLBACK_NAME: ${{ inputs.app-name }}
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          let name = '';
+          try {
+            const config = fs.readFileSync('capacitor.config.ts', 'utf8');
+            const m = config.match(/appName:\s*(['"])((?:\\.|(?!\1).)*)\1/);
+            if (m) name = m[2].replace(/\\(.)/g, '$1');
+          } catch {}
+          name = (name || process.env.FALLBACK_NAME || '').trim();
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `name=${name}\n`);
+          console.log(`App name: ${name}`);
+          EOF
+
       - name: Send Telegram notification
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           VERSION: ${{ steps.get_version.outputs.version }}
-          APP_NAME: ${{ inputs.app-name }}
+          APP_NAME: ${{ steps.app_name.outputs.name }}
           PLATFORMS: ${{ inputs.platforms }}
           IOS_RESULT: ${{ inputs.ios-result }}
           ANDROID_RESULT: ${{ inputs.android-result }}
