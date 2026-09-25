@@ -341,6 +341,13 @@ jobs:
         run: |
           echo "The upload to the '${{ inputs.play-track }}' track failed."
           echo
+          echo "If the log says 'The caller does not have permission' right after"
+          echo "'Creating a new Edit', the service account cannot see this app at all."
+          echo "Play Console grants it app by app. In Play Console → Users and permissions"
+          echo "→ the service account → App permissions → Add app, pick"
+          echo "${{ inputs.package-name }} and tick the same permissions as the other games."
+          echo "Nothing was uploaded, so re-running this job reuses the same versionCode."
+          echo
           echo "If the log says 'The caller does not have permission' at 'Committing the Edit',"
           echo "the service account can upload but not publish. In Play Console →"
           echo "Users and permissions → the service account → App permissions for"
