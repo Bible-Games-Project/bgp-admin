@@ -315,6 +315,7 @@ export function AppSetupTab({
   const deployDone = deployQ.data?.exists ?? false;
   const deployOutdated = deployQ.data?.outdated ?? false;
   const previewDeployDone = previewDeployQ.data?.exists ?? false;
+  const previewOutdated = previewDeployQ.data?.outdated ?? false;
   const previewDisabled = previewDeployQ.data?.disabled ?? false;
   const agentDocsDone = agentDocsQ.data?.allInSync ?? false;
 
@@ -769,18 +770,27 @@ export function AppSetupTab({
               {deployOutdated && (
                 <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs">
                   <p className="font-medium">This deploy.yml is out of date.</p>
-                  <p className="text-muted-foreground mt-0.5">
-                    It was committed by an older version of bgp-admin and is missing:
-                  </p>
-                  <ul className="list-disc list-inside text-muted-foreground mt-1">
-                    {(deployQ.data?.missingFeatures ?? []).map((f) => (
-                      <li key={f}>{f}</li>
-                    ))}
-                  </ul>
-                  <p className="text-muted-foreground mt-1">
-                    Hit Re-create to update it. Deploys keep working meanwhile, but those features
-                    stay off.
-                  </p>
+                  {(deployQ.data?.missingFeatures ?? []).length > 0 ? (
+                    <>
+                      <p className="text-muted-foreground mt-0.5">
+                        It was committed by an older version of bgp-admin and is missing:
+                      </p>
+                      <ul className="list-disc list-inside text-muted-foreground mt-1">
+                        {(deployQ.data?.missingFeatures ?? []).map((f) => (
+                          <li key={f}>{f}</li>
+                        ))}
+                      </ul>
+                      <p className="text-muted-foreground mt-1">
+                        Hit Re-create to update it. Deploys keep working meanwhile, but those
+                        features stay off.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-muted-foreground mt-0.5">
+                      It was committed by an older version of bgp-admin, or before the app was
+                      renamed. Hit Re-create to bring it up to date.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -836,6 +846,14 @@ export function AppSetupTab({
           ) : (
             <div className="flex flex-col gap-1.5 mt-2">
               <StatusRow label=".github/workflows/preview-deploy.yml" ok={previewDeployDone} />
+              {previewOutdated && (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs">
+                  <p className="font-medium">This preview-deploy.yml is out of date.</p>
+                  <p className="text-muted-foreground mt-0.5">
+                    It was committed by an older version of bgp-admin. Hit Re-create to update it.
+                  </p>
+                </div>
+              )}
               {previewDeployDone && previewDeployQ.data?.previewUrl && (
                 <a
                   href={previewDeployQ.data.previewUrl}
@@ -855,7 +873,7 @@ export function AppSetupTab({
               <div className="flex items-center gap-3">
                 <Button
                   size="sm"
-                  variant={previewDeployDone ? "outline" : "default"}
+                  variant={previewDeployDone && !previewOutdated ? "outline" : "default"}
                   disabled={previewDeployM.isPending || self}
                   onClick={() => previewDeployM.mutate()}
                 >

@@ -2,7 +2,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { PREVIEW_WORKFLOW_PATH, commitPreviewWorkflow, findRepoProblem } from "@/lib/github.functions";
+import {
+  PREVIEW_WORKFLOW_PATH,
+  buildPreviewDeployWorkflowYaml,
+  commitPreviewWorkflow,
+  findRepoProblem,
+} from "@/lib/github.functions";
 import { assertNotSelfRepo } from "@/lib/self-repo";
 
 async function assertAdmin(supabase: any, userId: string) {
@@ -441,11 +446,7 @@ export const checkDeployWorkflow = createServerFn({ method: "POST" })
 
     // Workflows committed by older versions of bgp-admin lack inputs that the reusable
     // workflows now expect, so flag them for regeneration instead of failing at deploy time.
-    const file = (await res.json()) as { content?: string; encoding?: string };
-    const content =
-      file.content && file.encoding === "base64"
-        ? Buffer.from(file.content, "base64").toString("utf-8")
-        : "";
+    const content = await readBase64File(res);
 
     const missingFeatures: string[] = [];
     if (!content.includes("bundle-identifier:")) {
@@ -454,9 +455,31 @@ export const checkDeployWorkflow = createServerFn({ method: "POST" })
     if (!content.includes("release-notes:")) {
       missingFeatures.push("Play Store release notes (release-notes)");
     }
+    if (!content.includes("ios-result:")) {
+      missingFeatures.push("Telegram message when a deploy fails (ios-result, android-result)");
+    }
+    if (app.bundle_id && !content.includes(`bundle-identifier: ${JSON.stringify(app.bundle_id)}`)) {
+      missingFeatures.push(`The current bundle ID, ${app.bundle_id}`);
+    }
 
-    return { exists: true, outdated: missingFeatures.length > 0, missingFeatures };
+    // Anything else that differs from what this version of bgp-admin would commit
+    // (an older app name, an older notify job...) still counts as out of date.
+    const expected = app.bundle_id
+      ? buildDeployWorkflowYaml({ bundleId: app.bundle_id, appName: app.name })
+      : content;
+    return {
+      exists: true,
+      outdated: missingFeatures.length > 0 || content !== expected,
+      missingFeatures,
+    };
   });
+
+async function readBase64File(res: Response) {
+  const file = (await res.json()) as { content?: string; encoding?: string };
+  return file.content && file.encoding === "base64"
+    ? Buffer.from(file.content, "base64").toString("utf-8")
+    : "";
+}
 
 export const createDeployWorkflow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -471,108 +494,7 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
     }
 
     const branch = app.default_ref || "main";
-    const bundleId = app.bundle_id as string;
-    const appName = app.name as string;
-
-    const content = [
-      "name: Deploy",
-      "",
-      "on:",
-      "  push:",
-      "    branches: [deploy-app]",
-      "  pull_request:",
-      "    branches: [main]",
-      "    types: [closed]",
-      "  workflow_dispatch:",
-      "    inputs:",
-      "      deploy_ios:",
-      '        description: "Deploy iOS"',
-      "        type: boolean",
-      "        default: false",
-      "      deploy_android:",
-      '        description: "Deploy Android"',
-      "        type: boolean",
-      "        default: false",
-      "      marketing_version:",
-      '        description: "Marketing version (e.g. 1.0). Leave empty to use package.json"',
-      "        type: string",
-      '        default: ""',
-      "      generate_aab_only:",
-      '        description: "Build AAB without uploading to Google Play (saves as downloadable artifact)"',
-      "        type: boolean",
-      "        default: false",
-      "      production:",
-      '        description: "Publish to production (Play Store production track + submit iOS build for App Store review)"',
-      "        type: boolean",
-      "        default: false",
-      "      release_notes:",
-      '        description: "Release notes / What\'s New (required for iOS production submission)"',
-      "        type: string",
-      '        default: ""',
-      "",
-      "jobs:",
-      "  ios:",
-      "    if: |",
-      "      github.ref == 'refs/heads/deploy-app' ||",
-      "      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||",
-      "      (github.event_name == 'workflow_dispatch' && inputs.deploy_ios == true)",
-      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-ios.yml@main",
-      "    with:",
-      "      marketing-version: ${{ inputs.marketing_version }}",
-      `      bundle-identifier: ${JSON.stringify(bundleId)}`,
-      "      submit-for-review: ${{ inputs.production == true }}",
-      "      release-notes: ${{ inputs.release_notes }}",
-      "    secrets:",
-      "      IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}",
-      "      IOS_BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}",
-      "      IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}",
-      "      IOS_BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_BUILD_PROVISION_PROFILE_BASE64 }}",
-      "      IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}",
-      "      IOS_EXPORT_OPTIONS_PLIST: ${{ secrets.IOS_EXPORT_OPTIONS_PLIST }}",
-      "      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}",
-      "      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}",
-      "      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}",
-      "",
-      "  android:",
-      "    if: |",
-      "      github.ref == 'refs/heads/deploy-app' ||",
-      "      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||",
-      "      (github.event_name == 'workflow_dispatch' && inputs.deploy_android == true) ||",
-      "      (github.event_name == 'workflow_dispatch' && inputs.generate_aab_only == true)",
-      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@main",
-      "    with:",
-      `      package-name: ${bundleId}`,
-      "      marketing-version: ${{ inputs.marketing_version }}",
-      "      skip-upload: ${{ inputs.generate_aab_only == true }}",
-      "      play-track: ${{ inputs.production == true && 'production' || 'internal' }}",
-      "      release-notes: ${{ inputs.release_notes }}",
-      "    secrets:",
-      "      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}",
-      "      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}",
-      "      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}",
-      "      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}",
-      "",
-      "  notify:",
-      "    needs: [ios, android]",
-      "    if: |",
-      "      always() && (needs.ios.result != 'skipped' || needs.android.result != 'skipped')",
-      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/notify-telegram.yml@main",
-      "    with:",
-      "      ios-result: ${{ needs.ios.result }}",
-      "      android-result: ${{ needs.android.result }}",
-      `      app-name: ${JSON.stringify(appName)}`,
-      "    secrets:",
-      "      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}",
-      "      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}",
-      "",
-      "  tag:",
-      "    needs: [ios, android]",
-      "    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')",
-      "    permissions:",
-      "      contents: write",
-      "    uses: Bible-Games-Project/bgp-admin/.github/workflows/tag-release.yml@main",
-      "",
-    ].join("\n");
+    const content = buildDeployWorkflowYaml({ bundleId: app.bundle_id, appName: app.name });
 
     const filePath = ".github/workflows/deploy.yml";
     const apiUrl = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/${filePath}`;
@@ -612,6 +534,115 @@ export const createDeployWorkflow = createServerFn({ method: "POST" })
     };
   });
 
+/** The deploy.yml bgp-admin commits into an app repo. The check above compares against it. */
+export function buildDeployWorkflowYaml({
+  bundleId,
+  appName,
+}: {
+  bundleId: string;
+  appName: string;
+}): string {
+  return [
+    "name: Deploy",
+    "",
+    "on:",
+    "  push:",
+    "    branches: [deploy-app]",
+    "  pull_request:",
+    "    branches: [main]",
+    "    types: [closed]",
+    "  workflow_dispatch:",
+    "    inputs:",
+    "      deploy_ios:",
+    '        description: "Deploy iOS"',
+    "        type: boolean",
+    "        default: false",
+    "      deploy_android:",
+    '        description: "Deploy Android"',
+    "        type: boolean",
+    "        default: false",
+    "      marketing_version:",
+    '        description: "Marketing version (e.g. 1.0). Leave empty to use package.json"',
+    "        type: string",
+    '        default: ""',
+    "      generate_aab_only:",
+    '        description: "Build AAB without uploading to Google Play (saves as downloadable artifact)"',
+    "        type: boolean",
+    "        default: false",
+    "      production:",
+    '        description: "Publish to production (Play Store production track + submit iOS build for App Store review)"',
+    "        type: boolean",
+    "        default: false",
+    "      release_notes:",
+    '        description: "Release notes / What\'s New (required for iOS production submission)"',
+    "        type: string",
+    '        default: ""',
+    "",
+    "jobs:",
+    "  ios:",
+    "    if: |",
+    "      github.ref == 'refs/heads/deploy-app' ||",
+    "      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||",
+    "      (github.event_name == 'workflow_dispatch' && inputs.deploy_ios == true)",
+    "    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-ios.yml@main",
+    "    with:",
+    "      marketing-version: ${{ inputs.marketing_version }}",
+    `      bundle-identifier: ${JSON.stringify(bundleId)}`,
+    "      submit-for-review: ${{ inputs.production == true }}",
+    "      release-notes: ${{ inputs.release_notes }}",
+    "    secrets:",
+    "      IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}",
+    "      IOS_BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}",
+    "      IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}",
+    "      IOS_BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_BUILD_PROVISION_PROFILE_BASE64 }}",
+    "      IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}",
+    "      IOS_EXPORT_OPTIONS_PLIST: ${{ secrets.IOS_EXPORT_OPTIONS_PLIST }}",
+    "      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}",
+    "      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}",
+    "      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}",
+    "",
+    "  android:",
+    "    if: |",
+    "      github.ref == 'refs/heads/deploy-app' ||",
+    "      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||",
+    "      (github.event_name == 'workflow_dispatch' && inputs.deploy_android == true) ||",
+    "      (github.event_name == 'workflow_dispatch' && inputs.generate_aab_only == true)",
+    "    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@main",
+    "    with:",
+    `      package-name: ${bundleId}`,
+    "      marketing-version: ${{ inputs.marketing_version }}",
+    "      skip-upload: ${{ inputs.generate_aab_only == true }}",
+    "      play-track: ${{ inputs.production == true && 'production' || 'internal' }}",
+    "      release-notes: ${{ inputs.release_notes }}",
+    "    secrets:",
+    "      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}",
+    "      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}",
+    "      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}",
+    "      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}",
+    "",
+    "  notify:",
+    "    needs: [ios, android]",
+    "    if: |",
+    "      always() && (needs.ios.result != 'skipped' || needs.android.result != 'skipped')",
+    "    uses: Bible-Games-Project/bgp-admin/.github/workflows/notify-telegram.yml@main",
+    "    with:",
+    "      ios-result: ${{ needs.ios.result }}",
+    "      android-result: ${{ needs.android.result }}",
+    `      app-name: ${JSON.stringify(appName)}`,
+    "    secrets:",
+    "      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}",
+    "      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}",
+    "",
+    "  tag:",
+    "    needs: [ios, android]",
+    "    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')",
+    "    permissions:",
+    "      contents: write",
+    "    uses: Bible-Games-Project/bgp-admin/.github/workflows/tag-release.yml@main",
+    "",
+  ].join("\n");
+}
+
 // Not every app wants a Cloudflare Pages preview: a repo that came from Lovable already
 // previews there, and pointing this workflow at a Pages project nobody created means a
 // failed run on every single push. Stored as a setup-step row rather than a column on
@@ -637,8 +668,12 @@ export const checkPreviewDeployWorkflow = createServerFn({ method: "POST" })
     const branch = app.default_ref || "main";
     const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/${PREVIEW_WORKFLOW_PATH}?ref=${encodeURIComponent(branch)}`;
     const res = await fetch(url, { headers: githubHeaders() });
+    // A file committed by an older bgp-admin can break later: the first generator relied
+    // on cloudflare/pages-action, which GitHub no longer serves.
+    const outdated = res.ok && (await readBase64File(res)) !== buildPreviewDeployWorkflowYaml();
     return {
       exists: res.ok,
+      outdated,
       disabled: await isPreviewDisabled(context.supabase, data.appId),
       previewUrl: `https://bgp-${app.github_repo}.pages.dev`,
     };
