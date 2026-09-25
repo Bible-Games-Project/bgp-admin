@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { PREVIEW_WORKFLOW_PATH, commitPreviewWorkflow } from "@/lib/github.functions";
+import { PREVIEW_WORKFLOW_PATH, commitPreviewWorkflow, findRepoProblem } from "@/lib/github.functions";
 import { assertNotSelfRepo } from "@/lib/self-repo";
 
 async function assertAdmin(supabase: any, userId: string) {
@@ -40,6 +40,16 @@ export const checkCapacitorStatus = createServerFn({ method: "POST" })
     await assertAdmin(context.supabase, context.userId);
     const app = await loadApp(context.supabase, data.appId);
     const branch = app.default_ref || "main";
+
+    // A missing repo would otherwise read as "Capacitor not installed yet".
+    const repoProblem = await findRepoProblem({
+      owner: app.github_owner,
+      repo: app.github_repo,
+      branch,
+      fieldsOnGeneralTab: true,
+    });
+    if (repoProblem) throw new Error(repoProblem);
+
     const base = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents`;
 
     const checkPath = async (path: string) => {
@@ -778,6 +788,15 @@ export const setupCapacitor = createServerFn({ method: "POST" })
     }
 
     const branch = app.default_ref || "main";
+
+    const repoProblem = await findRepoProblem({
+      owner: app.github_owner,
+      repo: app.github_repo,
+      branch,
+      fieldsOnGeneralTab: true,
+    });
+    if (repoProblem) throw new Error(repoProblem);
+
     const dispatchedAt = new Date().toISOString();
 
     const workflowUrl = `https://api.github.com/repos/Bible-Games-Project/bgp-admin/actions/workflows/setup-capacitor.yml/dispatches`;

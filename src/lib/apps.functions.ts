@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { commitPreviewWorkflow, githubHeaders } from "@/lib/github.functions";
+import { commitPreviewWorkflow, findRepoProblem, githubHeaders } from "@/lib/github.functions";
 import { commitAgentDocs } from "@/lib/agent-docs.server";
 import { syncAppNameToRepo } from "@/lib/app-name.server";
 import { slugify } from "@/lib/utils";
@@ -85,6 +85,12 @@ export const createApp = createServerFn({ method: "POST" })
   .inputValidator((i) => appInputSchema.parse(i))
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
+    const repoProblem = await findRepoProblem({
+      owner: data.github_owner,
+      repo: data.github_repo,
+      branch: data.default_ref,
+    });
+    if (repoProblem) throw new Error(repoProblem);
     const slug = await uniqueSlug(context.supabase, data.name);
     const { data: row, error } = await context.supabase
       .from("apps")
@@ -410,6 +416,18 @@ export const updateApp = createServerFn({ method: "POST" })
       .maybeSingle();
     if (currentError) throw new Error(currentError.message);
     if (!current) throw new Error("App not found");
+
+    const owner = data.patch.github_owner ?? current.github_owner;
+    const repo = data.patch.github_repo ?? current.github_repo;
+    const branch = data.patch.default_ref ?? current.default_ref ?? "main";
+    const repoChanged =
+      owner !== current.github_owner ||
+      repo !== current.github_repo ||
+      branch !== (current.default_ref ?? "main");
+    if (repoChanged) {
+      const repoProblem = await findRepoProblem({ owner, repo, branch });
+      if (repoProblem) throw new Error(repoProblem);
+    }
 
     const renamed = data.patch.name != null && data.patch.name !== current.name;
     const patch = renamed

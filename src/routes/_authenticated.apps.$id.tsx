@@ -52,7 +52,7 @@ function AppDetailPage() {
       qc.invalidateQueries({ queryKey: ["app", id] });
       qc.invalidateQueries({ queryKey: ["apps"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(e.message, { duration: 15000 }),
   });
 
   const deleteM = useMutation({

@@ -59,12 +59,20 @@ export function AppForm({
     setV((s) => ({ ...s, [k]: val }));
 
   // While creating a repo, its name follows the app name until the user edits it.
+  // A linked repo already has a name of its own (Lovable names it after the
+  // project), so there it is never guessed from the app name.
   const handleNameChange = (val: string) => {
     setV((s) => ({
       ...s,
       name: val,
-      github_repo: !repoTouched && showCreateRepoOption ? slugify(val) : s.github_repo,
+      github_repo: !repoTouched && createRepo ? slugify(val) : s.github_repo,
     }));
+  };
+
+  const handleRepoModeChange = (mode: "link" | "create") => {
+    setRepoMode(mode);
+    setRepoError(null);
+    if (!repoTouched) upd("github_repo", mode === "create" ? slugify(v.name) : "");
   };
 
   const handleRepoChange = (val: string) => {
@@ -106,10 +114,7 @@ export function AppForm({
             variant="outline"
             value={repoMode}
             onValueChange={(val) => {
-              if (val) {
-                setRepoMode(val as "link" | "create");
-                setRepoError(null);
-              }
+              if (val) handleRepoModeChange(val as "link" | "create");
             }}
             className="justify-start"
           >
@@ -122,8 +127,10 @@ export function AppForm({
       <Field
         label="App name"
         hint={
-          showCreateRepoOption
+          createRepo
             ? "The name players see: home screen, store listing and splash. It's the only name — everything else is derived from it."
+            : showCreateRepoOption
+            ? "The name players see: home screen, store listing and splash."
             : "The name players see: home screen, store listing and splash. Saving a new name commits it to the app repo — you then need to publish a new build for players to see it on their device."
         }
       >
@@ -161,7 +168,10 @@ export function AppForm({
             <Field label="GitHub owner">
               <Input value={v.github_owner} onChange={(e) => upd("github_owner", e.target.value)} required />
             </Field>
-            <Field label="Repo name" hint="just the repo name, e.g. eden-choice-chronicles">
+            <Field
+              label="Repo name"
+              hint="Copy it exactly from the repo's page on GitHub. A repo linked from Lovable is named after the Lovable project, so it is often different from the app name."
+            >
               <Input
                 value={v.github_repo}
                 onChange={(e) => handleRepoChange(e.target.value)}

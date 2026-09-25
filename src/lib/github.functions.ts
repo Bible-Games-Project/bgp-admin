@@ -28,6 +28,61 @@ export function githubHeaders() {
   };
 }
 
+/**
+ * Checks that the repo an app points at exists, is public and has the branch the
+ * console works on. Returns what to fix, or null when the repo is usable.
+ *
+ * A repo linked from Lovable is named after the Lovable project, not after the
+ * app, so a name typed from memory is easy to get wrong. Without this check the
+ * mistake only surfaces minutes into a setup workflow, as a bare
+ * "Repository not found" from git clone.
+ */
+export async function findRepoProblem({
+  owner,
+  repo,
+  branch,
+  fieldsOnGeneralTab = false,
+}: {
+  owner: string;
+  repo: string;
+  branch: string;
+  /** Set when the caller is not the app form, so the message says where the fields are. */
+  fieldsOnGeneralTab?: boolean;
+}): Promise<string | null> {
+  const full = `${owner}/${repo}`;
+  const repoField = fieldsOnGeneralTab ? "Repo name on the General tab" : "the Repo name field";
+  const branchField = fieldsOnGeneralTab
+    ? "Default branch (General tab → Advanced)"
+    : "Default branch (under Advanced)";
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+    headers: githubHeaders(),
+  });
+  // GitHub answers 404 both for a repo that does not exist and for a private
+  // one the console's token cannot see.
+  if (res.status === 404) {
+    return `GitHub has no public repo called ${full}. Open the repo on GitHub and copy its exact name into ${repoField} — a repo linked from Lovable is named after the Lovable project, not after the app. If the name is right, the repo is still private: make it public.`;
+  }
+  if (!res.ok) {
+    return `GitHub did not answer for ${full} (${res.status}). Try again in a minute.`;
+  }
+  const info = (await res.json()) as { private: boolean; default_branch: string };
+  if (info.private) {
+    return `${full} is private. Make it public on GitHub: Settings → General → Danger Zone → Change repository visibility.`;
+  }
+  if (branch !== info.default_branch) {
+    const branchRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}`,
+      { headers: githubHeaders() },
+    );
+    // A renamed branch redirects to its new name, which git clone does not follow.
+    const found = branchRes.ok ? ((await branchRes.json()) as { name: string }).name : null;
+    if (branchRes.status === 404 || (found !== null && found !== branch)) {
+      return `${full} has no branch called "${branch}". Its main branch is "${info.default_branch}" — enter that as ${branchField}.`;
+    }
+  }
+  return null;
+}
+
 export function buildPreviewDeployWorkflowYaml(): string {
   return [
     "name: Preview Deploy (Cloudflare Pages)",

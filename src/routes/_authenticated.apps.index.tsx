@@ -35,7 +35,7 @@ function AppsPage() {
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["apps"] });
     },
-    onError: (e: Error) => toast.error(e.message, { duration: 8000 }),
+    onError: (e: Error) => toast.error(e.message, { duration: 15000 }),
   });
 
   const createWithRepoM = useMutation({
