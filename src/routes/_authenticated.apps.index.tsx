@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Boxes, Github, ImageIcon, ExternalLink } from "lucide-react";
+import { Plus, Boxes, Github, ImageIcon, ExternalLink, ListChecks } from "lucide-react";
 import { listApps, createApp, createAppWithRepo } from "@/lib/apps.functions";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,35 +66,42 @@ function AppsPage() {
           <span className="label-mono">registry</span>
           <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">Apps</h1>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2">
-              <Plus className="h-4 w-4" /> New app
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>New app</DialogTitle>
-            </DialogHeader>
-            <AppForm
-              initial={emptyAppForm}
-              submitting={createWithRepoM.isPending || createM.isPending}
-              submitLabel="Create app"
-              showCreateRepoOption
-              onSubmit={(v, meta) =>
-                meta.createRepo
-                  ? createWithRepoM.mutate(v)
-                  : createM.mutate({
-                      ...v,
-                      notes: v.notes || null,
-                      bundle_id: v.bundle_id || null,
-                      revenuecat_app_id: v.revenuecat_app_id || null,
-                    })
-              }
-              onCancel={() => setOpen(false)}
-            />
-          </DialogContent>
-        </Dialog>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline" className="gap-2">
+            <Link to="/apps/setup">
+              <ListChecks className="h-4 w-4" /> Setup overview
+            </Link>
+          </Button>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <Plus className="h-4 w-4" /> New app
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>New app</DialogTitle>
+              </DialogHeader>
+              <AppForm
+                initial={emptyAppForm}
+                submitting={createWithRepoM.isPending || createM.isPending}
+                submitLabel="Create app"
+                showCreateRepoOption
+                onSubmit={(v, meta) =>
+                  meta.createRepo
+                    ? createWithRepoM.mutate(v)
+                    : createM.mutate({
+                        ...v,
+                        notes: v.notes || null,
+                        bundle_id: v.bundle_id || null,
+                        revenuecat_app_id: v.revenuecat_app_id || null,
+                      })
+                }
+                onCancel={() => setOpen(false)}
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {q.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}

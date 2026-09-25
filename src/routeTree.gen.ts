@@ -20,6 +20,7 @@ import { Route as AuthenticatedDocsRouteImport } from './routes/_authenticated.d
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
 import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authenticated.apps.index'
 import { Route as AuthenticatedSettingsSecurityRouteImport } from './routes/_authenticated.settings.security'
+import { Route as AuthenticatedAppsSetupRouteImport } from './routes/_authenticated.apps.setup'
 import { Route as AuthenticatedAppsIdRouteImport } from './routes/_authenticated.apps.$id'
 
 const SetupMfaRoute = SetupMfaRouteImport.update({
@@ -77,6 +78,11 @@ const AuthenticatedSettingsSecurityRoute =
     path: '/settings/security',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedAppsSetupRoute = AuthenticatedAppsSetupRouteImport.update({
+  id: '/apps/setup',
+  path: '/apps/setup',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedAppsIdRoute = AuthenticatedAppsIdRouteImport.update({
   id: '/apps/$id',
   path: '/apps/$id',
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/docs': typeof AuthenticatedDocsRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
+  '/apps/setup': typeof AuthenticatedAppsSetupRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
   '/apps/': typeof AuthenticatedAppsIndexRoute
 }
@@ -106,6 +113,7 @@ export interface FileRoutesByTo {
   '/docs': typeof AuthenticatedDocsRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
+  '/apps/setup': typeof AuthenticatedAppsSetupRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
   '/apps': typeof AuthenticatedAppsIndexRoute
 }
@@ -121,6 +129,7 @@ export interface FileRoutesById {
   '/_authenticated/docs': typeof AuthenticatedDocsRoute
   '/_authenticated/revenue': typeof AuthenticatedRevenueRoute
   '/_authenticated/apps/$id': typeof AuthenticatedAppsIdRoute
+  '/_authenticated/apps/setup': typeof AuthenticatedAppsSetupRoute
   '/_authenticated/settings/security': typeof AuthenticatedSettingsSecurityRoute
   '/_authenticated/apps/': typeof AuthenticatedAppsIndexRoute
 }
@@ -136,6 +145,7 @@ export interface FileRouteTypes {
     | '/docs'
     | '/revenue'
     | '/apps/$id'
+    | '/apps/setup'
     | '/settings/security'
     | '/apps/'
   fileRoutesByTo: FileRoutesByTo
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/docs'
     | '/revenue'
     | '/apps/$id'
+    | '/apps/setup'
     | '/settings/security'
     | '/apps'
   id:
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/_authenticated/docs'
     | '/_authenticated/revenue'
     | '/_authenticated/apps/$id'
+    | '/_authenticated/apps/setup'
     | '/_authenticated/settings/security'
     | '/_authenticated/apps/'
   fileRoutesById: FileRoutesById
@@ -255,6 +267,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsSecurityRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/apps/setup': {
+      id: '/_authenticated/apps/setup'
+      path: '/apps/setup'
+      fullPath: '/apps/setup'
+      preLoaderRoute: typeof AuthenticatedAppsSetupRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/apps/$id': {
       id: '/_authenticated/apps/$id'
       path: '/apps/$id'
@@ -270,6 +289,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedDocsRoute: typeof AuthenticatedDocsRoute
   AuthenticatedRevenueRoute: typeof AuthenticatedRevenueRoute
   AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
+  AuthenticatedAppsSetupRoute: typeof AuthenticatedAppsSetupRoute
   AuthenticatedSettingsSecurityRoute: typeof AuthenticatedSettingsSecurityRoute
   AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute
 }
@@ -279,6 +299,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDocsRoute: AuthenticatedDocsRoute,
   AuthenticatedRevenueRoute: AuthenticatedRevenueRoute,
   AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
+  AuthenticatedAppsSetupRoute: AuthenticatedAppsSetupRoute,
   AuthenticatedSettingsSecurityRoute: AuthenticatedSettingsSecurityRoute,
   AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,
 }

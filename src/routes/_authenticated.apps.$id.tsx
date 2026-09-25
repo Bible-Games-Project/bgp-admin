@@ -13,12 +13,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
+const TABS = ["general", "branding", "environment", "setup", "addons"] as const;
+type Tab = (typeof TABS)[number];
+
 export const Route = createFileRoute("/_authenticated/apps/$id")({
+  // ?tab=setup opens that tab directly, e.g. from a cell of the setup overview.
+  validateSearch: (search: Record<string, unknown>): { tab?: Tab } => ({
+    tab: TABS.includes(search.tab as Tab) ? (search.tab as Tab) : undefined,
+  }),
   component: AppDetailPage,
 });
 
 function AppDetailPage() {
   const { id } = Route.useParams();
+  const { tab } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const getFn = useServerFn(getApp);
@@ -132,7 +140,7 @@ function AppDetailPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="general" className="w-full mb-6">
+      <Tabs defaultValue={tab ?? "general"} className="w-full mb-6">
         {/* justify-start + internal scroll: on narrow screens the strip pans
             within itself instead of overflowing the page */}
         <TabsList className="max-w-full justify-start overflow-x-auto">
