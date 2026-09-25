@@ -147,6 +147,8 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
     // ── 2. Create Cloudflare Pages project ──────────────────────────
     const cfToken = process.env.CLOUDFLARE_API_TOKEN;
     const cfAccount = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+    const tgChat = process.env.TELEGRAM_CHAT_ID;
     if (cfToken && cfAccount) {
       try {
         const cfRes = await fetch(
@@ -302,7 +304,7 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
     }
 
     // ── 6. Set GitHub secrets on the new repo ───────────────────────
-    if (cfToken && cfAccount) {
+    if (cfToken && cfAccount || tgToken && tgChat) {
       try {
         // Get the repo's public key for secret encryption
         const pkRes = await fetch(
@@ -344,9 +346,16 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
           };
 
           const secrets = [
-            { name: "CLOUDFLARE_API_TOKEN", value: cfToken },
-            { name: "CLOUDFLARE_ACCOUNT_ID", value: cfAccount },
+            { name: "CLOUDFLARE_API_TOKEN", value: cfToken as string },
+            { name: "CLOUDFLARE_ACCOUNT_ID", value: cfAccount as string },
           ];
+          if (tgToken && tgChat) {
+            // Publish notifications arrive on Telegram without a manual step
+            secrets.push(
+              { name: "TELEGRAM_BOT_TOKEN", value: tgToken },
+              { name: "TELEGRAM_CHAT_ID", value: tgChat },
+            );
+          }
 
           for (const s of secrets) {
             const encValue = encryptSecret(s.value);
