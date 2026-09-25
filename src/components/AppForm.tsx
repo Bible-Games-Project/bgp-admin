@@ -195,7 +195,10 @@ export function AppForm({
             <Field label="Default branch">
               <Input value={v.default_ref} onChange={(e) => upd("default_ref", e.target.value)} required />
             </Field>
-            <Field label="Bundle ID" hint="Store identifier (e.g. com.acme.app)">
+            <Field
+              label="Bundle ID / Package name"
+              hint="One identifier for both stores: App Store Connect calls it Bundle ID, Google Play Console calls it Package name. Enter the exact same value in both. The stores never let you change it once the app is created there."
+            >
               <Input
                 value={v.bundle_id}
                 onChange={(e) => upd("bundle_id", e.target.value)}

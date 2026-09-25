@@ -694,7 +694,12 @@ export function AppSetupTab({
                     </a>{" "}
                     → Create app
                   </li>
-                  <li>Fill in title, language, type and pricing → Create</li>
+                  <li>
+                    Fill in title, language, type and pricing. When it asks for the{" "}
+                    <strong>Package name</strong>, enter <code>{bundleId ?? "your bundle ID"}</code>{" "}
+                    exactly — it is the same value as the Bundle ID (Apple&apos;s name for it) in
+                    the General tab → Create
+                  </li>
                   <li>
                     Complete enough of the store listing to be able to upload to Internal Testing
                   </li>
