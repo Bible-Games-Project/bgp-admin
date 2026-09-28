@@ -19,6 +19,7 @@ import {
   getCommitsAheadOfLatestTag,
 } from "@/lib/deploy.functions";
 import { cancelOpenReviewSubmission, getAppStoreVersionState } from "@/lib/appstore.functions";
+import { checkAndroidKeystoreSecrets, checkIosSecrets } from "@/lib/capacitor.functions";
 import { listApps } from "@/lib/apps.functions";
 import { DEFAULT_RELEASE_NOTES } from "@/lib/release-notes";
 import { supabase } from "@/integrations/supabase/client";
@@ -104,6 +105,50 @@ function formatTime(iso: string) {
   return d.toLocaleDateString();
 }
 
+// Why a platform starts unticked, or what ticking it anyway will do. Worded as a
+// condition on purpose: for a repo that ships to one store only, setting up the other
+// platform is the wrong fix.
+function MissingPlatformNote({
+  appId,
+  platform,
+  ticked,
+  missing,
+  step,
+  store,
+}: {
+  appId: string;
+  platform: string;
+  ticked: boolean;
+  missing: string;
+  step: string;
+  store: string;
+}) {
+  const setupLink = (
+    <Link
+      to="/apps/$id"
+      params={{ id: appId }}
+      search={{ tab: "setup" }}
+      className="text-foreground underline underline-offset-2"
+    >
+      Setup → {step}
+    </Link>
+  );
+  return ticked ? (
+    <p className="flex items-start gap-1.5 text-foreground">
+      <TriangleAlert className="h-3.5 w-3.5 mt-px shrink-0 text-amber-500" />
+      <span>
+        This app has no {missing} set up, so the {platform} part will fail. Set it up in {setupLink}
+        , or untick {platform}.
+      </span>
+    </p>
+  ) : (
+    <p>
+      {platform} is unticked because this app has no {missing} set up. If it should ship on {store},
+      set that up first in {setupLink}.
+    </p>
+  );
+}
+
 function DeployPanel({
   appId,
   defaultRef,
@@ -132,8 +177,34 @@ function DeployPanel({
   // Once the number has been typed by hand, nothing may overwrite it.
   const [versionTouched, setVersionTouched] = useState(false);
   const marketingVersion = `${major || "0"}.${minor || "0"}`;
-  const [deployIos, setDeployIos] = useState(true);
-  const [deployAndroid, setDeployAndroid] = useState(true);
+  // A repo that ships to one store only fails the other platform's job on every deploy,
+  // and that red run reads as a broken release. The Setup tab already checks each repo
+  // for its signing secrets, so a platform without them starts unticked. A failed check
+  // leaves the box ticked: hiding a platform that works is worse than one red job.
+  const checkIosFn = useServerFn(checkIosSecrets);
+  const checkKeystoreFn = useServerFn(checkAndroidKeystoreSecrets);
+  const iosSecretsQ = useQuery({
+    queryKey: ["ios-secrets", appId],
+    queryFn: () => checkIosFn({ data: { appId } }),
+    staleTime: 60_000,
+  });
+  const keystoreQ = useQuery({
+    queryKey: ["android-keystore-secrets", appId],
+    queryFn: () => checkKeystoreFn({ data: { appId } }),
+    staleTime: 60_000,
+  });
+  const iosMissing = iosSecretsQ.data?.configured === false;
+  const androidMissing = keystoreQ.data?.configured === false;
+  // null until ticked or unticked by hand; until then each box follows the check.
+  const [iosChoice, setIosChoice] = useState<boolean | null>(null);
+  const [androidChoice, setAndroidChoice] = useState<boolean | null>(null);
+  const deployIos = iosChoice ?? !iosMissing;
+  const deployAndroid = androidChoice ?? !androidMissing;
+  // Deploying before the checks answer would send both platforms, which is what they
+  // exist to prevent. A failed check is no longer pending, so this never sticks.
+  const platformsPending =
+    (iosChoice === null && iosSecretsQ.isPending) ||
+    (androidChoice === null && keystoreQ.isPending);
   const [prodDialogOpen, setProdDialogOpen] = useState(false);
   const [releaseNotes, setReleaseNotes] = useState(DEFAULT_RELEASE_NOTES);
   // Never ship blank notes: an emptied box falls back to the generic text.
@@ -308,8 +379,14 @@ function DeployPanel({
   });
 
   const usingDefaultNotes = !releaseNotes.trim();
+  const storesLabel =
+    deployIos && deployAndroid ? "both stores" : deployIos ? "the App Store" : "Google Play";
   const actionsDisabled =
-    deployM.isPending || prodDeployM.isPending || !ref.trim() || (!deployIos && !deployAndroid);
+    deployM.isPending ||
+    prodDeployM.isPending ||
+    platformsPending ||
+    !ref.trim() ||
+    (!deployIos && !deployAndroid);
 
   return (
     <section className="mb-10">
@@ -324,7 +401,7 @@ function DeployPanel({
               <input
                 type="checkbox"
                 checked={deployIos}
-                onChange={(e) => setDeployIos(e.target.checked)}
+                onChange={(e) => setIosChoice(e.target.checked)}
                 className="h-4 w-4 rounded border-gray-300"
               />
               <span className="text-sm font-medium">iOS</span>
@@ -333,7 +410,7 @@ function DeployPanel({
               <input
                 type="checkbox"
                 checked={deployAndroid}
-                onChange={(e) => setDeployAndroid(e.target.checked)}
+                onChange={(e) => setAndroidChoice(e.target.checked)}
                 className="h-4 w-4 rounded border-gray-300"
               />
               <span className="text-sm font-medium">Android</span>
@@ -372,6 +449,31 @@ function DeployPanel({
             <span className="text-xs font-mono text-muted-foreground">no tags yet</span>
           ) : null}
         </div>
+
+        {(iosMissing || androidMissing) && (
+          <div className="space-y-1 text-xs text-muted-foreground">
+            {iosMissing && (
+              <MissingPlatformNote
+                appId={appId}
+                platform="iOS"
+                ticked={deployIos}
+                missing="iOS secrets"
+                step="iOS Secrets"
+                store="the App Store"
+              />
+            )}
+            {androidMissing && (
+              <MissingPlatformNote
+                appId={appId}
+                platform="Android"
+                ticked={deployAndroid}
+                missing="Android keystore"
+                step="Android Keystore"
+                store="Google Play"
+              />
+            )}
+          </div>
+        )}
 
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 h-9 shrink-0">
@@ -478,10 +580,14 @@ function DeployPanel({
           <DialogHeader>
             <DialogTitle>Release to Production</DialogTitle>
             <DialogDescription>
-              This builds {ref} and ships it to the Google Play production track
-              {deployIos
-                ? " and submits the build for Apple review, set to release automatically once approved"
-                : ""}
+              This builds {ref} and{" "}
+              {[
+                deployAndroid && "ships it to the Google Play production track",
+                deployIos &&
+                  "submits the build for Apple review, set to release automatically once approved",
+              ]
+                .filter(Boolean)
+                .join(" and ")}
               . Not trivially reversible.
             </DialogDescription>
           </DialogHeader>
@@ -516,11 +622,14 @@ function DeployPanel({
               <p className="text-xs text-muted-foreground mt-1">
                 {usingDefaultNotes ? (
                   <>
-                    Left empty, so both stores get the default text:{" "}
-                    <span className="text-foreground">{DEFAULT_RELEASE_NOTES}</span>
+                    Left empty, so {storesLabel} {deployIos && deployAndroid ? "get" : "gets"} the
+                    default text: <span className="text-foreground">{DEFAULT_RELEASE_NOTES}</span>
                   </>
                 ) : (
-                  <>Sent to both stores. Play truncates anything past 500 characters.</>
+                  <>
+                    Sent to {storesLabel}.
+                    {deployAndroid && " Play truncates anything past 500 characters."}
+                  </>
                 )}
                 {deployIos && (
                   <>
@@ -899,7 +1008,10 @@ function DashboardPage() {
 
       {selected && (
         <>
+          {/* Keyed by app so ticks, notes and version typed for one app never carry over
+              to the next one picked. */}
           <DeployPanel
+            key={selected.id}
             appId={selected.id}
             defaultRef={selected.default_ref}
             currentVersion={selected.marketing_version}
