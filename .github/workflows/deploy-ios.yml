@@ -591,9 +591,10 @@ jobs:
             return `${unsigned}.${base64url(signature)}`;
           }
 
-          // Language of each version localization by id, filled in once they are fetched,
-          // so an Apple error that points at a localization can name the language.
-          const localeById = {};
+          // What an Apple error path's trailing id refers to (a localization's language, the
+          // App Review contact), filled in as those are fetched, so the log can say where
+          // to look in App Store Connect instead of printing a bare resource path.
+          const whereById = {};
 
           // Apple puts the actual reason for a refusal (e.g. which language is missing a
           // required field) in meta.associatedErrors, deep in the body — a length cut
@@ -610,8 +611,7 @@ jobs:
               lines.push([e.title, e.detail].filter(Boolean).join(' — '));
               const associated = (e.meta && e.meta.associatedErrors) || {};
               for (const [path, errs] of Object.entries(associated)) {
-                const locale = localeById[path.split('/').pop()];
-                const where = locale ? `language ${locale}` : path;
+                const where = whereById[path.split('/').pop()] || path;
                 for (const a of errs || []) {
                   lines.push(`  • ${where}: ${[a.title, a.detail].filter(Boolean).join(' — ')}`);
                 }
@@ -661,6 +661,82 @@ jobs:
               const rel = item.relationships && item.relationships.appStoreVersion;
               return !!(rel && rel.data && rel.data.id === versionId);
             });
+          }
+
+          const REVIEW_CONTACT_FIELDS = ['contactFirstName', 'contactLastName', 'contactPhone', 'contactEmail'];
+          const hasReviewContact = (attrs) => !!attrs && REVIEW_CONTACT_FIELDS.every((k) => (attrs[k] || '').trim());
+
+          // The complete App Review contacts on an app's versions, newest version first.
+          async function reviewContactsOf(appId) {
+            const res = await api(
+              'GET',
+              `/v1/apps/${appId}/appStoreVersions?limit=50&include=appStoreReviewDetail&fields[appStoreReviewDetails]=${REVIEW_CONTACT_FIELDS.join(',')}`,
+            );
+            const attrsById = Object.fromEntries((res.included || []).map((d) => [d.id, d.attributes]));
+            return (res.data || [])
+              .sort((a, b) => Date.parse(b.attributes.createdDate) - Date.parse(a.attributes.createdDate))
+              .map((v) => {
+                const rel = v.relationships && v.relationships.appStoreReviewDetail;
+                return rel && rel.data ? attrsById[rel.data.id] : null;
+              })
+              .filter(hasReviewContact);
+          }
+
+          // Apple refuses to review a version whose App Review contact (first name, last
+          // name, phone and email) is empty, and bgp-admin has no form for it. A new version
+          // inherits it from the previous one, so it goes missing on an app's first version
+          // and stays missing for as long as nobody fills it in by hand. Every app ships
+          // under the same seller, so copy it from the newest version that has one: this
+          // app's first, then any other app in the account. Fields already set are kept.
+          async function ensureReviewContact(appId, versionId) {
+            const current = await api('GET', `/v1/appStoreVersions/${versionId}/appStoreReviewDetail`);
+            const detail = current.data;
+            if (detail) whereById[detail.id] = 'App Review contact';
+            const currentAttrs = (detail && detail.attributes) || {};
+            if (hasReviewContact(currentAttrs)) {
+              console.log('App Review contact is already filled in.');
+              return;
+            }
+
+            let source = (await reviewContactsOf(appId))[0];
+            if (source) {
+              console.log('Copying the App Review contact from an earlier version of this app.');
+            } else {
+              const appsRes = await api('GET', '/v1/apps?limit=200&fields[apps]=name');
+              for (const other of appsRes.data || []) {
+                if (other.id === appId) continue;
+                source = (await reviewContactsOf(other.id))[0];
+                if (source) {
+                  console.log(`Copying the App Review contact from ${other.attributes.name}.`);
+                  break;
+                }
+              }
+            }
+            if (!source) {
+              throw new Error(
+                'The App Review contact (first name, last name, phone and email) is empty, and no app in this App Store Connect account has one to copy. Fill it in once in App Store Connect → this app → the iOS version → App Review Information, press Save, and deploy again.',
+              );
+            }
+
+            const attributes = {};
+            for (const k of REVIEW_CONTACT_FIELDS) {
+              if (!(currentAttrs[k] || '').trim()) attributes[k] = source[k];
+            }
+            if (detail) {
+              await api('PATCH', `/v1/appStoreReviewDetails/${detail.id}`, {
+                data: { type: 'appStoreReviewDetails', id: detail.id, attributes },
+              });
+            } else {
+              const created = await api('POST', '/v1/appStoreReviewDetails', {
+                data: {
+                  type: 'appStoreReviewDetails',
+                  attributes,
+                  relationships: { appStoreVersion: { data: { type: 'appStoreVersions', id: versionId } } },
+                },
+              });
+              whereById[created.data.id] = 'App Review contact';
+            }
+            console.log(`App Review contact filled in (${Object.keys(attributes).join(', ')}).`);
           }
 
           async function main() {
@@ -763,7 +839,7 @@ jobs:
             console.log('Updating release notes...');
             const locRes = await api('GET', `/v1/appStoreVersions/${version.id}/appStoreVersionLocalizations?limit=200`);
             const locs = locRes.data || [];
-            for (const l of locs) localeById[l.id] = l.attributes.locale;
+            for (const l of locs) whereById[l.id] = `language ${l.attributes.locale}`;
             const primary = locs.find((l) => l.attributes.locale === 'en-US') || locs[0];
             if (!primary) {
               console.log('No localization found to attach release notes to — skipping (set one up in App Store Connect first).');
@@ -791,6 +867,9 @@ jobs:
               const kept = locs.filter((l) => !targets.includes(l)).map((l) => l.attributes.locale);
               if (kept.length) console.log(`Kept the What's New already written for: ${kept.join(', ')}.`);
             }
+
+            console.log('Checking the App Review contact...');
+            await ensureReviewContact(appId, version.id);
 
             // Submission uses the reviewSubmissions API (the older
             // appStoreVersionSubmissions endpoint is deprecated): create or reuse an open
