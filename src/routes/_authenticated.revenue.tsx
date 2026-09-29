@@ -1,29 +1,21 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { AlertTriangle, CalendarDays, Euro, Loader2, ShoppingBag, TrendingUp } from "lucide-react";
 import {
-  DollarSign,
-  TrendingUp,
-  TrendingDown,
-  Users,
-  Repeat,
-  Loader2,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
-import {
-  LineChart,
-  Line,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip as RTooltip,
   XAxis,
   YAxis,
-  Tooltip as RTooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  CartesianGrid,
 } from "recharts";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -40,30 +32,32 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { listApps } from "@/lib/apps.functions";
 import { isCurrentUserAdmin } from "@/lib/deploy.functions";
 import {
-  getRecentPurchases,
-  getRevenueByApp,
-  getRevenueByPlatform,
-  getRevenueStats,
-  getRevenueTimeseries,
-  getTopProducts,
-} from "@/lib/revenue.functions";
+  type IncomeRow,
+  type IncomeSource,
+  type Preset,
+  KIND_LABELS,
+  SOURCE_LABELS,
+  addMonths,
+  byApp,
+  byProduct,
+  chartBuckets,
+  monthKey,
+  selectRows,
+  totals,
+} from "@/lib/income";
+import {
+  getAppStoreIncome,
+  getAppStoreMonthByDay,
+  getGooglePlayIncome,
+} from "@/lib/income.functions";
 
 const searchSchema = z.object({
-  preset: z.enum(["7d", "30d", "90d", "all"]).catch("30d"),
-  appId: z.string().uuid().nullable().catch(null),
-  platform: z.enum(["ios", "android"]).nullable().catch(null),
-  page: z.number().int().min(1).catch(1),
+  preset: z.enum(["month", "12m", "year", "all"]).catch("12m"),
+  app: z.string().nullable().catch(null),
+  store: z.enum(["app_store", "google_play"]).nullable().catch(null),
 });
 
 export const Route = createFileRoute("/_authenticated/revenue")({
@@ -71,124 +65,86 @@ export const Route = createFileRoute("/_authenticated/revenue")({
   component: RevenuePage,
 });
 
-const PAGE_SIZE = 10;
+const PRESET_LABELS: Record<Preset, string> = {
+  month: "This month",
+  "12m": "Last 12 months",
+  year: "This year",
+  all: "All time",
+};
 
-const fmtUSD = (n: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
+const SOURCE_COLORS: Record<IncomeSource, string> = {
+  app_store: "var(--primary)",
+  google_play: "var(--success)",
+};
 
-const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
+// The stores' reports change once a day at most.
+const STALE_MS = 30 * 60 * 1000;
+
+const fmtEUR = (n: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "EUR" }).format(n);
+
+const monthLabel = (month: string, withYear = true) =>
+  new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-US", {
+    month: withYear ? "short" : "long",
+    year: withYear ? "2-digit" : undefined,
+    timeZone: "UTC",
   });
 
-const fmtDateTime = (iso: string) =>
-  new Date(iso).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+const ESTIMATE_HINT =
+  "Estimated: Google Play closes a month around the 5th of the next one. Until then this is worked out from its sales.";
 
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    active: "bg-[var(--success)]/15 text-[var(--success)] border-[var(--success)]/30",
-    refunded: "bg-destructive/15 text-destructive border-destructive/30",
-    cancelled: "bg-muted text-muted-foreground border-border",
-    expired: "bg-muted text-muted-foreground border-border",
-  };
+function Amount({ value, estimated }: { value: number; estimated?: boolean }) {
   return (
-    <Badge variant="outline" className={map[status] ?? ""}>
-      {status}
-    </Badge>
-  );
-}
-
-function PlatformBadge({ platform }: { platform: string }) {
-  return (
-    <Badge variant="outline" className="font-mono text-xs">
-      {platform === "ios" ? "iOS" : "Android"}
-    </Badge>
+    <span title={estimated ? ESTIMATE_HINT : undefined}>
+      {estimated && "≈ "}
+      {fmtEUR(value)}
+    </span>
   );
 }
 
 function RevenuePage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const now = useMemo(() => new Date(), []);
+  const currentMonth = monthKey(now);
+  const lastMonth = addMonths(currentMonth, -1);
 
   const adminFn = useServerFn(isCurrentUserAdmin);
   const adminQ = useQuery({ queryKey: ["isAdmin"], queryFn: () => adminFn() });
+  const enabled = !!adminQ.data?.isAdmin;
 
   const listAppsFn = useServerFn(listApps);
-  const appsQ = useQuery({
-    queryKey: ["apps"],
-    queryFn: () => listAppsFn(),
-    enabled: !!adminQ.data?.isAdmin,
+  const appsQ = useQuery({ queryKey: ["apps"], queryFn: () => listAppsFn(), enabled });
+
+  const appStoreFn = useServerFn(getAppStoreIncome);
+  const appStoreDaysFn = useServerFn(getAppStoreMonthByDay);
+  const playFn = useServerFn(getGooglePlayIncome);
+
+  const appStoreQ = useQuery({
+    queryKey: ["income", "app_store"],
+    queryFn: () => appStoreFn(),
+    enabled,
+    staleTime: STALE_MS,
+  });
+  // The current month, and a last month Apple has not published yet, come day by day.
+  const dayMonths = [currentMonth, ...(appStoreQ.data?.pendingMonths ?? [])];
+  const appStoreDaysQs = useQueries({
+    queries: dayMonths.map((month) => ({
+      queryKey: ["income", "app_store_days", month],
+      queryFn: () => appStoreDaysFn({ data: { month } }),
+      enabled,
+      staleTime: STALE_MS,
+    })),
+  });
+  const playQ = useQuery({
+    queryKey: ["income", "google_play"],
+    queryFn: () => playFn(),
+    enabled,
+    staleTime: STALE_MS,
   });
 
-  const filters = useMemo(
-    () => ({
-      preset: search.preset,
-      appId: search.appId,
-      platform: search.platform,
-    }),
-    [search.preset, search.appId, search.platform],
-  );
-
-  const statsFn = useServerFn(getRevenueStats);
-  const tsFn = useServerFn(getRevenueTimeseries);
-  const platFn = useServerFn(getRevenueByPlatform);
-  const appFn = useServerFn(getRevenueByApp);
-  const topFn = useServerFn(getTopProducts);
-  const recentFn = useServerFn(getRecentPurchases);
-
-  const enabled = !!adminQ.data?.isAdmin;
-  const statsQ = useQuery({
-    queryKey: ["rev", "stats", filters],
-    queryFn: () => statsFn({ data: filters }),
-    enabled,
-  });
-  const tsQ = useQuery({
-    queryKey: ["rev", "ts", filters],
-    queryFn: () => tsFn({ data: filters }),
-    enabled,
-  });
-  const platQ = useQuery({
-    queryKey: ["rev", "plat", filters],
-    queryFn: () => platFn({ data: filters }),
-    enabled,
-  });
-  const appQ = useQuery({
-    queryKey: ["rev", "app", filters],
-    queryFn: () => appFn({ data: filters }),
-    enabled,
-  });
-  const topQ = useQuery({
-    queryKey: ["rev", "top", filters],
-    queryFn: () => topFn({ data: { ...filters, limit: 10 } }),
-    enabled,
-  });
-  const recentQ = useQuery({
-    queryKey: ["rev", "recent", filters, search.page],
-    queryFn: () =>
-      recentFn({
-        data: {
-          ...filters,
-          limit: PAGE_SIZE,
-          offset: (search.page - 1) * PAGE_SIZE,
-        },
-      }),
-    enabled,
-  });
-
-  const [openRow, setOpenRow] = useState<any | null>(null);
+  const results = [appStoreQ, ...appStoreDaysQs, playQ];
+  const loading = results.some((q) => q.isLoading);
 
   if (adminQ.isLoading) {
     return (
@@ -208,337 +164,284 @@ function RevenuePage() {
     );
   }
 
-  const apps = appsQ.data?.apps ?? [];
-  const stats = statsQ.data;
-  const totalPages = Math.max(1, Math.ceil((recentQ.data?.total ?? 0) / PAGE_SIZE));
-
   const setSearch = (patch: Partial<z.infer<typeof searchSchema>>) =>
-    (navigate as any)({ search: (prev: any) => ({ ...prev, ...patch, page: 1 }) });
+    (navigate as any)({ search: (prev: any) => ({ ...prev, ...patch }) });
+
+  // Console names win over store names, so an app reads the same here as everywhere else.
+  const names = new Map(
+    (appsQ.data?.apps ?? []).flatMap((a) => (a.bundle_id ? [[a.bundle_id, a.name] as const] : [])),
+  );
+  const rows: IncomeRow[] = results
+    .flatMap((q) => q.data?.rows ?? [])
+    .map((r) => ({ ...r, appName: names.get(r.appKey) ?? r.appName }));
+
+  const problems = [
+    ...[appStoreQ, ...appStoreDaysQs].map((q) => ({
+      source: "app_store" as IncomeSource,
+      message: q.data?.problem ?? q.error?.message,
+    })),
+    { source: "google_play" as IncomeSource, message: playQ.data?.problem ?? playQ.error?.message },
+  ].filter(
+    (p, i, all): p is { source: IncomeSource; message: string } =>
+      !!p.message && all.findIndex((o) => o.message === p.message) === i,
+  );
+
+  const appOptions = [
+    ...new Map(rows.filter((r) => r.appKey).map((r) => [r.appKey, r.appName])),
+  ].sort((a, b) => a[1].localeCompare(b[1]));
+  const filtered = rows.filter(
+    (r) => (!search.store || r.source === search.store) && (!search.app || r.appKey === search.app),
+  );
+  const selected = selectRows(filtered, search.preset, now);
+
+  const period = totals(selected);
+  const thisMonth = totals(filtered.filter((r) => r.period === currentMonth));
+  const previousMonth = totals(filtered.filter((r) => r.period === lastMonth));
+  const chart = chartBuckets(selected, search.preset, now);
+  const apps = byApp(selected);
+  const products = byProduct(selected);
+  const sources: IncomeSource[] = search.store ? [search.store] : ["app_store", "google_play"];
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6">
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <span className="label-mono">analytics</span>
-          <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">
-            Revenue
-          </h1>
+          <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">Revenue</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Everything the App Store and Google Play pay for every game, after their fees, in euros.
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Select
-            value={search.preset}
-            onValueChange={(v) => setSearch({ preset: v as any })}
-          >
-            <SelectTrigger className="w-[140px]">
+          <Select value={search.preset} onValueChange={(v) => setSearch({ preset: v as Preset })}>
+            <SelectTrigger className="w-[150px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="7d">Last 7 days</SelectItem>
-              <SelectItem value="30d">Last 30 days</SelectItem>
-              <SelectItem value="90d">Last 90 days</SelectItem>
-              <SelectItem value="all">All time</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={search.appId ?? "all"}
-            onValueChange={(v) => setSearch({ appId: v === "all" ? null : v })}
-          >
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="All apps" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All apps</SelectItem>
-              {apps.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  {a.name}
+              {(Object.keys(PRESET_LABELS) as Preset[]).map((p) => (
+                <SelectItem key={p} value={p}>
+                  {PRESET_LABELS[p]}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select
-            value={search.platform ?? "all"}
-            onValueChange={(v) =>
-              setSearch({ platform: v === "all" ? null : (v as any) })
-            }
+            value={search.app ?? "all"}
+            onValueChange={(v) => setSearch({ app: v === "all" ? null : v })}
           >
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="All apps" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All apps</SelectItem>
+              {appOptions.map(([key, name]) => (
+                <SelectItem key={key} value={key}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={search.store ?? "all"}
+            onValueChange={(v) => setSearch({ store: v === "all" ? null : (v as IncomeSource) })}
+          >
+            <SelectTrigger className="w-[150px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All platforms</SelectItem>
-              <SelectItem value="ios">iOS</SelectItem>
-              <SelectItem value="android">Android</SelectItem>
+              <SelectItem value="all">All stores</SelectItem>
+              <SelectItem value="app_store">App Store</SelectItem>
+              <SelectItem value="google_play">Google Play</SelectItem>
             </SelectContent>
           </Select>
         </div>
       </div>
 
-      {/* Stat cards */}
+      {problems.map((p) => (
+        <Alert key={p.message}>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>{SOURCE_LABELS[p.source]} income is missing</AlertTitle>
+          <AlertDescription className="text-muted-foreground">{p.message}</AlertDescription>
+        </Alert>
+      ))}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="Total revenue"
-          value={fmtUSD(stats?.totalUsd ?? 0)}
-          icon={<DollarSign className="h-4 w-4" />}
-          loading={statsQ.isLoading}
+          label="Net income"
+          value={<Amount value={period.netEur} estimated={period.estimated} />}
+          hint={PRESET_LABELS[search.preset]}
+          icon={<Euro className="h-4 w-4" />}
+          loading={loading}
         />
         <StatCard
           label="This month"
-          value={fmtUSD(stats?.monthUsd ?? 0)}
-          icon={<DollarSign className="h-4 w-4" />}
-          trend={stats?.monthChangePct ?? null}
-          loading={statsQ.isLoading}
+          value={<Amount value={thisMonth.netEur} estimated={thisMonth.estimated} />}
+          hint={`So far in ${monthLabel(currentMonth, false)}`}
+          icon={<TrendingUp className="h-4 w-4" />}
+          loading={loading}
         />
         <StatCard
-          label="Active subscriptions"
-          value={(stats?.activeSubs ?? 0).toLocaleString()}
-          icon={<Users className="h-4 w-4" />}
-          loading={statsQ.isLoading}
+          label="Last month"
+          value={<Amount value={previousMonth.netEur} estimated={previousMonth.estimated} />}
+          hint={monthLabel(lastMonth, false)}
+          icon={<CalendarDays className="h-4 w-4" />}
+          loading={loading}
         />
         <StatCard
-          label="MRR"
-          value={fmtUSD(stats?.mrrUsd ?? 0)}
-          icon={<Repeat className="h-4 w-4" />}
-          loading={statsQ.isLoading}
+          label="Sales"
+          value={period.units.toLocaleString("en-US")}
+          hint={`${period.refunds} refunded · ${PRESET_LABELS[search.preset].toLowerCase()}`}
+          icon={<ShoppingBag className="h-4 w-4" />}
+          loading={loading}
         />
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">Revenue over time</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[280px]">
-            {tsQ.isLoading ? (
-              <SkeletonChart />
-            ) : (tsQ.data?.points ?? []).length === 0 ? (
-              <EmptyChart />
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={tsQ.data!.points} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis
-                    dataKey="day"
-                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                    stroke="var(--border)"
-                    tickFormatter={(d) =>
-                      new Date(d).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                      })
-                    }
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                    stroke="var(--border)"
-                    tickFormatter={(v) => `$${v}`}
-                  />
-                  <RTooltip
-                    formatter={(v: number) => fmtUSD(v)}
-                    labelFormatter={(d) => fmtDate(d as string)}
-                    contentStyle={{
-                      background: "var(--popover)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      color: "var(--foreground)",
-                      fontSize: 12,
-                    }}
-                    cursor={{ stroke: "var(--border)" }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="revenueUsd"
-                    stroke="var(--primary)"
-                    strokeWidth={2}
-                    dot={{ r: 3, fill: "var(--primary)", strokeWidth: 0 }}
-                    activeDot={{ r: 5, fill: "var(--primary)" }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">By platform</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[280px]">
-            {platQ.isLoading ? (
-              <SkeletonChart />
-            ) : (platQ.data?.rows ?? []).length === 0 ? (
-              <EmptyChart />
-            ) : (
-              <PlatformBreakdown rows={platQ.data!.rows} />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">By app</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[280px]">
-            {appQ.isLoading ? (
-              <SkeletonChart />
-            ) : (appQ.data?.rows ?? []).length === 0 ? (
-              <EmptyChart />
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={appQ.data!.rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis
-                    dataKey="appName"
-                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                    stroke="var(--border)"
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                    stroke="var(--border)"
-                    tickFormatter={(v) => `$${v}`}
-                  />
-                  <RTooltip
-                    formatter={(v: number) => fmtUSD(v)}
-                    contentStyle={{
-                      background: "var(--popover)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      color: "var(--foreground)",
-                      fontSize: 12,
-                    }}
-                    cursor={{ fill: "var(--muted)", opacity: 0.4 }}
-                  />
-                  <Bar dataKey="revenueUsd" fill="var(--primary)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">Top products</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="text-right">Count</TableHead>
-                  <TableHead className="text-right">Revenue</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {topQ.isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-center text-xs text-muted-foreground py-6">
-                      Loading…
-                    </TableCell>
-                  </TableRow>
-                ) : (topQ.data?.rows ?? []).length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-center text-xs text-muted-foreground py-6">
-                      No data
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  topQ.data!.rows.map((r: any) => (
-                    <TableRow key={r.productId}>
-                      <TableCell className="font-mono text-xs truncate max-w-[140px]">
-                        {r.productId}
-                      </TableCell>
-                      <TableCell className="text-right text-xs">{r.count}</TableCell>
-                      <TableCell className="text-right text-xs font-medium">
-                        {fmtUSD(r.revenueUsd)}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Recent transactions */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-medium">Recent transactions</CardTitle>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              Page {search.page} / {totalPages}
-            </span>
-            <Button
-              size="icon"
-              variant="outline"
-              disabled={search.page <= 1}
-              onClick={() =>
-                (navigate as any)({ search: (p: any) => ({ ...p, page: Math.max(1, p.page - 1) }) })
-              }
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              disabled={search.page >= totalPages}
-              onClick={() =>
-                (navigate as any)({
-                  search: (p: any) => ({ ...p, page: Math.min(totalPages, p.page + 1) }),
-                })
-              }
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">
+            Income per {search.preset === "all" ? "year" : "month"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="h-[280px]">
+          {loading ? (
+            <CenteredNote>
+              <Loader2 className="h-4 w-4 animate-spin" />
+            </CenteredNote>
+          ) : selected.length === 0 ? (
+            <CenteredNote>No sales in this period.</CenteredNote>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chart} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis
+                  dataKey="bucket"
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  stroke="var(--border)"
+                  tickFormatter={(b: string) => (b.length === 4 ? b : monthLabel(b))}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  stroke="var(--border)"
+                  tickFormatter={(v) => `€${v}`}
+                />
+                <RTooltip
+                  formatter={(v: number, name: string) => [fmtEUR(v), name]}
+                  labelFormatter={(b: string) =>
+                    b.length === 4 ? b : monthLabel(b, false) + " " + b.slice(0, 4)
+                  }
+                  contentStyle={{
+                    background: "var(--popover)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    color: "var(--foreground)",
+                    fontSize: 12,
+                  }}
+                  cursor={{ fill: "var(--muted)", opacity: 0.4 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {sources.map((s, i) => (
+                  <Bar
+                    key={s}
+                    dataKey={s}
+                    name={SOURCE_LABELS[s]}
+                    stackId="income"
+                    fill={SOURCE_COLORS[s]}
+                    radius={i === sources.length - 1 ? [4, 4, 0, 0] : undefined}
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">By app</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
                 <TableHead>App</TableHead>
-                <TableHead>Platform</TableHead>
-                <TableHead>Product</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Revenue</TableHead>
+                <TableHead className="text-right">App Store</TableHead>
+                <TableHead className="text-right">Google Play</TableHead>
+                <TableHead className="text-right">Total</TableHead>
+                <TableHead className="text-right">Sales</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {recentQ.isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-xs text-muted-foreground py-8">
-                    Loading…
-                  </TableCell>
-                </TableRow>
-              ) : (recentQ.data?.rows ?? []).length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-xs text-muted-foreground py-8">
-                    No transactions yet.
-                  </TableCell>
-                </TableRow>
+              {apps.length === 0 ? (
+                <EmptyRow cols={5} loading={loading} />
               ) : (
-                recentQ.data!.rows.map((r: any) => (
-                  <TableRow
-                    key={r.id}
-                    className="cursor-pointer"
-                    onClick={() => setOpenRow(r)}
-                  >
-                    <TableCell className="text-xs font-mono whitespace-nowrap">
-                      {fmtDateTime(r.purchaseDate)}
-                    </TableCell>
-                    <TableCell className="text-xs">{r.appName ?? "—"}</TableCell>
+                apps.map((a) => (
+                  <TableRow key={a.appKey || "account"}>
                     <TableCell>
-                      <PlatformBadge platform={r.platform} />
+                      <div className="text-sm font-medium">{a.appName}</div>
+                      {a.appKey && (
+                        <div className="font-mono text-[11px] text-muted-foreground">
+                          {a.appKey}
+                        </div>
+                      )}
                     </TableCell>
-                    <TableCell className="font-mono text-xs truncate max-w-[200px]">
-                      {r.productId}
+                    <TableCell className="text-right text-sm">
+                      {a.app_store ? fmtEUR(a.app_store) : "—"}
                     </TableCell>
-                    <TableCell>
-                      <StatusBadge status={r.status} />
+                    <TableCell className="text-right text-sm">
+                      {a.google_play ? (
+                        <Amount value={a.google_play} estimated={a.estimated} />
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                     <TableCell className="text-right text-sm font-medium">
-                      {fmtUSD(r.revenueUsd)}
+                      <Amount value={a.netEur} estimated={a.estimated} />
+                    </TableCell>
+                    <TableCell className="text-right text-sm">{a.units || "—"}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">By product</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Product</TableHead>
+                <TableHead>App</TableHead>
+                <TableHead>Store</TableHead>
+                <TableHead className="text-right">Sales</TableHead>
+                <TableHead className="text-right">Refunds</TableHead>
+                <TableHead className="text-right">Net</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {products.length === 0 ? (
+                <EmptyRow cols={6} loading={loading} />
+              ) : (
+                products.map((p) => (
+                  <TableRow key={p.key}>
+                    <TableCell>
+                      <div className="text-sm">{p.productName}</div>
+                      <div className="text-[11px] text-muted-foreground">{KIND_LABELS[p.kind]}</div>
+                    </TableCell>
+                    <TableCell className="text-sm">{p.appName}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs whitespace-nowrap">
+                        {SOURCE_LABELS[p.source]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right text-sm">{p.units || "—"}</TableCell>
+                    <TableCell className="text-right text-sm">{p.refunds || "—"}</TableCell>
+                    <TableCell className="text-right text-sm font-medium">
+                      <Amount value={p.netEur} estimated={p.estimated} />
                     </TableCell>
                   </TableRow>
                 ))
@@ -548,47 +451,13 @@ function RevenuePage() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!openRow} onOpenChange={(o) => !o && setOpenRow(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Transaction details</DialogTitle>
-          </DialogHeader>
-          {openRow && (
-            <div className="space-y-3 text-xs">
-              <Field label="Transaction ID" value={openRow.transactionId} mono />
-              <Field label="User ID" value={openRow.userId ?? "—"} mono />
-              {openRow.localAmount != null && (
-                <Field
-                  label="Local amount"
-                  value={`${openRow.localAmount} ${openRow.localCurrency ?? ""}`}
-                />
-              )}
-              {openRow.subscriptionExpiresAt && (
-                <Field
-                  label="Subscription expires"
-                  value={fmtDateTime(openRow.subscriptionExpiresAt)}
-                />
-              )}
-              <Field label="Environment" value={openRow.environment} />
-              <div>
-                <div className="text-muted-foreground mb-1">Raw payload</div>
-                <pre className="bg-muted rounded p-3 overflow-auto max-h-[300px] font-mono text-[11px]">
-                  {JSON.stringify(openRow.rawPayload, null, 2)}
-                </pre>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={mono ? "font-mono" : ""}>{value}</span>
+      <p className="text-xs text-muted-foreground max-w-3xl">
+        Amounts are what the stores pay: the price minus their fee and the taxes they collect. App
+        Store sales are converted to euros at the European Central Bank's rate for each month. ≈
+        marks Google Play months not closed yet (Google closes a month around the 5th of the next
+        one); until then they're worked out from its sales minus its 15% fee. Today's sales show up
+        tomorrow.
+      </p>
     </div>
   );
 }
@@ -596,14 +465,14 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
 function StatCard({
   label,
   value,
+  hint,
   icon,
-  trend,
   loading,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
+  hint: string;
   icon: React.ReactNode;
-  trend?: number | null;
   loading?: boolean;
 }) {
   return (
@@ -616,83 +485,26 @@ function StatCard({
         <div className="text-2xl font-semibold tracking-tight">
           {loading ? <span className="text-muted-foreground">…</span> : value}
         </div>
-        {trend != null && (
-          <div
-            className={`flex items-center gap-1 text-xs mt-1 ${
-              trend >= 0 ? "text-[oklch(0.55_0.16_145)]" : "text-destructive"
-            }`}
-          >
-            {trend >= 0 ? (
-              <TrendingUp className="h-3 w-3" />
-            ) : (
-              <TrendingDown className="h-3 w-3" />
-            )}
-            {Math.abs(trend).toFixed(1)}% vs last month
-          </div>
-        )}
+        <div className="text-xs text-muted-foreground mt-1">{hint}</div>
       </CardContent>
     </Card>
   );
 }
 
-function SkeletonChart() {
+function CenteredNote({ children }: { children: React.ReactNode }) {
   return (
     <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">
-      <Loader2 className="h-4 w-4 animate-spin" />
+      {children}
     </div>
   );
 }
 
-function EmptyChart() {
+function EmptyRow({ cols, loading }: { cols: number; loading: boolean }) {
   return (
-    <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">
-      No data
-    </div>
-  );
-}
-
-function PlatformBreakdown({ rows }: { rows: Array<{ platform: string; revenueUsd: number; count?: number }> }) {
-  const total = rows.reduce((s, r) => s + (r.revenueUsd || 0), 0) || 1;
-  const colors: Record<string, string> = {
-    ios: "var(--primary)",
-    android: "var(--success)",
-  };
-  return (
-    <div className="h-full w-full flex flex-col justify-center gap-4 px-2">
-      {rows.map((r) => {
-        const pct = (r.revenueUsd / total) * 100;
-        const color = colors[r.platform] ?? "var(--accent)";
-        return (
-          <div key={r.platform} className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <span
-                  className="inline-block h-2.5 w-2.5 rounded-sm"
-                  style={{ background: color }}
-                />
-                <span className="font-medium">
-                  {r.platform === "ios" ? "iOS" : "Android"}
-                </span>
-                {r.count != null && (
-                  <span className="text-muted-foreground">· {r.count}</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 font-mono">
-                <span>{fmtUSD(r.revenueUsd)}</span>
-                <span className="text-muted-foreground w-12 text-right">
-                  {pct.toFixed(1)}%
-                </span>
-              </div>
-            </div>
-            <div className="h-2 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${pct}%`, background: color }}
-              />
-            </div>
-          </div>
-        );
-      })}
-    </div>
+    <TableRow>
+      <TableCell colSpan={cols} className="text-center text-xs text-muted-foreground py-6">
+        {loading ? "Loading…" : "No sales in this period."}
+      </TableCell>
+    </TableRow>
   );
 }

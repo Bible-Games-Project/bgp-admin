@@ -47,12 +47,21 @@ jobs:
           # (src/lib/appstore.functions.ts) and to read and edit each app's store listing
           # from the Store tab (src/lib/store-listing.functions.ts). Builds are still only
           # uploaded by deploy-ios.yml and deploy-android.yml.
+          # The Revenue page reads the stores' sales reports (src/lib/income.server.ts):
+          # APP_STORE_CONNECT_FINANCE_KEY_* is a second App Store Connect key with the
+          # Finance role (the deploy key above can't read sales), APP_STORE_VENDOR_NUMBER
+          # names the seller account, and GOOGLE_PLAY_REPORTS_BUCKET is the Cloud Storage
+          # bucket Play Console keeps the financial reports in. These four are repo secrets.
           secrets: |
             GITHUB_PAT
             APP_STORE_CONNECT_API_KEY_ID
             APP_STORE_CONNECT_ISSUER_ID
             APP_STORE_CONNECT_API_KEY_BASE64
             GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
+            APP_STORE_CONNECT_FINANCE_KEY_ID
+            APP_STORE_CONNECT_FINANCE_KEY_BASE64
+            APP_STORE_VENDOR_NUMBER
+            GOOGLE_PLAY_REPORTS_BUCKET
             TELEGRAM_BOT_TOKEN
             TELEGRAM_CHAT_ID
         env:
@@ -63,3 +72,7 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          APP_STORE_CONNECT_FINANCE_KEY_ID: ${{ secrets.APP_STORE_CONNECT_FINANCE_KEY_ID }}
+          APP_STORE_CONNECT_FINANCE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_FINANCE_KEY_BASE64 }}
+          APP_STORE_VENDOR_NUMBER: ${{ secrets.APP_STORE_VENDOR_NUMBER }}
+          GOOGLE_PLAY_REPORTS_BUCKET: ${{ secrets.GOOGLE_PLAY_REPORTS_BUCKET }}

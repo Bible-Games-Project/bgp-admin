@@ -1,10 +1,10 @@
 import { decodeBase64Text, pemToPkcs8, signJwt } from "./jwt.server";
 
-type ServiceAccount = { client_email: string; private_key: string };
+export type ServiceAccount = { client_email: string; private_key: string };
 
 // The org secret holds the key file base64-encoded (deploy-android.yml pipes it through
 // `base64 -d`); plain JSON is accepted too so a hand-set Worker secret also works.
-function readServiceAccount(): ServiceAccount | null {
+export function readServiceAccount(): ServiceAccount | null {
   const raw = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
   if (!raw) return null;
   const text = raw.trim().startsWith("{") ? raw : decodeBase64Text(raw);
@@ -13,7 +13,11 @@ function readServiceAccount(): ServiceAccount | null {
   return parsed;
 }
 
-async function fetchAccessToken(account: ServiceAccount): Promise<string> {
+/** `scope` defaults to the Play Developer API; the Revenue page reads Cloud Storage. */
+export async function fetchAccessToken(
+  account: ServiceAccount,
+  scope = "https://www.googleapis.com/auth/androidpublisher",
+): Promise<string> {
   const key = await crypto.subtle.importKey(
     "pkcs8",
     pemToPkcs8(account.private_key),
@@ -26,7 +30,7 @@ async function fetchAccessToken(account: ServiceAccount): Promise<string> {
     { alg: "RS256", typ: "JWT" },
     {
       iss: account.client_email,
-      scope: "https://www.googleapis.com/auth/androidpublisher",
+      scope,
       aud: "https://oauth2.googleapis.com/token",
       iat: now,
       exp: now + 3600,

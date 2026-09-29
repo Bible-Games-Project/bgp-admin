@@ -40,7 +40,7 @@ export function versionStateOf(v: any): string {
 
 // ES256 via WebCrypto: ECDSA P-256 signatures already come out in the IEEE P1363 form
 // the JWT wants.
-async function mintToken(keyId: string, issuerId: string, privateKeyPem: string) {
+export async function mintToken(keyId: string, issuerId: string, privateKeyPem: string) {
   const key = await crypto.subtle.importKey(
     "pkcs8",
     pemToPkcs8(privateKeyPem),
