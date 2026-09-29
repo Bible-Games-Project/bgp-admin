@@ -105,46 +105,59 @@ function formatTime(iso: string) {
   return d.toLocaleDateString();
 }
 
-// Why a platform starts unticked, or what ticking it anyway will do. Worded as a
-// condition on purpose: for a repo that ships to one store only, setting up the other
-// platform is the wrong fix.
-function MissingPlatformNote({
+// Why a platform box is off. Worded as a condition on purpose: for a repo that ships to
+// one store only, setting up the other platform is the wrong fix.
+function PlatformOffNote({
   appId,
   platform,
-  ticked,
   missing,
   step,
   store,
+  checkError,
+  checking,
+  onCheckAgain,
 }: {
   appId: string;
   platform: string;
-  ticked: boolean;
   missing: string;
   step: string;
   store: string;
+  checkError: string | null;
+  checking: boolean;
+  onCheckAgain: () => void;
 }) {
-  const setupLink = (
-    <Link
-      to="/apps/$id"
-      params={{ id: appId }}
-      search={{ tab: "setup" }}
-      className="text-foreground underline underline-offset-2"
-    >
-      Setup → {step}
-    </Link>
-  );
-  return ticked ? (
-    <p className="flex items-start gap-1.5 text-foreground">
-      <TriangleAlert className="h-3.5 w-3.5 mt-px shrink-0 text-amber-500" />
-      <span>
-        This app has no {missing} set up, so the {platform} part will fail. Set it up in {setupLink}
-        , or untick {platform}.
-      </span>
-    </p>
-  ) : (
+  if (checkError !== null) {
+    return (
+      <p className="flex items-start gap-1.5 text-foreground">
+        <TriangleAlert className="h-3.5 w-3.5 mt-px shrink-0 text-amber-500" />
+        <span>
+          {platform} is off because the console could not check whether this app is set up for{" "}
+          {store} ({checkError}).{" "}
+          <button
+            type="button"
+            onClick={onCheckAgain}
+            disabled={checking}
+            className="underline underline-offset-2 disabled:no-underline"
+          >
+            {checking ? "Checking…" : "Check again"}
+          </button>
+        </span>
+      </p>
+    );
+  }
+  return (
     <p>
-      {platform} is unticked because this app has no {missing} set up. If it should ship on {store},
-      set that up first in {setupLink}.
+      {platform} is off because this app has no {missing} set up. If it should ship on {store}, set
+      that up first in{" "}
+      <Link
+        to="/apps/$id"
+        params={{ id: appId }}
+        search={{ tab: "setup" }}
+        className="text-foreground underline underline-offset-2"
+      >
+        Setup → {step}
+      </Link>
+      .
     </p>
   );
 }
@@ -179,8 +192,10 @@ function DeployPanel({
   const marketingVersion = `${major || "0"}.${minor || "0"}`;
   // A repo that ships to one store only fails the other platform's job on every deploy,
   // and that red run reads as a broken release. The Setup tab already checks each repo
-  // for its signing secrets, so a platform without them starts unticked. A failed check
-  // leaves the box ticked: hiding a platform that works is worse than one red job.
+  // for its signing secrets, and a platform can only be ticked once that check confirms
+  // them: without them its job can only fail. A check that errors keeps the box off too,
+  // with a way to run it again, because a silently ticked box is how a one-store repo
+  // ended up shipping both.
   const checkIosFn = useServerFn(checkIosSecrets);
   const checkKeystoreFn = useServerFn(checkAndroidKeystoreSecrets);
   const iosSecretsQ = useQuery({
@@ -193,18 +208,16 @@ function DeployPanel({
     queryFn: () => checkKeystoreFn({ data: { appId } }),
     staleTime: 60_000,
   });
-  const iosMissing = iosSecretsQ.data?.configured === false;
-  const androidMissing = keystoreQ.data?.configured === false;
-  // null until ticked or unticked by hand; until then each box follows the check.
+  const iosReady = iosSecretsQ.data?.configured === true;
+  const androidReady = keystoreQ.data?.configured === true;
+  // null until ticked or unticked by hand; until then a ready platform starts ticked.
   const [iosChoice, setIosChoice] = useState<boolean | null>(null);
   const [androidChoice, setAndroidChoice] = useState<boolean | null>(null);
-  const deployIos = iosChoice ?? !iosMissing;
-  const deployAndroid = androidChoice ?? !androidMissing;
-  // Deploying before the checks answer would send both platforms, which is what they
-  // exist to prevent. A failed check is no longer pending, so this never sticks.
-  const platformsPending =
-    (iosChoice === null && iosSecretsQ.isPending) ||
-    (androidChoice === null && keystoreQ.isPending);
+  const deployIos = iosReady && (iosChoice ?? true);
+  const deployAndroid = androidReady && (androidChoice ?? true);
+  // Deploying while one check is still out could leave off a platform that is about to
+  // turn out ready. A failed check is no longer pending, so this never sticks.
+  const platformsPending = iosSecretsQ.isPending || keystoreQ.isPending;
   const [prodDialogOpen, setProdDialogOpen] = useState(false);
   const [releaseNotes, setReleaseNotes] = useState(DEFAULT_RELEASE_NOTES);
   // Never ship blank notes: an emptied box falls back to the generic text.
@@ -397,19 +410,25 @@ function DeployPanel({
       <div className="rounded-md border border-border bg-card p-5 space-y-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label
+              className={`flex items-center gap-2 ${iosReady ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}
+            >
               <input
                 type="checkbox"
                 checked={deployIos}
+                disabled={!iosReady}
                 onChange={(e) => setIosChoice(e.target.checked)}
                 className="h-4 w-4 rounded border-gray-300"
               />
               <span className="text-sm font-medium">iOS</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label
+              className={`flex items-center gap-2 ${androidReady ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}
+            >
               <input
                 type="checkbox"
                 checked={deployAndroid}
+                disabled={!androidReady}
                 onChange={(e) => setAndroidChoice(e.target.checked)}
                 className="h-4 w-4 rounded border-gray-300"
               />
@@ -450,29 +469,40 @@ function DeployPanel({
           ) : null}
         </div>
 
-        {(iosMissing || androidMissing) && (
-          <div className="space-y-1 text-xs text-muted-foreground">
-            {iosMissing && (
-              <MissingPlatformNote
-                appId={appId}
-                platform="iOS"
-                ticked={deployIos}
-                missing="iOS secrets"
-                step="iOS Secrets"
-                store="the App Store"
-              />
-            )}
-            {androidMissing && (
-              <MissingPlatformNote
-                appId={appId}
-                platform="Android"
-                ticked={deployAndroid}
-                missing="Android keystore"
-                step="Android Keystore"
-                store="Google Play"
-              />
-            )}
-          </div>
+        {platformsPending ? (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Checking which stores this app is set up for…
+          </p>
+        ) : (
+          (!iosReady || !androidReady) && (
+            <div className="space-y-1 text-xs text-muted-foreground">
+              {!iosReady && (
+                <PlatformOffNote
+                  appId={appId}
+                  platform="iOS"
+                  missing="iOS secrets"
+                  step="iOS Secrets"
+                  store="the App Store"
+                  checkError={iosSecretsQ.isError ? iosSecretsQ.error.message : null}
+                  checking={iosSecretsQ.isFetching}
+                  onCheckAgain={() => iosSecretsQ.refetch()}
+                />
+              )}
+              {!androidReady && (
+                <PlatformOffNote
+                  appId={appId}
+                  platform="Android"
+                  missing="Android keystore"
+                  step="Android Keystore"
+                  store="Google Play"
+                  checkError={keystoreQ.isError ? keystoreQ.error.message : null}
+                  checking={keystoreQ.isFetching}
+                  onCheckAgain={() => keystoreQ.refetch()}
+                />
+              )}
+            </div>
+          )
         )}
 
         <div className="flex items-center gap-2 flex-wrap">
