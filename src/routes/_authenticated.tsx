@@ -9,11 +9,16 @@ import { PullToRefresh } from "@/components/PullToRefresh";
 import { checkAccessGate } from "@/lib/auth-gate";
 
 export const Route = createFileRoute("/_authenticated")({
-  beforeLoad: async () => {
+  // The session lives in the browser (localStorage), where the server can't see it,
+  // so the gate must not run while the server renders the page: there it sent every
+  // reload (F5) to /login, which then went on to the dashboard.
+  ssr: false,
+  beforeLoad: async ({ location }) => {
     const result = await checkAccessGate();
-    if ("redirect" in result) {
-      throw redirect({ to: result.redirect });
-    }
+    if (!("redirect" in result)) return;
+    if (result.redirect === "/forbidden") throw redirect({ to: "/forbidden" });
+    // Signing in brings the user back to the page they asked for.
+    throw redirect({ to: result.redirect, search: { next: location.href } });
   },
   component: AuthenticatedLayout,
 });

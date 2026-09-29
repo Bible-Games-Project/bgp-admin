@@ -71,3 +71,21 @@ async function runGate(): Promise<GateResult> {
 
   return { ok: true };
 }
+
+/** `?next=` on the sign-in pages: the page to go back to once signed in. */
+export function nextSearch(search: Record<string, unknown>): { next?: string } {
+  return typeof search.next === "string" ? { next: search.next } : {};
+}
+
+/**
+ * Where to go once signed in: the page that sent the user to sign in, if it is
+ * one of the console's own pages, else the dashboard. Anything else (another
+ * site, the sign-in pages themselves) is ignored.
+ */
+export function afterSignIn(next: string | undefined): string {
+  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) {
+    return "/dashboard";
+  }
+  if (/^\/(login|setup-mfa|mfa-challenge|forbidden)(?=[/?#]|$)/.test(next)) return "/dashboard";
+  return next;
+}

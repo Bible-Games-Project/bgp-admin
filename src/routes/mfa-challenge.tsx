@@ -2,18 +2,21 @@ import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ShieldCheck, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { afterSignIn, nextSearch } from "@/lib/auth-gate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/mfa-challenge")({
+  validateSearch: nextSearch,
   head: () => ({ meta: [{ title: "Verify — bgp console" }] }),
   component: MfaChallengePage,
 });
 
 function MfaChallengePage() {
   const navigate = useNavigate();
+  const { next } = Route.useSearch();
   const [code, setCode] = useState("");
   const [factorId, setFactorId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -22,22 +25,22 @@ function MfaChallengePage() {
     (async () => {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) {
-        navigate({ to: "/login", replace: true });
+        navigate({ to: "/login", search: { next }, replace: true });
         return;
       }
       const { data: factors } = await supabase.auth.mfa.listFactors();
       const totp = (factors?.totp ?? []).find((f) => f.status === "verified");
       if (!totp) {
-        navigate({ to: "/setup-mfa", replace: true });
+        navigate({ to: "/setup-mfa", search: { next }, replace: true });
         return;
       }
       setFactorId(totp.id);
       const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       if (aal?.currentLevel === "aal2") {
-        navigate({ to: "/dashboard", replace: true });
+        navigate({ href: afterSignIn(next), replace: true });
       }
     })();
-  }, [navigate]);
+  }, [navigate, next]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +52,7 @@ function MfaChallengePage() {
         code: code.trim(),
       });
       if (error) throw error;
-      navigate({ to: "/dashboard", replace: true });
+      navigate({ href: afterSignIn(next), replace: true });
     } catch (err: any) {
       toast.error(err.message ?? "Invalid code");
       setCode("");

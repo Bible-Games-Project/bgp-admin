@@ -6,15 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { checkAccessGate } from "@/lib/auth-gate";
+import { afterSignIn, checkAccessGate, nextSearch } from "@/lib/auth-gate";
 
 export const Route = createFileRoute("/login")({
+  validateSearch: nextSearch,
   head: () => ({ meta: [{ title: "Sign in — bgp console" }] }),
   component: LoginPage,
 });
 
 function LoginPage() {
   const navigate = useNavigate();
+  const { next } = Route.useSearch();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -24,15 +26,15 @@ function LoginPage() {
       const { data } = await supabase.auth.getUser();
       if (!data.user) return;
       const result = await checkAccessGate();
-      if ("redirect" in result) {
-        if (result.redirect !== "/login") {
-          navigate({ to: result.redirect, replace: true });
-        }
-      } else {
-        navigate({ to: "/dashboard", replace: true });
+      if (!("redirect" in result)) {
+        navigate({ href: afterSignIn(next), replace: true });
+      } else if (result.redirect === "/forbidden") {
+        navigate({ to: "/forbidden", replace: true });
+      } else if (result.redirect !== "/login") {
+        navigate({ to: result.redirect, search: { next }, replace: true });
       }
     })();
-  }, [navigate]);
+  }, [navigate, next]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,15 +43,15 @@ function LoginPage() {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       const result = await checkAccessGate();
-      if ("redirect" in result) {
-        if (result.redirect === "/forbidden") {
-          toast.error("Account not authorized");
-          setLoading(false);
-        }
-        navigate({ to: result.redirect, replace: true });
-        // keep loading=true so the overlay stays until the next route mounts
+      if (!("redirect" in result)) {
+        navigate({ href: afterSignIn(next), replace: true });
+      } else if (result.redirect === "/forbidden") {
+        toast.error("Account not authorized");
+        setLoading(false);
+        navigate({ to: "/forbidden", replace: true });
       } else {
-        navigate({ to: "/dashboard", replace: true });
+        navigate({ to: result.redirect, search: { next }, replace: true });
+        // keep loading=true so the overlay stays until the next route mounts
       }
     } catch (err: any) {
       toast.error(err.message ?? "Authentication failed");

@@ -2,18 +2,21 @@ import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ShieldPlus, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { afterSignIn, nextSearch } from "@/lib/auth-gate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/setup-mfa")({
+  validateSearch: nextSearch,
   head: () => ({ meta: [{ title: "Set up 2FA — bgp console" }] }),
   component: SetupMfaPage,
 });
 
 function SetupMfaPage() {
   const navigate = useNavigate();
+  const { next } = Route.useSearch();
   const [factorId, setFactorId] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
@@ -25,13 +28,13 @@ function SetupMfaPage() {
     (async () => {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) {
-        navigate({ to: "/login", replace: true });
+        navigate({ to: "/login", search: { next }, replace: true });
         return;
       }
       // If a verified factor already exists, skip enrolment.
       const { data: factors } = await supabase.auth.mfa.listFactors();
       if ((factors?.totp ?? []).some((f) => f.status === "verified")) {
-        navigate({ to: "/mfa-challenge", replace: true });
+        navigate({ to: "/mfa-challenge", search: { next }, replace: true });
         return;
       }
       // Clean up any stale unverified factors before enrolling a fresh one.
@@ -67,7 +70,7 @@ function SetupMfaPage() {
       });
       if (error) throw error;
       toast.success("2FA enabled");
-      navigate({ to: "/dashboard", replace: true });
+      navigate({ href: afterSignIn(next), replace: true });
     } catch (err: any) {
       toast.error(err.message ?? "Invalid code");
       setCode("");
