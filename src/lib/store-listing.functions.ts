@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { appStoreIds, hasRepo } from "@/lib/app-kind";
 import {
   EDITABLE_STATES,
   IN_FLIGHT_STATES,
@@ -69,6 +70,22 @@ async function loadBundleId(supabase: any, appId: string): Promise<string> {
 }
 
 const NO_BUNDLE_ID = "This app has no bundle ID yet. Set it in the General tab first.";
+
+/** A web app ships to Google Play under its bundle ID; a published one has its own package name. */
+async function loadPlayPackage(supabase: any, appId: string): Promise<string> {
+  const { data, error } = await supabase.from("apps").select("*").eq("id", appId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("App not found");
+  const packageName = appStoreIds(data).android;
+  if (!packageName) {
+    throw new Error(
+      hasRepo(data)
+        ? NO_BUNDLE_ID
+        : "This game has no Google Play package name. Add it in the General tab.",
+    );
+  }
+  return packageName;
+}
 
 const localeCode = z.string().regex(/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,4})?$/, "Not a language code");
 
@@ -770,7 +787,7 @@ function describePlayError(err: unknown, api: PlayApi | null, packageName: strin
 }
 
 async function openPlay(supabase: any, appId: string) {
-  const packageName = await loadBundleId(supabase, appId);
+  const packageName = await loadPlayPackage(supabase, appId);
   const api = await createPlayApi(packageName);
   return { packageName, api };
 }

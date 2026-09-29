@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireRepo } from "@/lib/app-kind";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -16,7 +17,8 @@ async function loadApp(supabase: any, appId: string) {
   const { data, error } = await supabase.from("apps").select("*").eq("id", appId).maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("App not found");
-  return data;
+  // Everything in this file acts on the app's GitHub repo.
+  return requireRepo(data);
 }
 
 function githubHeaders() {

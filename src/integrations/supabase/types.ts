@@ -60,11 +60,12 @@ export type Database = {
       }
       apps: {
         Row: {
+          android_package_name: string | null
           bundle_id: string | null
           created_at: string
           default_ref: string
-          github_owner: string
-          github_repo: string
+          github_owner: string | null
+          github_repo: string | null
           icon_data_url: string | null
           id: string
           is_active: boolean
@@ -73,14 +74,16 @@ export type Database = {
           notes: string | null
           revenuecat_app_id: string | null
           slug: string
+          steam_app_id: number | null
           updated_at: string
         }
         Insert: {
+          android_package_name?: string | null
           bundle_id?: string | null
           created_at?: string
           default_ref?: string
-          github_owner: string
-          github_repo: string
+          github_owner?: string | null
+          github_repo?: string | null
           icon_data_url?: string | null
           id?: string
           is_active?: boolean
@@ -89,14 +92,16 @@ export type Database = {
           notes?: string | null
           revenuecat_app_id?: string | null
           slug: string
+          steam_app_id?: number | null
           updated_at?: string
         }
         Update: {
+          android_package_name?: string | null
           bundle_id?: string | null
           created_at?: string
           default_ref?: string
-          github_owner?: string
-          github_repo?: string
+          github_owner?: string | null
+          github_repo?: string | null
           icon_data_url?: string | null
           id?: string
           is_active?: boolean
@@ -105,6 +110,7 @@ export type Database = {
           notes?: string | null
           revenuecat_app_id?: string | null
           slug?: string
+          steam_app_id?: number | null
           updated_at?: string
         }
         Relationships: []

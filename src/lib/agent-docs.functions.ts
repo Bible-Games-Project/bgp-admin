@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { commitAgentDocs, inspectAgentDocs } from "@/lib/agent-docs.server";
 import { assertNotSelfRepo } from "@/lib/self-repo";
+import { requireRepo } from "@/lib/app-kind";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -18,7 +19,8 @@ async function loadApp(supabase: any, appId: string) {
   const { data, error } = await supabase.from("apps").select("*").eq("id", appId).maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("App not found");
-  return data;
+  // Everything in this file acts on the app's GitHub repo.
+  return requireRepo(data);
 }
 
 export const checkAgentDocs = createServerFn({ method: "POST" })

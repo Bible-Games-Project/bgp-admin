@@ -17,6 +17,8 @@ export type AppFormValues = {
   github_repo: string;
   default_ref: string;
   bundle_id: string;
+  android_package_name: string;
+  steam_app_id: string;
   revenuecat_app_id: string;
   notes: string;
   is_active: boolean;
@@ -28,10 +30,31 @@ export const emptyAppForm: AppFormValues = {
   github_repo: "",
   default_ref: "main",
   bundle_id: "",
+  android_package_name: "",
+  steam_app_id: "",
   revenuecat_app_id: "",
   notes: "",
   is_active: true,
 };
+
+/**
+ * How the app gets to the stores: a web game in a repo the console links or
+ * creates, or a game published outside the console (see src/lib/app-kind.ts).
+ */
+export type AppFormMode = "link" | "create" | "published";
+
+/** The Steam App ID as the server expects it, or an error to show under the field. */
+export function parseSteamAppId(raw: string): { value: number | null; error?: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { value: null };
+  // A pasted store address works too: store.steampowered.com/app/2298350/Name/
+  const fromUrl = trimmed.match(/\/app\/(\d+)/)?.[1];
+  const digits = fromUrl ?? trimmed;
+  if (!/^\d+$/.test(digits)) {
+    return { value: null, error: "Enter just the number, e.g. 2298350 from store.steampowered.com/app/2298350." };
+  }
+  return { value: Number(digits) };
+}
 
 export function AppForm({
   initial,
@@ -40,20 +63,27 @@ export function AppForm({
   onSubmit,
   onCancel,
   showCreateRepoOption = false,
+  published = false,
 }: {
   initial: AppFormValues;
   submitting: boolean;
   submitLabel: string;
-  onSubmit: (v: AppFormValues, meta: { createRepo: boolean }) => void;
+  onSubmit: (v: AppFormValues, meta: { mode: AppFormMode }) => void;
   onCancel?: () => void;
+  /** New-app dialog: offers linking a repo, creating one, or registering a published game. */
   showCreateRepoOption?: boolean;
+  /** Editing a game published outside the console: store IDs instead of a repo. */
+  published?: boolean;
 }) {
   const [v, setV] = useState<AppFormValues>(initial);
   const [repoError, setRepoError] = useState<string | null>(null);
-  const [repoMode, setRepoMode] = useState<"link" | "create">("link");
+  const [storeError, setStoreError] = useState<string | null>(null);
+  const [steamError, setSteamError] = useState<string | null>(null);
+  const [mode, setMode] = useState<AppFormMode>(published ? "published" : "link");
   const [repoTouched, setRepoTouched] = useState(Boolean(initial.github_repo));
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const createRepo = showCreateRepoOption && repoMode === "create";
+  const createRepo = showCreateRepoOption && mode === "create";
+  const isPublished = mode === "published";
 
   const upd = <K extends keyof AppFormValues>(k: K, val: AppFormValues[K]) =>
     setV((s) => ({ ...s, [k]: val }));
@@ -69,10 +99,11 @@ export function AppForm({
     }));
   };
 
-  const handleRepoModeChange = (mode: "link" | "create") => {
-    setRepoMode(mode);
+  const handleModeChange = (next: AppFormMode) => {
+    setMode(next);
     setRepoError(null);
-    if (!repoTouched) upd("github_repo", mode === "create" ? slugify(v.name) : "");
+    setStoreError(null);
+    if (!repoTouched) upd("github_repo", next === "create" ? slugify(v.name) : "");
   };
 
   const handleRepoChange = (val: string) => {
@@ -91,6 +122,25 @@ export function AppForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const steam = parseSteamAppId(v.steam_app_id);
+    setSteamError(steam.error ?? null);
+    if (steam.error) {
+      // On a web game the field sits in the collapsed Advanced section.
+      setAdvancedOpen(true);
+      return;
+    }
+    const values = { ...v, steam_app_id: steam.value == null ? "" : String(steam.value) };
+
+    if (isPublished) {
+      if (!v.bundle_id.trim() && !v.android_package_name.trim() && steam.value == null) {
+        setStoreError("Enter at least one of the three: where the game is published.");
+        return;
+      }
+      setStoreError(null);
+      onSubmit(values, { mode: "published" });
+      return;
+    }
+
     const normalized = normalizeRepo(v.github_repo);
     if (normalized.includes("/") || /https?:/i.test(normalized) || !normalized) {
       setRepoError(
@@ -101,33 +151,66 @@ export function AppForm({
       return;
     }
     setRepoError(null);
-    onSubmit({ ...v, github_owner: createRepo ? GITHUB_ORG : v.github_owner, github_repo: normalized }, { createRepo });
+    onSubmit(
+      { ...values, github_owner: createRepo ? GITHUB_ORG : v.github_owner, github_repo: normalized },
+      { mode: createRepo ? "create" : "link" },
+    );
   };
+
+  const steamField = (
+    <Field
+      label="Steam App ID"
+      hint="The number in the game's Steam store address, e.g. 2298350 from store.steampowered.com/app/2298350. Leave it empty if the game isn't on Steam."
+    >
+      <Input
+        value={v.steam_app_id}
+        onChange={(e) => {
+          upd("steam_app_id", e.target.value);
+          if (steamError) setSteamError(null);
+        }}
+        placeholder="2298350"
+        inputMode="numeric"
+      />
+      {steamError && <p className="text-[11px] text-destructive">{steamError}</p>}
+    </Field>
+  );
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {showCreateRepoOption && (
         <div className="space-y-1.5">
-          <Label className="text-xs font-mono uppercase text-muted-foreground">Repository</Label>
+          <Label className="text-xs font-mono uppercase text-muted-foreground">Game</Label>
           <ToggleGroup
             type="single"
             variant="outline"
-            value={repoMode}
+            value={mode}
             onValueChange={(val) => {
-              if (val) handleRepoModeChange(val as "link" | "create");
+              if (val) handleModeChange(val as AppFormMode);
             }}
-            className="justify-start"
+            className="justify-start flex-wrap"
           >
             <ToggleGroupItem value="link">Link existing repo</ToggleGroupItem>
             <ToggleGroupItem value="create">Create new repo</ToggleGroupItem>
+            <ToggleGroupItem value="published">Already published (no repo)</ToggleGroupItem>
           </ToggleGroup>
+          {isPublished && (
+            <p className="text-[11px] text-muted-foreground">
+              For a game made outside this console, like a Unity or RPG Maker game that is uploaded
+              to the stores by hand. The console shows its store pages and lets you edit the App
+              Store and Google Play ones; it doesn't build or release the game.
+            </p>
+          )}
         </div>
       )}
 
       <Field
         label="App name"
         hint={
-          createRepo
+          isPublished
+            ? showCreateRepoOption
+              ? "How the game is called in this console. Leave it empty to use the name it has in the stores."
+              : "How the game is called in this console. The name players see is set in the game's own project and in the Store tab."
+            : createRepo
             ? "The name under the app icon on players' phones. The repo name below is filled in from it. The name in the stores is separate: set it in the app's Store tab once the app exists in App Store Connect and Google Play."
             : showCreateRepoOption
             ? "The name under the app icon on players' phones. The name in the stores is separate: set it in the app's Store tab once the app exists in App Store Connect and Google Play."
@@ -137,93 +220,49 @@ export function AppForm({
         <Input
           value={v.name}
           onChange={(e) => handleNameChange(e.target.value)}
-          placeholder="Eden's Choice: Chronicles"
+          placeholder={isPublished ? "The Lost Sheep" : "Eden's Choice: Chronicles"}
           maxLength={100}
-          required
+          required={!(isPublished && showCreateRepoOption)}
         />
       </Field>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {createRepo ? (
-          <>
-            <Field label="GitHub org" hint="fixed for all apps">
-              <Input value={GITHUB_ORG} disabled />
-            </Field>
-            <Field
-              label="New repo name"
-              hint="filled in from the app name — change it only if you need a different repo"
-            >
-              <Input
-                value={v.github_repo}
-                onChange={(e) => handleRepoChange(e.target.value)}
-                onBlur={(e) => upd("github_repo", normalizeRepo(e.target.value))}
-                placeholder={slugify(v.name) || "eden-choice-chronicles"}
-                required
-              />
-              {repoError && <p className="text-[11px] text-destructive">{repoError}</p>}
-            </Field>
-          </>
-        ) : (
-          <>
-            <Field label="GitHub owner">
-              <Input value={v.github_owner} onChange={(e) => upd("github_owner", e.target.value)} required />
-            </Field>
-            <Field
-              label="Repo name"
-              hint="Copy it exactly from the repo's page on GitHub. A repo linked from Lovable is named after the Lovable project, so it is often different from the app name."
-            >
-              <Input
-                value={v.github_repo}
-                onChange={(e) => handleRepoChange(e.target.value)}
-                onBlur={(e) => upd("github_repo", normalizeRepo(e.target.value))}
-                placeholder="eden-choice-chronicles"
-                required
-              />
-              {repoError && <p className="text-[11px] text-destructive">{repoError}</p>}
-            </Field>
-          </>
-        )}
-        <Field label="Active">
-          <div className="h-9 flex items-center">
-            <Switch checked={v.is_active} onCheckedChange={(b) => upd("is_active", b)} />
-          </div>
-        </Field>
-      </div>
-
-      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className="flex items-center gap-1.5 text-xs font-mono uppercase text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronRight className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-90" : ""}`} />
-            Advanced
-          </button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="space-y-4 mt-4">
+      {isPublished ? (
+        <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Default branch">
-              <Input value={v.default_ref} onChange={(e) => upd("default_ref", e.target.value)} required />
-            </Field>
             <Field
-              label="Bundle ID / Package name"
-              hint="One identifier for both stores: App Store Connect calls it Bundle ID, Google Play Console calls it Package name. Enter the exact same value in both. The stores never let you change it once the app is created there."
+              label="App Store bundle ID"
+              hint="App Store Connect → the app → General → App Information → Bundle ID. Leave it empty if the game isn't on the App Store."
             >
               <Input
                 value={v.bundle_id}
-                onChange={(e) => upd("bundle_id", e.target.value)}
-                placeholder="com.acme.app"
+                onChange={(e) => {
+                  upd("bundle_id", e.target.value);
+                  if (storeError) setStoreError(null);
+                }}
+                placeholder="com.company.game"
               />
             </Field>
-            <Field label="RevenueCat App ID" hint="Starts with 'app' — RevenueCat → Project Settings → Apps">
+            <Field
+              label="Google Play package name"
+              hint="Play Console → the app, on the line under its name. Often the same as the bundle ID. Leave it empty if the game isn't on Google Play."
+            >
               <Input
-                value={v.revenuecat_app_id}
-                onChange={(e) => upd("revenuecat_app_id", e.target.value)}
-                placeholder="app163ea91532"
+                value={v.android_package_name}
+                onChange={(e) => {
+                  upd("android_package_name", e.target.value);
+                  if (storeError) setStoreError(null);
+                }}
+                placeholder="com.company.game"
               />
+            </Field>
+            {steamField}
+            <Field label="Active">
+              <div className="h-9 flex items-center">
+                <Switch checked={v.is_active} onCheckedChange={(b) => upd("is_active", b)} />
+              </div>
             </Field>
           </div>
-
+          {storeError && <p className="text-[11px] text-destructive">{storeError}</p>}
           <Field label="Notes">
             <Textarea
               value={v.notes}
@@ -232,12 +271,108 @@ export function AppForm({
               placeholder="Optional internal notes"
             />
           </Field>
-        </CollapsibleContent>
-      </Collapsible>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {createRepo ? (
+              <>
+                <Field label="GitHub org" hint="fixed for all apps">
+                  <Input value={GITHUB_ORG} disabled />
+                </Field>
+                <Field
+                  label="New repo name"
+                  hint="filled in from the app name — change it only if you need a different repo"
+                >
+                  <Input
+                    value={v.github_repo}
+                    onChange={(e) => handleRepoChange(e.target.value)}
+                    onBlur={(e) => upd("github_repo", normalizeRepo(e.target.value))}
+                    placeholder={slugify(v.name) || "eden-choice-chronicles"}
+                    required
+                  />
+                  {repoError && <p className="text-[11px] text-destructive">{repoError}</p>}
+                </Field>
+              </>
+            ) : (
+              <>
+                <Field label="GitHub owner">
+                  <Input value={v.github_owner} onChange={(e) => upd("github_owner", e.target.value)} required />
+                </Field>
+                <Field
+                  label="Repo name"
+                  hint="Copy it exactly from the repo's page on GitHub. A repo linked from Lovable is named after the Lovable project, so it is often different from the app name."
+                >
+                  <Input
+                    value={v.github_repo}
+                    onChange={(e) => handleRepoChange(e.target.value)}
+                    onBlur={(e) => upd("github_repo", normalizeRepo(e.target.value))}
+                    placeholder="eden-choice-chronicles"
+                    required
+                  />
+                  {repoError && <p className="text-[11px] text-destructive">{repoError}</p>}
+                </Field>
+              </>
+            )}
+            <Field label="Active">
+              <div className="h-9 flex items-center">
+                <Switch checked={v.is_active} onCheckedChange={(b) => upd("is_active", b)} />
+              </div>
+            </Field>
+          </div>
+
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-xs font-mono uppercase text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ChevronRight className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-90" : ""}`} />
+                Advanced
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-4 mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Default branch">
+                  <Input value={v.default_ref} onChange={(e) => upd("default_ref", e.target.value)} required />
+                </Field>
+                <Field
+                  label="Bundle ID / Package name"
+                  hint="One identifier for both stores: App Store Connect calls it Bundle ID, Google Play Console calls it Package name. Enter the exact same value in both. The stores never let you change it once the app is created there."
+                >
+                  <Input
+                    value={v.bundle_id}
+                    onChange={(e) => upd("bundle_id", e.target.value)}
+                    placeholder="com.acme.app"
+                  />
+                </Field>
+                <Field label="RevenueCat App ID" hint="Starts with 'app' — RevenueCat → Project Settings → Apps">
+                  <Input
+                    value={v.revenuecat_app_id}
+                    onChange={(e) => upd("revenuecat_app_id", e.target.value)}
+                    placeholder="app163ea91532"
+                  />
+                </Field>
+                {/* A new web game can't be on Steam yet, so this only shows once it exists. */}
+                {!showCreateRepoOption && steamField}
+              </div>
+
+              <Field label="Notes">
+                <Textarea
+                  value={v.notes}
+                  onChange={(e) => upd("notes", e.target.value)}
+                  rows={3}
+                  placeholder="Optional internal notes"
+                />
+              </Field>
+            </CollapsibleContent>
+          </Collapsible>
+        </>
+      )}
 
       <div className="flex gap-2">
         <Button type="submit" disabled={submitting}>
-          {submitting ? "Saving…" : submitLabel}
+          {submitting ? (isPublished && showCreateRepoOption ? "Checking the stores…" : "Saving…") : submitLabel}
         </Button>
         {onCancel && (
           <Button type="button" variant="ghost" onClick={onCancel}>

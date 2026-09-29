@@ -4,7 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft, Trash2, ExternalLink } from "lucide-react";
 import { getApp, updateApp, deleteApp } from "@/lib/apps.functions";
 import { Button } from "@/components/ui/button";
-import { AppForm, type AppFormValues } from "@/components/AppForm";
+import { AppForm, parseSteamAppId, type AppFormValues } from "@/components/AppForm";
+import { appStoreIds, hasRepo, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
 import { AppAssetUpload } from "@/components/AppAssetUpload";
 import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
 import { AppSetupTab } from "@/components/AppSetupTab";
@@ -16,6 +17,8 @@ import { toast } from "sonner";
 
 const TABS = ["general", "branding", "store", "environment", "setup", "addons"] as const;
 type Tab = (typeof TABS)[number];
+/** A game published outside the console has no repo, so only these apply to it. */
+const PUBLISHED_TABS: readonly Tab[] = ["general", "store"];
 
 export const Route = createFileRoute("/_authenticated/apps/$id")({
   // ?tab=setup opens that tab directly, e.g. from a cell of the setup overview.
@@ -81,16 +84,46 @@ function AppDetailPage() {
     return <div className="p-8 text-sm text-destructive">{(q.error as Error).message}</div>;
   }
   const app = q.data!.app;
+  const published = !hasRepo(app);
+  const storeIds = appStoreIds(app);
+  const activeTab: Tab = tab && (!published || PUBLISHED_TABS.includes(tab)) ? tab : "general";
 
   const initial: AppFormValues = {
     name: app.name,
-    github_owner: app.github_owner,
-    github_repo: app.github_repo,
+    github_owner: app.github_owner ?? "",
+    github_repo: app.github_repo ?? "",
     default_ref: app.default_ref,
-    bundle_id: (app as any).bundle_id ?? "",
-    revenuecat_app_id: (app as any).revenuecat_app_id ?? "",
+    bundle_id: app.bundle_id ?? "",
+    android_package_name: app.android_package_name ?? "",
+    steam_app_id: app.steam_app_id?.toString() ?? "",
+    revenuecat_app_id: app.revenuecat_app_id ?? "",
     notes: app.notes ?? "",
     is_active: app.is_active,
+  };
+
+  // A web game keeps its repo and ships to Google Play under its bundle ID; a
+  // published one only has store IDs (see src/lib/app-kind.ts).
+  const patchFrom = (v: AppFormValues) => {
+    const steam_app_id = parseSteamAppId(v.steam_app_id).value;
+    const notes = v.notes || null;
+    if (published) {
+      return {
+        name: v.name,
+        bundle_id: v.bundle_id.trim() || null,
+        android_package_name: v.android_package_name.trim() || null,
+        steam_app_id,
+        notes,
+        is_active: v.is_active,
+      };
+    }
+    const { android_package_name: _unused, ...web } = v;
+    return {
+      ...web,
+      steam_app_id,
+      notes,
+      bundle_id: v.bundle_id || null,
+      revenuecat_app_id: v.revenuecat_app_id || null,
+    };
   };
 
   return (
@@ -106,27 +139,64 @@ function AppDetailPage() {
         <div>
           <span className="label-mono">app</span>
           <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">{app.name}</h1>
-          <p className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-3 flex-wrap">
-            <span className="break-all">
-              {app.github_owner}/{app.github_repo}
-            </span>
-            <a
-              href={`https://github.com/${app.github_owner}/${app.github_repo}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
-            >
-              GitHub <ExternalLink className="h-3 w-3" />
-            </a>
-            <a
-              href={`https://bgp-${app.github_repo}.pages.dev`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
-            >
-              Cloudflare preview <ExternalLink className="h-3 w-3" />
-            </a>
-          </p>
+          {published ? (
+            <p className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-3 flex-wrap">
+              <span>published outside the console</span>
+              {storeIds.ios && <span className="break-all">App Store {storeIds.ios}</span>}
+              {storeIds.android && (
+                <a
+                  href={playStoreUrl(storeIds.android)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                >
+                  Google Play <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+              {storeIds.steam && (
+                <a
+                  href={steamStoreUrl(storeIds.steam)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                >
+                  Steam <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-3 flex-wrap">
+              <span className="break-all">
+                {app.github_owner}/{app.github_repo}
+              </span>
+              <a
+                href={`https://github.com/${app.github_owner}/${app.github_repo}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+              >
+                GitHub <ExternalLink className="h-3 w-3" />
+              </a>
+              <a
+                href={`https://bgp-${app.github_repo}.pages.dev`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+              >
+                Cloudflare preview <ExternalLink className="h-3 w-3" />
+              </a>
+              {storeIds.steam && (
+                <a
+                  href={steamStoreUrl(storeIds.steam)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                >
+                  Steam <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </p>
+          )}
         </div>
         <Button
           variant="ghost"
@@ -144,7 +214,7 @@ function AppDetailPage() {
       {/* The open tab lives in ?tab=, so links like "Store tab" work from anywhere,
           including from another tab of this same page. */}
       <Tabs
-        value={tab ?? "general"}
+        value={activeTab}
         onValueChange={(t) =>
           navigate({ to: "/apps/$id", params: { id }, search: { tab: t as Tab }, replace: true })
         }
@@ -154,26 +224,20 @@ function AppDetailPage() {
             within itself instead of overflowing the page */}
         <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="branding">Branding</TabsTrigger>
+          {!published && <TabsTrigger value="branding">Branding</TabsTrigger>}
           <TabsTrigger value="store">Store</TabsTrigger>
-          <TabsTrigger value="environment">Environment</TabsTrigger>
-          <TabsTrigger value="setup">Setup</TabsTrigger>
-          <TabsTrigger value="addons">Addons</TabsTrigger>
+          {!published && <TabsTrigger value="environment">Environment</TabsTrigger>}
+          {!published && <TabsTrigger value="setup">Setup</TabsTrigger>}
+          {!published && <TabsTrigger value="addons">Addons</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="general">
           <AppForm
             initial={initial}
+            published={published}
             submitting={updateM.isPending}
             submitLabel="Save changes"
-            onSubmit={(v) =>
-              updateM.mutate({
-                ...v,
-                notes: v.notes || null,
-                bundle_id: v.bundle_id || null,
-                revenuecat_app_id: v.revenuecat_app_id || null,
-              })
-            }
+            onSubmit={(v) => updateM.mutate(patchFrom(v))}
           />
         </TabsContent>
 
@@ -218,7 +282,7 @@ function AppDetailPage() {
         </TabsContent>
 
         <TabsContent value="store">
-          <StoreListingTab appId={id} bundleId={(app as any).bundle_id ?? null} />
+          <StoreListingTab appId={id} storeIds={storeIds} published={published} />
         </TabsContent>
 
         <TabsContent value="environment">

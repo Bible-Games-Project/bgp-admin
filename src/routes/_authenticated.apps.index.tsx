@@ -2,8 +2,9 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Boxes, Github, ImageIcon, ExternalLink, ListChecks } from "lucide-react";
-import { listApps, createApp, createAppWithRepo } from "@/lib/apps.functions";
+import { Plus, Boxes, Github, ImageIcon, ListChecks, Store } from "lucide-react";
+import { listApps, createApp, createAppWithRepo, createPublishedApp } from "@/lib/apps.functions";
+import { appStoreIds, hasRepo, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { AppForm, emptyAppForm } from "@/components/AppForm";
+import { AppForm, emptyAppForm, parseSteamAppId } from "@/components/AppForm";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/apps/")({
@@ -24,6 +25,7 @@ function AppsPage() {
   const listFn = useServerFn(listApps);
   const createFn = useServerFn(createApp);
   const createAppWithRepoFn = useServerFn(createAppWithRepo);
+  const createPublishedFn = useServerFn(createPublishedApp);
   const [open, setOpen] = useState(false);
 
   const q = useQuery({ queryKey: ["apps"], queryFn: () => listFn() });
@@ -59,6 +61,29 @@ function AppsPage() {
     onError: (e: Error) => toast.error(e.message, { duration: 12000 }),
   });
 
+  const createPublishedM = useMutation({
+    mutationFn: (v: any) =>
+      createPublishedFn({
+        data: {
+          name: v.name.trim(),
+          bundle_id: v.bundle_id.trim() || null,
+          android_package_name: v.android_package_name.trim() || null,
+          steam_app_id: parseSteamAppId(v.steam_app_id).value,
+          notes: v.notes || null,
+          is_active: v.is_active,
+        },
+      }),
+    onSuccess: (result) => {
+      if (result.warning) toast.warning(result.warning, { duration: 15000 });
+      toast.success(`${result.app.name} added`, {
+        description: "Its store pages are in its Store tab.",
+      });
+      setOpen(false);
+      qc.invalidateQueries({ queryKey: ["apps"] });
+    },
+    onError: (e: Error) => toast.error(e.message, { duration: 15000 }),
+  });
+
   return (
     <div className="p-6 md:p-8 max-w-5xl mx-auto w-full">
       <div className="flex items-center justify-between mb-6">
@@ -84,11 +109,13 @@ function AppsPage() {
               </DialogHeader>
               <AppForm
                 initial={emptyAppForm}
-                submitting={createWithRepoM.isPending || createM.isPending}
+                submitting={createWithRepoM.isPending || createM.isPending || createPublishedM.isPending}
                 submitLabel="Create app"
                 showCreateRepoOption
                 onSubmit={(v, meta) =>
-                  meta.createRepo
+                  meta.mode === "published"
+                    ? createPublishedM.mutate(v)
+                    : meta.mode === "create"
                     ? createWithRepoM.mutate(v)
                     : createM.mutate({
                         ...v,
@@ -142,32 +169,76 @@ function AppsPage() {
                   </span>
                 )}
               </div>
-              <div className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1.5 flex-wrap">
-                <Github className="h-3 w-3 shrink-0" />
-                <a
-                  href={`https://github.com/${a.github_owner}/${a.github_repo}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="hover:text-foreground hover:underline"
-                >
-                  {a.github_owner}/{a.github_repo}
-                </a>
-                <span>· {a.default_ref}</span>
-                <a
-                  href={`https://bgp-${a.github_repo}.pages.dev`}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-muted-foreground/70 hover:text-foreground hover:underline"
-                >
-                  bgp-{a.github_repo}.pages.dev
-                </a>
-              </div>
+              {hasRepo(a) ? (
+                <div className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1.5 flex-wrap">
+                  <Github className="h-3 w-3 shrink-0" />
+                  <a
+                    href={`https://github.com/${a.github_owner}/${a.github_repo}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="hover:text-foreground hover:underline"
+                  >
+                    {a.github_owner}/{a.github_repo}
+                  </a>
+                  <span>· {a.default_ref}</span>
+                  <a
+                    href={`https://bgp-${a.github_repo}.pages.dev`}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-muted-foreground/70 hover:text-foreground hover:underline"
+                  >
+                    bgp-{a.github_repo}.pages.dev
+                  </a>
+                  {a.steam_app_id != null && <SteamLink appId={a.steam_app_id} />}
+                </div>
+              ) : (
+                <PublishedStores app={a} />
+              )}
             </div>
           </Link>
         ))}
       </div>
     </div>
+  );
+}
+
+/** Where a game published outside the console lives, instead of a repo. */
+function PublishedStores({ app }: { app: Parameters<typeof appStoreIds>[0] }) {
+  const ids = appStoreIds(app);
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+  return (
+    <div className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1.5 flex-wrap">
+      <Store className="h-3 w-3 shrink-0" />
+      <span>published outside the console</span>
+      {ids.ios && <span>· App Store {ids.ios}</span>}
+      {ids.android && (
+        <a
+          href={playStoreUrl(ids.android)}
+          target="_blank"
+          rel="noreferrer"
+          onClick={stop}
+          className="hover:text-foreground hover:underline"
+        >
+          · Google Play {ids.android}
+        </a>
+      )}
+      {ids.steam && <SteamLink appId={ids.steam} />}
+    </div>
+  );
+}
+
+function SteamLink({ appId }: { appId: number }) {
+  return (
+    <a
+      href={steamStoreUrl(appId)}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="hover:text-foreground hover:underline"
+    >
+      · Steam {appId}
+    </a>
   );
 }

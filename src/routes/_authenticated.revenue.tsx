@@ -53,6 +53,7 @@ import {
   getAppStoreMonthByDay,
   getGooglePlayIncome,
 } from "@/lib/income.functions";
+import { appStoreIds } from "@/lib/app-kind";
 
 const searchSchema = z.object({
   preset: z.enum(["month", "12m", "year", "all"]).catch("12m"),
@@ -168,12 +169,21 @@ function RevenuePage() {
     (navigate as any)({ search: (prev: any) => ({ ...prev, ...patch }) });
 
   // Console names win over store names, so an app reads the same here as everywhere else.
-  const names = new Map(
-    (appsQ.data?.apps ?? []).flatMap((a) => (a.bundle_id ? [[a.bundle_id, a.name] as const] : [])),
-  );
+  // Each store reports a game under its own ID for that store; mapping them all to one
+  // key adds a game up as one app even when its App Store and Google Play IDs differ.
+  const consoleApps = new Map<string, { key: string; name: string }>();
+  for (const a of appsQ.data?.apps ?? []) {
+    const ids = appStoreIds(a);
+    const key = ids.ios ?? ids.android;
+    if (!key) continue;
+    for (const id of [ids.ios, ids.android]) if (id) consoleApps.set(id, { key, name: a.name });
+  }
   const rows: IncomeRow[] = results
     .flatMap((q) => q.data?.rows ?? [])
-    .map((r) => ({ ...r, appName: names.get(r.appKey) ?? r.appName }));
+    .map((r) => {
+      const app = consoleApps.get(r.appKey);
+      return app ? { ...r, appKey: app.key, appName: app.name } : r;
+    });
 
   const problems = [
     ...[appStoreQ, ...appStoreDaysQs].map((q) => ({

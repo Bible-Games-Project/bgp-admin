@@ -5,6 +5,14 @@ import { commitPreviewWorkflow, findRepoProblem, githubHeaders } from "@/lib/git
 import { setPublishTelegramSecrets, setRepoSecrets, telegramSecrets } from "@/lib/repo-secrets.server";
 import { commitAgentDocs } from "@/lib/agent-docs.server";
 import { syncAppNameToRepo } from "@/lib/app-name.server";
+import { appStoreIds, hasRepo, isOnAnyStore, type AppStoreIds } from "@/lib/app-kind";
+import {
+  checkAppStore,
+  checkGooglePlay,
+  checkSteam,
+  iconAsDataUrl,
+  type StoreCheck,
+} from "@/lib/store-lookup.server";
 import { slugify } from "@/lib/utils";
 
 // Secret-setting (including the sealed-box crypto) lives in repo-secrets.server.ts.
@@ -23,6 +31,76 @@ const appInputSchema = z.object({
   notes: z.string().max(4000).nullable().optional(),
   is_active: z.boolean().default(true),
 });
+
+// Store IDs of an app published outside the console (see app-kind.ts). The Steam
+// App ID applies to any app.
+const bundleIdFormat = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/, "That is not a bundle ID. It looks like com.company.game.");
+const packageNameFormat = z
+  .string()
+  .trim()
+  .regex(
+    /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/,
+    "That is not a package name. It looks like com.company.game.",
+  );
+const steamAppIdFormat = z.number().int().positive().max(4294967295);
+
+const storeIdsSchema = z.object({
+  android_package_name: packageNameFormat.nullable().optional(),
+  steam_app_id: steamAppIdFormat.nullable().optional(),
+});
+
+const publishedAppSchema = z.object({
+  // Left empty, the name is taken from the stores.
+  name: z.string().trim().max(100).default(""),
+  bundle_id: bundleIdFormat.nullable().optional(),
+  android_package_name: packageNameFormat.nullable().optional(),
+  steam_app_id: steamAppIdFormat.nullable().optional(),
+  notes: z.string().max(4000).nullable().optional(),
+  is_active: z.boolean().default(true),
+});
+
+/** Two apps on the same store listing would show and edit the same page twice. */
+async function findStoreIdConflict(supabase: any, ids: AppStoreIds, excludeId?: string) {
+  const { data, error } = await supabase
+    .from("apps")
+    .select("id, name, github_owner, github_repo, bundle_id, android_package_name, steam_app_id");
+  if (error) throw new Error(error.message);
+  for (const other of data ?? []) {
+    if (other.id === excludeId) continue;
+    const taken = appStoreIds(other);
+    if (ids.ios && taken.ios === ids.ios) return `${other.name} already uses the bundle ID ${ids.ios}.`;
+    if (ids.android && taken.android === ids.android) {
+      return `${other.name} already uses the Google Play package name ${ids.android}.`;
+    }
+    if (ids.steam && taken.steam === ids.steam) return `${other.name} already uses the Steam App ID ${ids.steam}.`;
+  }
+  return null;
+}
+
+/** Checks each ID against its store; throws on an ID the store doesn't know. */
+async function checkStoreIds(ids: AppStoreIds): Promise<StoreCheck[]> {
+  const checks = await Promise.all([
+    ids.ios ? checkAppStore(ids.ios) : null,
+    ids.android ? checkGooglePlay(ids.android) : null,
+    ids.steam ? checkSteam(ids.steam) : null,
+  ]);
+  return checks.filter((c): c is StoreCheck => c !== null);
+}
+
+/** Drops the fields a patch leaves out, so they don't overwrite anything. */
+function definedOnly<T extends Record<string, unknown>>(fields: T) {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([, value]) => value !== undefined),
+  ) as { [K in keyof T]?: Exclude<T[K], undefined> };
+}
+
+function joinWarnings(checks: StoreCheck[]) {
+  const warnings = checks.map((c) => c.warning).filter(Boolean);
+  return warnings.length ? warnings.join(" ") : undefined;
+}
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -101,13 +179,69 @@ export const createApp = createServerFn({ method: "POST" })
 
     // Linked repos report to the publish chat too — best effort, a secret
     // failing to land never fails the registration itself.
-    const tgFailed = await setPublishTelegramSecrets(row.github_repo);
+    const tgFailed = await setPublishTelegramSecrets(data.github_repo);
     let warning: string | undefined;
     if (tgFailed.length) {
-      warning = `${tgFailed.join(", ")} could not be set on ${row.github_owner}/${row.github_repo}; publish runs there will not notify Telegram until it is.`;
+      warning = `${tgFailed.join(", ")} could not be set on ${data.github_owner}/${data.github_repo}; publish runs there will not notify Telegram until it is.`;
     }
 
     return { app: row, warning };
+  });
+
+/**
+ * Registers a game published outside the console (a Unity or RPG Maker game
+ * uploaded by hand): no repo, only its store IDs. Each ID is checked against
+ * its store first, and the name and icon come from the stores.
+ */
+export const createPublishedApp = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => publishedAppSchema.parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+
+    const ids = appStoreIds({
+      bundle_id: data.bundle_id,
+      android_package_name: data.android_package_name,
+      steam_app_id: data.steam_app_id,
+    });
+    if (!isOnAnyStore(ids)) {
+      throw new Error(
+        "Enter at least one store ID: the App Store bundle ID, the Google Play package name or the Steam App ID.",
+      );
+    }
+    const conflict = await findStoreIdConflict(context.supabase, ids);
+    if (conflict) throw new Error(conflict);
+
+    const checks = await checkStoreIds(ids);
+    const name = data.name || checks.map((c) => c.name).find(Boolean);
+    if (!name) {
+      throw new Error("The stores did not return a name for this game. Type it in the App name field.");
+    }
+    let icon: string | null = null;
+    for (const check of checks) {
+      icon = await iconAsDataUrl(check.iconUrl);
+      if (icon) break;
+    }
+
+    const { data: row, error } = await context.supabase
+      .from("apps")
+      .insert({
+        name,
+        slug: await uniqueSlug(context.supabase, name),
+        github_owner: null,
+        github_repo: null,
+        bundle_id: ids.ios,
+        android_package_name: ids.android,
+        steam_app_id: ids.steam,
+        icon_data_url: icon,
+        notes: data.notes ?? null,
+        is_active: data.is_active,
+      })
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+
+    return { app: row, warning: joinWarnings(checks) };
   });
 
 export const createAppWithRepo = createServerFn({ method: "POST" })
@@ -366,7 +500,9 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
 export const updateApp = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i) =>
-    z.object({ id: z.string().uuid(), patch: appInputSchema.partial() }).parse(i),
+    z
+      .object({ id: z.string().uuid(), patch: appInputSchema.merge(storeIdsSchema).partial() })
+      .parse(i),
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
@@ -379,22 +515,53 @@ export const updateApp = createServerFn({ method: "POST" })
     if (currentError) throw new Error(currentError.message);
     if (!current) throw new Error("App not found");
 
-    const owner = data.patch.github_owner ?? current.github_owner;
-    const repo = data.patch.github_repo ?? current.github_repo;
-    const branch = data.patch.default_ref ?? current.default_ref ?? "main";
-    const repoChanged =
-      owner !== current.github_owner ||
-      repo !== current.github_repo ||
-      branch !== (current.default_ref ?? "main");
-    if (repoChanged) {
-      const repoProblem = await findRepoProblem({ owner, repo, branch });
-      if (repoProblem) throw new Error(repoProblem);
+    // A published app has no repo to point at, and a web app ships to Google Play
+    // under its bundle ID (Capacitor), so neither takes the other's fields.
+    const web = hasRepo(current);
+    const { github_owner, github_repo, default_ref, android_package_name, ...common } = data.patch;
+    const repoChanges = web ? definedOnly({ github_owner, github_repo, default_ref }) : {};
+    const changes = definedOnly({
+      ...common,
+      ...repoChanges,
+      ...(web ? {} : { android_package_name }),
+    });
+
+    if (web) {
+      const owner = repoChanges.github_owner ?? current.github_owner!;
+      const repo = repoChanges.github_repo ?? current.github_repo!;
+      const branch = repoChanges.default_ref ?? current.default_ref ?? "main";
+      const repoChanged =
+        owner !== current.github_owner ||
+        repo !== current.github_repo ||
+        branch !== (current.default_ref ?? "main");
+      if (repoChanged) {
+        const repoProblem = await findRepoProblem({ owner, repo, branch });
+        if (repoProblem) throw new Error(repoProblem);
+      }
     }
 
-    const renamed = data.patch.name != null && data.patch.name !== current.name;
+    const before = appStoreIds(current);
+    const after = appStoreIds({ ...current, ...changes });
+    if (!web && !isOnAnyStore(after)) {
+      throw new Error(
+        "A game published outside the console needs at least one store ID: the App Store bundle ID, the Google Play package name or the Steam App ID.",
+      );
+    }
+    const changedIds: AppStoreIds = {
+      ios: after.ios !== before.ios ? after.ios : null,
+      android: after.android !== before.android ? after.android : null,
+      steam: after.steam !== before.steam ? after.steam : null,
+    };
+    const conflict = await findStoreIdConflict(context.supabase, changedIds, current.id);
+    if (conflict) throw new Error(conflict);
+    // A web app gets its bundle ID before the stores have it, so only its Steam
+    // App ID is checked against its store.
+    const checks = await checkStoreIds(web ? { ios: null, android: null, steam: changedIds.steam } : changedIds);
+
+    const renamed = changes.name != null && changes.name !== current.name;
     const patch = renamed
-      ? { ...data.patch, slug: await uniqueSlug(context.supabase, data.patch.name!, data.id) }
-      : data.patch;
+      ? { ...changes, slug: await uniqueSlug(context.supabase, changes.name!, data.id) }
+      : changes;
 
     const { data: row, error } = await context.supabase
       .from("apps")
@@ -405,9 +572,10 @@ export const updateApp = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
 
     // Keep the name players see on their device in sync with the one stored here.
-    let warning: string | undefined;
+    // A published app's name on the device comes from its own project, not from here.
+    const warnings = [joinWarnings(checks)].filter(Boolean) as string[];
     let nameSync: { committed: number; repo: string } | undefined;
-    if (renamed) {
+    if (renamed && hasRepo(row)) {
       const repo = `${row.github_owner}/${row.github_repo}`;
       const { updated, failed } = await syncAppNameToRepo({
         owner: row.github_owner,
@@ -417,11 +585,11 @@ export const updateApp = createServerFn({ method: "POST" })
       });
       nameSync = { committed: updated.length, repo };
       if (failed.length) {
-        warning = `The new name could not be written to ${failed.join(", ")} in ${repo}.`;
+        warnings.push(`The new name could not be written to ${failed.join(", ")} in ${repo}.`);
       }
     }
 
-    return { app: row, warning, nameSync };
+    return { app: row, warning: warnings.length ? warnings.join(" ") : undefined, nameSync };
   });
 
 export const deleteApp = createServerFn({ method: "POST" })
