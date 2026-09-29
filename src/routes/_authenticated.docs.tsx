@@ -398,9 +398,9 @@ function SetupPrerequisites() {
         <p className="text-xs text-muted-foreground">
           <strong>Done.</strong> These 3 steps cover the full organization. For each new app,
           create it in <strong>Apps → New App</strong> and follow the Setup tab steps. A game made
-          outside the console (a Unity or RPG Maker game uploaded to the stores by hand) goes in
-          as <strong>Already published (no repo)</strong> instead: it only needs its store IDs and
-          has no setup steps.
+          with another engine (Unity, RPG Maker…) goes in as <strong>Not a web game</strong>
+          instead: the console doesn't build it, so it only needs its store IDs and has no setup
+          steps.
         </p>
       </div>
     </div>

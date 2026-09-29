@@ -5,7 +5,7 @@ import { ArrowLeft, Trash2, ExternalLink } from "lucide-react";
 import { getApp, updateApp, deleteApp } from "@/lib/apps.functions";
 import { Button } from "@/components/ui/button";
 import { AppForm, parseSteamAppId, type AppFormValues } from "@/components/AppForm";
-import { appStoreIds, hasRepo, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
+import { appStoreIds, isWebGame, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
 import { AppAssetUpload } from "@/components/AppAssetUpload";
 import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
 import { AppSetupTab } from "@/components/AppSetupTab";
@@ -17,8 +17,8 @@ import { toast } from "sonner";
 
 const TABS = ["general", "branding", "store", "environment", "setup", "addons"] as const;
 type Tab = (typeof TABS)[number];
-/** A game published outside the console has no repo, so only these apply to it. */
-const PUBLISHED_TABS: readonly Tab[] = ["general", "store"];
+/** The console doesn't build a game that isn't a web game, so only these apply to it. */
+const EXTERNAL_TABS: readonly Tab[] = ["general", "store"];
 
 export const Route = createFileRoute("/_authenticated/apps/$id")({
   // ?tab=setup opens that tab directly, e.g. from a cell of the setup overview.
@@ -84,9 +84,9 @@ function AppDetailPage() {
     return <div className="p-8 text-sm text-destructive">{(q.error as Error).message}</div>;
   }
   const app = q.data!.app;
-  const published = !hasRepo(app);
+  const external = !isWebGame(app);
   const storeIds = appStoreIds(app);
-  const activeTab: Tab = tab && (!published || PUBLISHED_TABS.includes(tab)) ? tab : "general";
+  const activeTab: Tab = tab && (!external || EXTERNAL_TABS.includes(tab)) ? tab : "general";
 
   const initial: AppFormValues = {
     name: app.name,
@@ -101,12 +101,12 @@ function AppDetailPage() {
     is_active: app.is_active,
   };
 
-  // A web game keeps its repo and ships to Google Play under its bundle ID; a
-  // published one only has store IDs (see src/lib/app-kind.ts).
+  // A web game keeps its repo and ships to Google Play under its bundle ID; any
+  // other game only has store IDs (see src/lib/app-kind.ts).
   const patchFrom = (v: AppFormValues) => {
     const steam_app_id = parseSteamAppId(v.steam_app_id).value;
     const notes = v.notes || null;
-    if (published) {
+    if (external) {
       return {
         name: v.name,
         bundle_id: v.bundle_id.trim() || null,
@@ -139,9 +139,9 @@ function AppDetailPage() {
         <div>
           <span className="label-mono">app</span>
           <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">{app.name}</h1>
-          {published ? (
+          {external ? (
             <p className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-3 flex-wrap">
-              <span>published outside the console</span>
+              <span>not a web game</span>
               {storeIds.ios && <span className="break-all">App Store {storeIds.ios}</span>}
               {storeIds.android && (
                 <a
@@ -224,17 +224,17 @@ function AppDetailPage() {
             within itself instead of overflowing the page */}
         <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="general">General</TabsTrigger>
-          {!published && <TabsTrigger value="branding">Branding</TabsTrigger>}
+          {!external && <TabsTrigger value="branding">Branding</TabsTrigger>}
           <TabsTrigger value="store">Store</TabsTrigger>
-          {!published && <TabsTrigger value="environment">Environment</TabsTrigger>}
-          {!published && <TabsTrigger value="setup">Setup</TabsTrigger>}
-          {!published && <TabsTrigger value="addons">Addons</TabsTrigger>}
+          {!external && <TabsTrigger value="environment">Environment</TabsTrigger>}
+          {!external && <TabsTrigger value="setup">Setup</TabsTrigger>}
+          {!external && <TabsTrigger value="addons">Addons</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="general">
           <AppForm
             initial={initial}
-            published={published}
+            external={external}
             submitting={updateM.isPending}
             submitLabel="Save changes"
             onSubmit={(v) => updateM.mutate(patchFrom(v))}
@@ -282,7 +282,7 @@ function AppDetailPage() {
         </TabsContent>
 
         <TabsContent value="store">
-          <StoreListingTab appId={id} storeIds={storeIds} published={published} />
+          <StoreListingTab appId={id} storeIds={storeIds} external={external} />
         </TabsContent>
 
         <TabsContent value="environment">

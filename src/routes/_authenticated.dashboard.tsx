@@ -21,7 +21,7 @@ import {
 import { cancelOpenReviewSubmission, getAppStoreVersionState } from "@/lib/appstore.functions";
 import { checkAndroidKeystoreSecrets, checkIosSecrets } from "@/lib/capacitor.functions";
 import { listApps } from "@/lib/apps.functions";
-import { hasRepo } from "@/lib/app-kind";
+import { isWebGame } from "@/lib/app-kind";
 import { DEFAULT_RELEASE_NOTES } from "@/lib/release-notes";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -995,11 +995,11 @@ function DashboardPage() {
     );
   }
 
-  // Games published outside the console are built and uploaded with their own
-  // tools, so only web games (built here from their repo) can be deployed.
+  // Only web games are built and deployed here; games made with another engine are
+  // built and uploaded with their own tools.
   const allApps = appsQ.data?.apps ?? [];
-  const apps = allApps.filter(hasRepo);
-  const publishedElsewhere = allApps.filter((a) => !hasRepo(a) && a.is_active);
+  const apps = allApps.filter(isWebGame);
+  const otherGames = allApps.filter((a) => !isWebGame(a) && a.is_active);
   const selected = apps.find((a) => a.id === selectedId);
 
   if (appsQ.isLoading) {
@@ -1056,12 +1056,12 @@ function DashboardPage() {
         <div className="rounded-md border border-dashed border-border bg-card p-8 text-center">
           <Boxes className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">Select a project to see the deploy panel.</p>
-          {publishedElsewhere.length > 0 && (
+          {otherGames.length > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
-              {publishedElsewhere.map((a) => a.name).join(", ")}{" "}
-              {publishedElsewhere.length === 1 ? "is" : "are"} published outside the console, so{" "}
-              {publishedElsewhere.length === 1 ? "it isn't" : "they aren't"} deployed from here.
-              Their store pages are in Apps → the game → Store.
+              {otherGames.map((a) => a.name).join(", ")}{" "}
+              {otherGames.length === 1 ? "isn't a web game, so it isn't" : "aren't web games, so they aren't"}{" "}
+              deployed from here: new versions are built and uploaded with their own tools (Unity,
+              Xcode, Play Console, Steamworks). Their store pages are in Apps → the game → Store.
             </p>
           )}
         </div>

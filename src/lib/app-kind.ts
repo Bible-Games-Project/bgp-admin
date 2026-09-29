@@ -1,15 +1,17 @@
 /**
- * Two kinds of app live in the console:
+ * Two kinds of game live in the console:
  *
- * - Web games the console builds from their GitHub repo (Capacitor, deploy
- *   workflow, preview, addons). They ship to both stores under one bundle ID,
- *   because Capacitor uses one app ID for iOS and Android.
- * - Games published outside the console (a Unity or RPG Maker game uploaded by
- *   hand, like The Lost Sheep). They have no repo here: the console only manages
- *   their store presence. Their IDs can differ per store, so bundle_id is their
- *   iOS bundle ID and android_package_name their Google Play package name.
+ * - Web games, which the console builds and deploys from their GitHub repo
+ *   (Capacitor, deploy workflow, preview, addons). They ship to both stores under
+ *   one bundle ID, because Capacitor uses one app ID for iOS and Android.
+ * - Games made with another engine (Unity, RPG Maker…, like The Lost Sheep).
+ *   Their code lives in repos of its own, but they are built and uploaded with
+ *   their own tools, so the console keeps no repo for them (github_repo is null)
+ *   and only manages their store pages. Their IDs can differ per store, so
+ *   bundle_id is their iOS bundle ID and android_package_name their Google Play
+ *   package name.
  *
- * Any app can also be on Steam (steam_app_id).
+ * Any game can also be on Steam (steam_app_id).
  */
 
 type RepoFields = { github_owner?: string | null; github_repo?: string | null };
@@ -20,18 +22,19 @@ type StoreFields = RepoFields & {
   steam_app_id?: number | null;
 };
 
-export function hasRepo<T extends RepoFields>(
+/** A web game: the console builds and deploys it from this repo. */
+export function isWebGame<T extends RepoFields>(
   app: T,
 ): app is T & { github_owner: string; github_repo: string } {
   return Boolean(app.github_owner && app.github_repo);
 }
 
-export const NO_REPO_MESSAGE =
-  "This app is published outside the console, so it has no GitHub repo to build or configure. Only its store listings are managed here.";
+export const NOT_A_WEB_GAME_MESSAGE =
+  "This isn't a web game, so the console doesn't build or configure it. Only its store pages are managed here.";
 
-/** For server functions that act on the repo: fails clearly instead of calling GitHub with an empty repo. */
-export function requireRepo<T extends RepoFields>(app: T) {
-  if (!hasRepo(app)) throw new Error(NO_REPO_MESSAGE);
+/** For server functions that act on a web game's repo: fails clearly instead of calling GitHub with no repo. */
+export function requireWebGame<T extends RepoFields>(app: T) {
+  if (!isWebGame(app)) throw new Error(NOT_A_WEB_GAME_MESSAGE);
   return app;
 }
 
@@ -48,7 +51,7 @@ export function appStoreIds(app: StoreFields): AppStoreIds {
   const bundleId = app.bundle_id?.trim() || null;
   return {
     ios: bundleId,
-    android: app.android_package_name?.trim() || (hasRepo(app) ? bundleId : null),
+    android: app.android_package_name?.trim() || (isWebGame(app) ? bundleId : null),
     steam: app.steam_app_id ?? null,
   };
 }

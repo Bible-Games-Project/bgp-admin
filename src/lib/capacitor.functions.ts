@@ -9,7 +9,7 @@ import {
   findRepoProblem,
 } from "@/lib/github.functions";
 import { assertNotSelfRepo } from "@/lib/self-repo";
-import { requireRepo } from "@/lib/app-kind";
+import { requireWebGame } from "@/lib/app-kind";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -25,8 +25,8 @@ async function loadApp(supabase: any, appId: string) {
   const { data, error } = await supabase.from("apps").select("*").eq("id", appId).maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("App not found");
-  // Everything in this file acts on the app's GitHub repo.
-  return requireRepo(data);
+  // Everything in this file acts on a web game's GitHub repo.
+  return requireWebGame(data);
 }
 
 function githubHeaders() {

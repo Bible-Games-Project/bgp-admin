@@ -5,7 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { listApps } from "@/lib/apps.functions";
-import { hasRepo } from "@/lib/app-kind";
+import { isWebGame } from "@/lib/app-kind";
 import {
   checkCapacitorStatus,
   checkAndroidSigning,
@@ -114,8 +114,8 @@ function SetupOverviewPage() {
   const syncAgentDocsFn = useServerFn(syncAgentDocs);
 
   const appsQ = useQuery({ queryKey: ["apps"], queryFn: () => listFn() });
-  // Every step here acts on a repo; games published outside the console have none.
-  const apps = (appsQ.data?.apps ?? []).filter(hasRepo);
+  // Every step here sets up a web game's repo; other games aren't built by the console.
+  const apps = (appsQ.data?.apps ?? []).filter(isWebGame);
 
   const [confirming, setConfirming] = useState<BulkStepKey | null>(null);
   const [run, setRun] = useState<{ step: BulkStepKey; status: Record<string, RunStatus> } | null>(

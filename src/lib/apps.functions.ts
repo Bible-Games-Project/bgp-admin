@@ -5,7 +5,7 @@ import { commitPreviewWorkflow, findRepoProblem, githubHeaders } from "@/lib/git
 import { setPublishTelegramSecrets, setRepoSecrets, telegramSecrets } from "@/lib/repo-secrets.server";
 import { commitAgentDocs } from "@/lib/agent-docs.server";
 import { syncAppNameToRepo } from "@/lib/app-name.server";
-import { appStoreIds, hasRepo, isOnAnyStore, type AppStoreIds } from "@/lib/app-kind";
+import { appStoreIds, isOnAnyStore, isWebGame, type AppStoreIds } from "@/lib/app-kind";
 import {
   checkAppStore,
   checkGooglePlay,
@@ -32,8 +32,8 @@ const appInputSchema = z.object({
   is_active: z.boolean().default(true),
 });
 
-// Store IDs of an app published outside the console (see app-kind.ts). The Steam
-// App ID applies to any app.
+// Store IDs of a game that isn't a web game (see app-kind.ts). The Steam App ID
+// applies to any game.
 const bundleIdFormat = z
   .string()
   .trim()
@@ -52,7 +52,7 @@ const storeIdsSchema = z.object({
   steam_app_id: steamAppIdFormat.nullable().optional(),
 });
 
-const publishedAppSchema = z.object({
+const externalGameSchema = z.object({
   // Left empty, the name is taken from the stores.
   name: z.string().trim().max(100).default(""),
   bundle_id: bundleIdFormat.nullable().optional(),
@@ -189,13 +189,13 @@ export const createApp = createServerFn({ method: "POST" })
   });
 
 /**
- * Registers a game published outside the console (a Unity or RPG Maker game
- * uploaded by hand): no repo, only its store IDs. Each ID is checked against
- * its store first, and the name and icon come from the stores.
+ * Registers a game made with another engine (Unity, RPG Maker…), which the
+ * console doesn't build: only its store IDs. Each ID is checked against its store
+ * first, and the name and icon come from the stores.
  */
-export const createPublishedApp = createServerFn({ method: "POST" })
+export const createExternalGame = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((i) => publishedAppSchema.parse(i))
+  .inputValidator((i) => externalGameSchema.parse(i))
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
 
@@ -515,9 +515,9 @@ export const updateApp = createServerFn({ method: "POST" })
     if (currentError) throw new Error(currentError.message);
     if (!current) throw new Error("App not found");
 
-    // A published app has no repo to point at, and a web app ships to Google Play
-    // under its bundle ID (Capacitor), so neither takes the other's fields.
-    const web = hasRepo(current);
+    // The console keeps no repo for a game it doesn't build, and a web game ships
+    // to Google Play under its bundle ID (Capacitor), so neither takes the other's fields.
+    const web = isWebGame(current);
     const { github_owner, github_repo, default_ref, android_package_name, ...common } = data.patch;
     const repoChanges = web ? definedOnly({ github_owner, github_repo, default_ref }) : {};
     const changes = definedOnly({
@@ -544,7 +544,7 @@ export const updateApp = createServerFn({ method: "POST" })
     const after = appStoreIds({ ...current, ...changes });
     if (!web && !isOnAnyStore(after)) {
       throw new Error(
-        "A game published outside the console needs at least one store ID: the App Store bundle ID, the Google Play package name or the Steam App ID.",
+        "Enter at least one store ID for this game: the App Store bundle ID, the Google Play package name or the Steam App ID.",
       );
     }
     const changedIds: AppStoreIds = {
@@ -572,10 +572,10 @@ export const updateApp = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
 
     // Keep the name players see on their device in sync with the one stored here.
-    // A published app's name on the device comes from its own project, not from here.
+    // A game that isn't a web game gets that name from its own project, not from here.
     const warnings = [joinWarnings(checks)].filter(Boolean) as string[];
     let nameSync: { committed: number; repo: string } | undefined;
-    if (renamed && hasRepo(row)) {
+    if (renamed && isWebGame(row)) {
       const repo = `${row.github_owner}/${row.github_repo}`;
       const { updated, failed } = await syncAppNameToRepo({
         owner: row.github_owner,

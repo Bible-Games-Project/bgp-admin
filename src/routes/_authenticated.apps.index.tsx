@@ -3,8 +3,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Plus, Boxes, Github, ImageIcon, ListChecks, Store } from "lucide-react";
-import { listApps, createApp, createAppWithRepo, createPublishedApp } from "@/lib/apps.functions";
-import { appStoreIds, hasRepo, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
+import { listApps, createApp, createAppWithRepo, createExternalGame } from "@/lib/apps.functions";
+import { appStoreIds, isWebGame, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,7 +25,7 @@ function AppsPage() {
   const listFn = useServerFn(listApps);
   const createFn = useServerFn(createApp);
   const createAppWithRepoFn = useServerFn(createAppWithRepo);
-  const createPublishedFn = useServerFn(createPublishedApp);
+  const createExternalFn = useServerFn(createExternalGame);
   const [open, setOpen] = useState(false);
 
   const q = useQuery({ queryKey: ["apps"], queryFn: () => listFn() });
@@ -61,9 +61,9 @@ function AppsPage() {
     onError: (e: Error) => toast.error(e.message, { duration: 12000 }),
   });
 
-  const createPublishedM = useMutation({
+  const createExternalM = useMutation({
     mutationFn: (v: any) =>
-      createPublishedFn({
+      createExternalFn({
         data: {
           name: v.name.trim(),
           bundle_id: v.bundle_id.trim() || null,
@@ -109,12 +109,12 @@ function AppsPage() {
               </DialogHeader>
               <AppForm
                 initial={emptyAppForm}
-                submitting={createWithRepoM.isPending || createM.isPending || createPublishedM.isPending}
+                submitting={createWithRepoM.isPending || createM.isPending || createExternalM.isPending}
                 submitLabel="Create app"
                 showCreateRepoOption
                 onSubmit={(v, meta) =>
-                  meta.mode === "published"
-                    ? createPublishedM.mutate(v)
+                  meta.mode === "external"
+                    ? createExternalM.mutate(v)
                     : meta.mode === "create"
                     ? createWithRepoM.mutate(v)
                     : createM.mutate({
@@ -169,7 +169,7 @@ function AppsPage() {
                   </span>
                 )}
               </div>
-              {hasRepo(a) ? (
+              {isWebGame(a) ? (
                 <div className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1.5 flex-wrap">
                   <Github className="h-3 w-3 shrink-0" />
                   <a
@@ -194,7 +194,7 @@ function AppsPage() {
                   {a.steam_app_id != null && <SteamLink appId={a.steam_app_id} />}
                 </div>
               ) : (
-                <PublishedStores app={a} />
+                <OtherEngineStores app={a} />
               )}
             </div>
           </Link>
@@ -204,14 +204,14 @@ function AppsPage() {
   );
 }
 
-/** Where a game published outside the console lives, instead of a repo. */
-function PublishedStores({ app }: { app: Parameters<typeof appStoreIds>[0] }) {
+/** Where a game that isn't a web game is published, in place of its repo. */
+function OtherEngineStores({ app }: { app: Parameters<typeof appStoreIds>[0] }) {
   const ids = appStoreIds(app);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   return (
     <div className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1.5 flex-wrap">
       <Store className="h-3 w-3 shrink-0" />
-      <span>published outside the console</span>
+      <span>not a web game</span>
       {ids.ios && <span>· App Store {ids.ios}</span>}
       {ids.android && (
         <a

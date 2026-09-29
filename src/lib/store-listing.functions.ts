@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { appStoreIds, hasRepo } from "@/lib/app-kind";
+import { appStoreIds, isWebGame } from "@/lib/app-kind";
 import {
   EDITABLE_STATES,
   IN_FLIGHT_STATES,
@@ -71,7 +71,7 @@ async function loadBundleId(supabase: any, appId: string): Promise<string> {
 
 const NO_BUNDLE_ID = "This app has no bundle ID yet. Set it in the General tab first.";
 
-/** A web app ships to Google Play under its bundle ID; a published one has its own package name. */
+/** A web game ships to Google Play under its bundle ID; any other game has its own package name. */
 async function loadPlayPackage(supabase: any, appId: string): Promise<string> {
   const { data, error } = await supabase.from("apps").select("*").eq("id", appId).maybeSingle();
   if (error) throw new Error(error.message);
@@ -79,7 +79,7 @@ async function loadPlayPackage(supabase: any, appId: string): Promise<string> {
   const packageName = appStoreIds(data).android;
   if (!packageName) {
     throw new Error(
-      hasRepo(data)
+      isWebGame(data)
         ? NO_BUNDLE_ID
         : "This game has no Google Play package name. Add it in the General tab.",
     );

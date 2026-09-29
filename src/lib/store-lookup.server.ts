@@ -3,8 +3,8 @@ import { PlayError, createPlayApi, withEdit } from "./google-play.server";
 import { fetchSteamItem, steamIconUrl } from "./steam.server";
 
 /**
- * Checks a store ID before an app published outside the console is registered,
- * so a typo is caught at once instead of surfacing later as an empty Store tab.
+ * Checks a store ID before a game that isn't a web game is registered, so a typo
+ * is caught at once instead of surfacing later as an empty Store tab.
  *
  * - An ID the store doesn't know throws, with where to copy the right one from.
  * - A store the console can't check (no credentials, or no permission on that

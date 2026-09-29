@@ -11,12 +11,12 @@ type StoreKey = "ios" | "play" | "steam";
 export function StoreListingTab({
   appId,
   storeIds,
-  published,
+  external,
 }: {
   appId: string;
   storeIds: AppStoreIds;
-  /** Published outside the console: its store IDs are set one by one in the General tab. */
-  published: boolean;
+  /** Not a web game: its store IDs are set one by one in the General tab. */
+  external: boolean;
 }) {
   const stores: { key: StoreKey; label: string }[] = [
     ...(storeIds.ios ? [{ key: "ios" as const, label: "App Store" }] : []),
@@ -38,7 +38,7 @@ export function StoreListingTab({
       </div>
 
       {!store ? (
-        published ? (
+        external ? (
           <Notice tone="warn" title="This game has no store ID yet.">
             Add its App Store bundle ID, Google Play package name or Steam App ID in the General
             tab.

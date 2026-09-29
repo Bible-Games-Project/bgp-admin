@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { appStoreIds, hasRepo, isOnAnyStore, requireRepo } from "./app-kind";
+import { appStoreIds, isOnAnyStore, isWebGame, requireWebGame } from "./app-kind";
 
 const webGame = {
   github_owner: "Bible-Games-Project",
@@ -22,7 +22,7 @@ describe("appStoreIds", () => {
     expect(appStoreIds({ ...webGame, steam_app_id: 2138140 }).steam).toBe(2138140);
   });
 
-  test("a published game keeps a separate ID per store", () => {
+  test("a game made with another engine keeps a separate ID per store", () => {
     expect(
       appStoreIds({
         github_owner: null,
@@ -38,13 +38,13 @@ describe("appStoreIds", () => {
     });
   });
 
-  test("a published game only on the App Store is not looked up on Google Play", () => {
+  test("such a game only on the App Store is not looked up on Google Play", () => {
     expect(
       appStoreIds({ github_owner: null, github_repo: null, bundle_id: "com.JoanSabe.TheLostSheep" }),
     ).toEqual({ ios: "com.JoanSabe.TheLostSheep", android: null, steam: null });
   });
 
-  test("a published game only on Steam has no mobile IDs", () => {
+  test("such a game only on Steam has no mobile IDs", () => {
     const ids = appStoreIds({ github_owner: null, github_repo: null, steam_app_id: 4244150 });
     expect(ids).toEqual({ ios: null, android: null, steam: 4244150 });
     expect(isOnAnyStore(ids)).toBe(true);
@@ -56,15 +56,15 @@ describe("appStoreIds", () => {
   });
 });
 
-describe("hasRepo", () => {
+describe("isWebGame", () => {
   test("needs both the owner and the repo name", () => {
-    expect(hasRepo(webGame)).toBe(true);
-    expect(hasRepo({ github_owner: "Bible-Games-Project", github_repo: null })).toBe(false);
-    expect(hasRepo({ github_owner: null, github_repo: null })).toBe(false);
+    expect(isWebGame(webGame)).toBe(true);
+    expect(isWebGame({ github_owner: "Bible-Games-Project", github_repo: null })).toBe(false);
+    expect(isWebGame({ github_owner: null, github_repo: null })).toBe(false);
   });
 
-  test("requireRepo refuses a published game with a message that says why", () => {
-    expect(() => requireRepo({ github_owner: null, github_repo: null })).toThrow(/published outside the console/);
-    expect(requireRepo(webGame)).toBe(webGame);
+  test("requireWebGame refuses any other game with a message that says why", () => {
+    expect(() => requireWebGame({ github_owner: null, github_repo: null })).toThrow(/isn't a web game/);
+    expect(requireWebGame(webGame)).toBe(webGame);
   });
 });

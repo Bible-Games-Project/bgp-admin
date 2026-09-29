@@ -38,10 +38,10 @@ export const emptyAppForm: AppFormValues = {
 };
 
 /**
- * How the app gets to the stores: a web game in a repo the console links or
- * creates, or a game published outside the console (see src/lib/app-kind.ts).
+ * A web game in a repo the console links or creates, or a game made with another
+ * engine, which the console doesn't build (see src/lib/app-kind.ts).
  */
-export type AppFormMode = "link" | "create" | "published";
+export type AppFormMode = "link" | "create" | "external";
 
 /** The Steam App ID as the server expects it, or an error to show under the field. */
 export function parseSteamAppId(raw: string): { value: number | null; error?: string } {
@@ -63,27 +63,27 @@ export function AppForm({
   onSubmit,
   onCancel,
   showCreateRepoOption = false,
-  published = false,
+  external = false,
 }: {
   initial: AppFormValues;
   submitting: boolean;
   submitLabel: string;
   onSubmit: (v: AppFormValues, meta: { mode: AppFormMode }) => void;
   onCancel?: () => void;
-  /** New-app dialog: offers linking a repo, creating one, or registering a published game. */
+  /** New-app dialog: offers linking a repo, creating one, or a game that isn't a web game. */
   showCreateRepoOption?: boolean;
-  /** Editing a game published outside the console: store IDs instead of a repo. */
-  published?: boolean;
+  /** Editing a game that isn't a web game: store IDs instead of a repo. */
+  external?: boolean;
 }) {
   const [v, setV] = useState<AppFormValues>(initial);
   const [repoError, setRepoError] = useState<string | null>(null);
   const [storeError, setStoreError] = useState<string | null>(null);
   const [steamError, setSteamError] = useState<string | null>(null);
-  const [mode, setMode] = useState<AppFormMode>(published ? "published" : "link");
+  const [mode, setMode] = useState<AppFormMode>(external ? "external" : "link");
   const [repoTouched, setRepoTouched] = useState(Boolean(initial.github_repo));
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const createRepo = showCreateRepoOption && mode === "create";
-  const isPublished = mode === "published";
+  const isExternal = mode === "external";
 
   const upd = <K extends keyof AppFormValues>(k: K, val: AppFormValues[K]) =>
     setV((s) => ({ ...s, [k]: val }));
@@ -131,13 +131,13 @@ export function AppForm({
     }
     const values = { ...v, steam_app_id: steam.value == null ? "" : String(steam.value) };
 
-    if (isPublished) {
+    if (isExternal) {
       if (!v.bundle_id.trim() && !v.android_package_name.trim() && steam.value == null) {
         setStoreError("Enter at least one of the three: where the game is published.");
         return;
       }
       setStoreError(null);
-      onSubmit(values, { mode: "published" });
+      onSubmit(values, { mode: "external" });
       return;
     }
 
@@ -191,13 +191,14 @@ export function AppForm({
           >
             <ToggleGroupItem value="link">Link existing repo</ToggleGroupItem>
             <ToggleGroupItem value="create">Create new repo</ToggleGroupItem>
-            <ToggleGroupItem value="published">Already published (no repo)</ToggleGroupItem>
+            <ToggleGroupItem value="external">Not a web game (Unity, RPG Maker…)</ToggleGroupItem>
           </ToggleGroup>
-          {isPublished && (
+          {isExternal && (
             <p className="text-[11px] text-muted-foreground">
-              For a game made outside this console, like a Unity or RPG Maker game that is uploaded
-              to the stores by hand. The console shows its store pages and lets you edit the App
-              Store and Google Play ones; it doesn't build or release the game.
+              For a game made with another engine, like The Lost Sheep (Unity). Its code can be in
+              any repo, but the console doesn't build or release it: that stays in Unity, Xcode,
+              Play Console or Steamworks. Here you get its store pages, and you can edit the App
+              Store and Google Play ones.
             </p>
           )}
         </div>
@@ -206,7 +207,7 @@ export function AppForm({
       <Field
         label="App name"
         hint={
-          isPublished
+          isExternal
             ? showCreateRepoOption
               ? "How the game is called in this console. Leave it empty to use the name it has in the stores."
               : "How the game is called in this console. The name players see is set in the game's own project and in the Store tab."
@@ -220,13 +221,13 @@ export function AppForm({
         <Input
           value={v.name}
           onChange={(e) => handleNameChange(e.target.value)}
-          placeholder={isPublished ? "The Lost Sheep" : "Eden's Choice: Chronicles"}
+          placeholder={isExternal ? "The Lost Sheep" : "Eden's Choice: Chronicles"}
           maxLength={100}
-          required={!(isPublished && showCreateRepoOption)}
+          required={!(isExternal && showCreateRepoOption)}
         />
       </Field>
 
-      {isPublished ? (
+      {isExternal ? (
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field
@@ -372,7 +373,7 @@ export function AppForm({
 
       <div className="flex gap-2">
         <Button type="submit" disabled={submitting}>
-          {submitting ? (isPublished && showCreateRepoOption ? "Checking the stores…" : "Saving…") : submitLabel}
+          {submitting ? (isExternal && showCreateRepoOption ? "Checking the stores…" : "Saving…") : submitLabel}
         </Button>
         {onCancel && (
           <Button type="button" variant="ghost" onClick={onCancel}>
