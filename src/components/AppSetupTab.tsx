@@ -674,8 +674,8 @@ export function AppSetupTab({
               <p className="font-medium">Complete this before the first Release to Production.</p>
               <p className="text-muted-foreground mt-1">
                 Uploading builds is automated; creating the app in each store is not. Once it
-                exists, fill in its name, description, keywords, privacy policy URL and languages in
-                the{" "}
+                exists, fill in its name, description, screenshots, keywords, privacy policy URL and
+                languages in the{" "}
                 <Link
                   to="/apps/$id"
                   params={{ id: appId }}
@@ -684,11 +684,10 @@ export function AppSetupTab({
                 >
                   Store tab
                 </Link>
-                . The rest is done in each store&apos;s own console: screenshots, category, age
-                rating and App Privacy in App Store Connect; the content rating, data safety form,
-                target audience and a closed test in Play Console. Until all of that is in place the
-                production release fails at the submission step. Every release after that is fully
-                automatic.
+                . The rest is done in each store&apos;s own console: category, age rating and App
+                Privacy in App Store Connect; the content rating, data safety form, target audience
+                and a closed test in Play Console. Until all of that is in place the production
+                release fails at the submission step. Every release after that is fully automatic.
               </p>
             </div>
             <div className="rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground space-y-2.5">

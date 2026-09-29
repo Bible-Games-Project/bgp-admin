@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -10,13 +11,23 @@ import {
   versionStateOf,
   type AscApi,
 } from "./asc.server";
-import { PlayError, createPlayApi, withEdit, type PlayApi } from "./google-play.server";
+import {
+  PlayError,
+  commitEdit,
+  createPlayApi,
+  openEdit,
+  withEdit,
+  type PlayApi,
+} from "./google-play.server";
 import {
   ASC_INFO_FIELDS,
+  ASC_MAX_SCREENSHOTS,
+  ASC_UPLOAD_SLOTS,
   ASC_LIMITS,
   ASC_LOCALES,
   ASC_TEXT_FIELDS,
   PLAY_DETAIL_FIELDS,
+  PLAY_IMAGE_RULES,
   PLAY_IMAGE_TYPES,
   PLAY_LANGUAGES,
   PLAY_LIMITS,
@@ -32,6 +43,7 @@ import {
   type PlayDetails,
   type PlayFields,
   type ScreenshotGroup,
+  type StoreImage,
 } from "./store-listing";
 
 async function assertAdmin(supabase: any, userId: string) {
@@ -517,6 +529,37 @@ export const removeAppStoreLocale = createServerFn({ method: "POST" })
     };
   });
 
+type ScreenshotSet = { id: string; type: string; shots: any[] };
+
+async function readScreenshotSets(api: AscApi, localizationId: string): Promise<ScreenshotSet[]> {
+  const sets =
+    (await api.get(`/v1/appStoreVersionLocalizations/${localizationId}/appScreenshotSets?limit=50`))
+      .data ?? [];
+  return Promise.all(
+    sets.map(async (set: any) => ({
+      id: set.id,
+      type: set.attributes.screenshotDisplayType as string,
+      // Apple returns them in their display order.
+      shots: (await api.get(`/v1/appScreenshotSets/${set.id}/appScreenshots?limit=10`)).data ?? [],
+    })),
+  );
+}
+
+function toStoreImage(shot: any): StoreImage {
+  const delivery = shot.attributes?.assetDeliveryState;
+  const failed = delivery?.state === "FAILED";
+  const done = delivery?.state === "COMPLETE";
+  return {
+    id: shot.id,
+    url: done || !delivery ? ascThumbnailUrl(shot.attributes?.imageAsset) : null,
+    state: failed ? "failed" : done || !delivery ? undefined : "processing",
+    error: failed
+      ? (delivery.errors ?? []).map((e: any) => e.description ?? e.code).join(" ") ||
+        "Apple could not process this image."
+      : undefined,
+  };
+}
+
 export const getAppStoreScreenshots = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input) =>
@@ -537,29 +580,169 @@ export const getAppStoreScreenshots = createServerFn({ method: "POST" })
       (l) => l.attributes.locale === data.locale,
     );
     if (!loc) return { groups: [] };
-    const sets =
-      (await api.get(`/v1/appStoreVersionLocalizations/${loc.id}/appScreenshotSets?limit=50`))
-        .data ?? [];
-    const groups = await Promise.all(
-      sets.map(async (set: any): Promise<ScreenshotGroup> => {
-        const shots =
-          (await api.get(`/v1/appScreenshotSets/${set.id}/appScreenshots?limit=10`)).data ?? [];
-        const type = set.attributes.screenshotDisplayType as string;
-        return {
-          key: type,
-          label: ascDisplayTypeLabel(type),
-          images: shots.map((s: any) => ({
-            id: s.id,
-            url: ascThumbnailUrl(s.attributes?.imageAsset),
-          })),
-        };
-      }),
-    );
+    const sets = await readScreenshotSets(api, loc.id);
     return {
-      groups: groups
-        .filter((g) => g.images.length)
+      groups: sets
+        .filter((set) => set.shots.length)
+        .map((set) => ({
+          key: set.type,
+          label: ascDisplayTypeLabel(set.type),
+          images: set.shots.map(toStoreImage),
+        }))
         .sort((a, b) => ascDisplayTypeRank(a.key) - ascDisplayTypeRank(b.key)),
     };
+  });
+
+/** The version being prepared and its localization for `locale`; screenshots change only there. */
+async function editableLocalization(api: AscApi, ctx: AscContext, locale: string) {
+  const version = versionForView(ctx, "next");
+  const loc = (await listVersionLocalizations(api, version)).find(
+    (l) => l.attributes.locale === locale,
+  );
+  if (!loc) throw new Error(`${localeLabel(locale)} is not on version ${version.versionString}.`);
+  return { version, loc };
+}
+
+async function ascContextFor(supabase: any, appId: string) {
+  const bundleId = await loadBundleId(supabase, appId);
+  const api = await requireAscApi();
+  const ctx = await loadAscContext(api, bundleId);
+  if (!ctx) throw new Error(`No app in App Store Connect has the bundle ID ${bundleId}.`);
+  return { api, ctx };
+}
+
+const screenshotSlot = z.enum(ASC_UPLOAD_SLOTS.map((s) => s.type) as [string, ...string[]]);
+
+export const uploadAppStoreScreenshot = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        appId: z.string().uuid(),
+        locale: localeCode,
+        displayType: screenshotSlot,
+        fileName: z.string().regex(/^[\w.-]{1,100}\.(png|jpg)$/),
+        // About 8 MB of image once decoded.
+        dataBase64: z.string().min(1).max(11_500_000),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { api, ctx } = await ascContextFor(context.supabase, data.appId);
+    const { loc } = await editableLocalization(api, ctx, data.locale);
+
+    let set = (await readScreenshotSets(api, loc.id)).find((s) => s.type === data.displayType);
+    if (!set) {
+      const created = await api.post("/v1/appScreenshotSets", {
+        data: {
+          type: "appScreenshotSets",
+          attributes: { screenshotDisplayType: data.displayType },
+          relationships: {
+            appStoreVersionLocalization: {
+              data: { type: "appStoreVersionLocalizations", id: loc.id },
+            },
+          },
+        },
+      });
+      set = { id: created.data.id, type: data.displayType, shots: [] };
+    }
+    if (set.shots.length >= ASC_MAX_SCREENSHOTS) {
+      throw new Error(
+        `${ascDisplayTypeLabel(data.displayType)} already has ${ASC_MAX_SCREENSHOTS} screenshots, Apple's maximum. Remove one first.`,
+      );
+    }
+
+    const bytes = Uint8Array.from(atob(data.dataBase64), (c) => c.charCodeAt(0));
+    // Apple's upload is three steps: reserve the asset, PUT the bytes to the URLs it
+    // hands back, then confirm with the file's MD5 so it can start processing.
+    const reserved = await api.post("/v1/appScreenshots", {
+      data: {
+        type: "appScreenshots",
+        attributes: { fileName: data.fileName, fileSize: bytes.length },
+        relationships: { appScreenshotSet: { data: { type: "appScreenshotSets", id: set.id } } },
+      },
+    });
+    const screenshotId = reserved.data.id as string;
+    try {
+      for (const op of reserved.data.attributes.uploadOperations ?? []) {
+        const res = await fetch(op.url, {
+          method: op.method,
+          headers: Object.fromEntries((op.requestHeaders ?? []).map((h: any) => [h.name, h.value])),
+          body: bytes.subarray(op.offset, op.offset + op.length),
+        });
+        if (!res.ok) throw new Error(`Apple refused the image upload (${res.status}).`);
+      }
+      await api.patch(`/v1/appScreenshots/${screenshotId}`, {
+        data: {
+          type: "appScreenshots",
+          id: screenshotId,
+          attributes: {
+            uploaded: true,
+            sourceFileChecksum: createHash("md5").update(bytes).digest("hex"),
+          },
+        },
+      });
+    } catch (err) {
+      // Don't leave an empty placeholder in the set.
+      await api.delete(`/v1/appScreenshots/${screenshotId}`).catch(() => {});
+      throw err;
+    }
+    return { message: "Uploaded. Apple takes a minute to process it." };
+  });
+
+/** Finds the set holding `screenshotId` on the version being prepared, or throws. */
+async function setHolding(api: AscApi, localizationId: string, screenshotId: string) {
+  const set = (await readScreenshotSets(api, localizationId)).find((s) =>
+    s.shots.some((shot) => shot.id === screenshotId),
+  );
+  if (!set) throw new Error("That screenshot is no longer on this version. Refresh the page.");
+  return set;
+}
+
+export const deleteAppStoreScreenshot = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({ appId: z.string().uuid(), locale: localeCode, screenshotId: z.string().min(1) })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { api, ctx } = await ascContextFor(context.supabase, data.appId);
+    const { loc } = await editableLocalization(api, ctx, data.locale);
+    // Only ever delete a screenshot that belongs to this app's version and language.
+    await setHolding(api, loc.id, data.screenshotId);
+    await api.delete(`/v1/appScreenshots/${data.screenshotId}`);
+    return { message: "Screenshot removed." };
+  });
+
+export const moveAppStoreScreenshot = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        appId: z.string().uuid(),
+        locale: localeCode,
+        screenshotId: z.string().min(1),
+        direction: z.enum(["earlier", "later"]),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { api, ctx } = await ascContextFor(context.supabase, data.appId);
+    const { loc } = await editableLocalization(api, ctx, data.locale);
+    const set = await setHolding(api, loc.id, data.screenshotId);
+    const ids = set.shots.map((shot) => shot.id as string);
+    const from = ids.indexOf(data.screenshotId);
+    const to = data.direction === "earlier" ? from - 1 : from + 1;
+    if (to < 0 || to >= ids.length) return { message: "Already there." };
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    await api.patch(`/v1/appScreenshotSets/${set.id}/relationships/appScreenshots`, {
+      data: ids.map((id) => ({ type: "appScreenshots", id })),
+    });
+    return { message: "Order saved." };
   });
 
 /* ------------------------------------------------------------------------------------ */
@@ -798,4 +981,108 @@ export const removePlayLanguage = createServerFn({ method: "POST" })
     } catch (err) {
       throw new Error(describePlayError(err, play, packageName));
     }
+  });
+
+// Image changes on Play are batched in one edit the browser drives: open it, apply each
+// deletion and upload in its own call (images are too big to send together), then
+// commit once, so Google reviews the whole batch together.
+
+const playImageType = z.enum(PLAY_IMAGE_TYPES.map(([t]) => t) as [string, ...string[]]);
+const playEditId = z.string().regex(/^[\w-]{1,100}$/);
+
+function tagChange(err: unknown) {
+  if (err instanceof PlayError) err.stage = "change";
+  return err;
+}
+
+export const startPlayImageEdit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ appId: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { packageName, api } = await openPlay(context.supabase, data.appId);
+    const play = requirePlay(api);
+    try {
+      const editPath = await openEdit(play);
+      return { editId: editPath.replace("/edits/", "") };
+    } catch (err) {
+      throw new Error(describePlayError(err, play, packageName));
+    }
+  });
+
+export const changePlayImage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        appId: z.string().uuid(),
+        editId: playEditId,
+        language: localeCode,
+        imageType: playImageType,
+        change: z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("delete"), imageId: z.string().regex(/^[\w-]{1,200}$/) }),
+          z.object({
+            kind: z.literal("upload"),
+            contentType: z.enum(["image/png", "image/jpeg"]),
+            // About 8 MB of image once decoded.
+            dataBase64: z.string().min(1).max(11_500_000),
+          }),
+        ]),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { packageName, api } = await openPlay(context.supabase, data.appId);
+    const play = requirePlay(api);
+    const path = `/edits/${data.editId}/listings/${data.language}/${data.imageType}`;
+    try {
+      if (data.change.kind === "delete") {
+        await play.call("DELETE", `${path}/${data.change.imageId}`);
+      } else {
+        if (PLAY_IMAGE_RULES[data.imageType]?.png && data.change.contentType !== "image/png") {
+          throw new Error("Google Play needs the icon as a PNG.");
+        }
+        const bytes = Uint8Array.from(atob(data.change.dataBase64), (c) => c.charCodeAt(0));
+        await play.upload(path, bytes, data.change.contentType);
+      }
+      return { ok: true };
+    } catch (err) {
+      throw new Error(describePlayError(tagChange(err), play, packageName));
+    }
+  });
+
+export const commitPlayImageEdit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z.object({ appId: z.string().uuid(), editId: playEditId }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { packageName, api } = await openPlay(context.supabase, data.appId);
+    const play = requirePlay(api);
+    const editPath = `/edits/${data.editId}`;
+    try {
+      const needsManualSend = await commitEdit(play, editPath);
+      return {
+        message: `Graphics sent. ${needsManualSend ? MANUAL_SEND_NOTE : REVIEW_NOTE}`,
+      };
+    } catch (err) {
+      await play.call("DELETE", editPath).catch(() => {});
+      throw new Error(describePlayError(tagChange(err), play, packageName));
+    }
+  });
+
+export const discardPlayImageEdit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z.object({ appId: z.string().uuid(), editId: playEditId }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { api } = await openPlay(context.supabase, data.appId);
+    await requirePlay(api)
+      .call("DELETE", `/edits/${data.editId}`)
+      .catch(() => {});
+    return { ok: true };
   });

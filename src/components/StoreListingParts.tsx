@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { charCount, localeLabel, sortByLabel, type ScreenshotGroup } from "@/lib/store-listing";
+import { charCount, localeLabel, sortByLabel } from "@/lib/store-listing";
 
 /** An input or textarea with the store's character limit counted live. */
 export function LimitedField({
@@ -188,61 +188,6 @@ export function AddLanguageDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-export function ScreenshotStrip({
-  groups,
-  loading,
-  error,
-  empty,
-}: {
-  groups: ScreenshotGroup[] | undefined;
-  loading: boolean;
-  error: Error | null;
-  empty: ReactNode;
-}) {
-  if (loading) {
-    return (
-      <p className="text-xs text-muted-foreground flex items-center gap-2">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading images…
-      </p>
-    );
-  }
-  if (error) return <p className="text-xs text-destructive">{error.message}</p>;
-  if (!groups?.length) return <p className="text-xs text-muted-foreground">{empty}</p>;
-  return (
-    <div className="space-y-4">
-      {groups.map((g) => (
-        <div key={g.key}>
-          <p className="text-xs text-muted-foreground mb-1.5">
-            {g.label} · {g.images.length || "none"}
-          </p>
-          {g.images.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {g.images.map((img) =>
-                img.url ? (
-                  <img
-                    key={img.id}
-                    src={img.url}
-                    alt=""
-                    loading="lazy"
-                    className="h-40 w-auto shrink-0 rounded border border-border bg-muted object-contain"
-                  />
-                ) : (
-                  <div
-                    key={img.id}
-                    className="h-40 w-20 shrink-0 rounded border border-dashed border-border grid place-items-center text-[10px] text-muted-foreground"
-                  >
-                    Processing
-                  </div>
-                ),
-              )}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
   );
 }
 

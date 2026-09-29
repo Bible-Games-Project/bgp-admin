@@ -3,12 +3,14 @@ import {
   ASC_LIMITS,
   ASC_LOCALES,
   PLAY_LANGUAGES,
+  ascSizeProblem,
   ascThumbnailUrl,
   changedFields,
   charCount,
   localeLabel,
   nextVersionString,
   overLimit,
+  playSizeProblem,
 } from "./store-listing";
 import { describeAppleError } from "./asc.server";
 
@@ -111,5 +113,42 @@ describe("describeAppleError", () => {
 
   test("falls back to the raw text when it is not JSON", () => {
     expect(describeAppleError("Bad Gateway")).toBe("Bad Gateway");
+  });
+});
+
+describe("ascSizeProblem", () => {
+  test("accepts Apple's 6.9-inch sizes, portrait and landscape", () => {
+    expect(ascSizeProblem("APP_IPHONE_67", 1290, 2796)).toBeNull();
+    expect(ascSizeProblem("APP_IPHONE_67", 2868, 1320)).toBeNull();
+  });
+
+  test("says which sizes fit when one doesn't", () => {
+    const problem = ascSizeProblem("APP_IPHONE_67", 1080, 1920);
+    expect(problem).toContain("1080×1920");
+    expect(problem).toContain("1320×2868");
+  });
+
+  test("refuses slots it can't upload to", () => {
+    expect(ascSizeProblem("APP_WATCH_ULTRA", 410, 502)).not.toBeNull();
+  });
+});
+
+describe("playSizeProblem", () => {
+  test("needs the icon at exactly 512×512", () => {
+    expect(playSizeProblem("icon", 512, 512)).toBeNull();
+    expect(playSizeProblem("icon", 1024, 1024)).toContain("512×512");
+  });
+
+  test("accepts a 9:16 phone screenshot", () => {
+    expect(playSizeProblem("phoneScreenshots", 1080, 1920)).toBeNull();
+  });
+
+  test("refuses a screenshot more than twice as tall as it is wide", () => {
+    expect(playSizeProblem("phoneScreenshots", 1080, 2400)).toContain("too tall");
+  });
+
+  test("refuses sides under 320 or over 3840 px", () => {
+    expect(playSizeProblem("phoneScreenshots", 300, 500)).toContain("too small");
+    expect(playSizeProblem("tenInchScreenshots", 2000, 4000)).toContain("too big");
   });
 });

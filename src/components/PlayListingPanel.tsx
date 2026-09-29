@@ -15,7 +15,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  getPlayImages,
   getPlayListing,
   removePlayLanguage,
   savePlayDetails,
@@ -31,13 +30,13 @@ import {
   type PlayFields,
   type PlayTextField,
 } from "@/lib/store-listing";
+import { PlayGraphicsEditor } from "@/components/StoreImagesEditor";
 import {
   AddLanguageDialog,
   LanguageSelect,
   LimitedField,
   Notice,
   RefreshButton,
-  ScreenshotStrip,
 } from "@/components/StoreListingParts";
 
 const FIELDS: {
@@ -69,7 +68,6 @@ const EMPTY_FIELDS: PlayFields = {
 export function PlayListingPanel({ appId }: { appId: string }) {
   const qc = useQueryClient();
   const getFn = useServerFn(getPlayListing);
-  const imagesFn = useServerFn(getPlayImages);
   const saveFn = useServerFn(savePlayListing);
   const saveDetailsFn = useServerFn(savePlayDetails);
   const removeFn = useServerFn(removePlayLanguage);
@@ -114,14 +112,6 @@ export function PlayListingPanel({ appId }: { appId: string }) {
       const { [code]: _, ...rest } = d;
       return rest;
     });
-
-  const imagesQ = useQuery({
-    queryKey: ["store-images", "play", appId, selected],
-    queryFn: () => imagesFn({ data: { appId, language: selected! } }),
-    enabled: !!selected && !isNew && !listing?.error,
-    refetchOnWindowFocus: false,
-    staleTime: 60_000,
-  });
 
   const saveM = useMutation({
     mutationFn: () =>
@@ -333,16 +323,7 @@ export function PlayListingPanel({ appId }: { appId: string }) {
           {!isNew && (
             <div className="space-y-2 pt-2">
               <h3 className="text-sm font-medium">Graphics · {localeLabel(selected)}</h3>
-              <ScreenshotStrip
-                groups={imagesQ.data?.groups}
-                loading={imagesQ.isLoading}
-                error={imagesQ.error as Error | null}
-                empty="No graphics for this language."
-              />
-              <p className="text-xs text-muted-foreground">
-                To change the icon, feature graphic or screenshots, use Play Console → Grow users →
-                Store presence → Main store listing.
-              </p>
+              <PlayGraphicsEditor appId={appId} language={selected} />
             </div>
           )}
         </>

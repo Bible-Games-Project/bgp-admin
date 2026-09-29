@@ -741,8 +741,7 @@ function DeployPanel({
                       depends on it.
                     </li>
                     <li>
-                      If it is the store listing, fix the texts (name, description, keywords) in
-                      this app&apos;s{" "}
+                      If it is the store listing, fix the texts or screenshots in this app&apos;s{" "}
                       <Link
                         to="/apps/$id"
                         params={{ id: appId }}
@@ -751,8 +750,7 @@ function DeployPanel({
                       >
                         Store tab
                       </Link>
-                      , and screenshots, privacy or age rating in App Store Connect. No new build is
-                      involved.
+                      , and privacy or age rating in App Store Connect. No new build is involved.
                     </li>
                     <li>
                       If it is the app itself, fix the code, merge to {ref}, then use{" "}
@@ -805,7 +803,7 @@ function DeployPanel({
               </p>
               <p className="text-muted-foreground mt-1">
                 Apple and Google refuse a first release with an incomplete listing. Fill in the
-                name, description, keywords and languages in the app&apos;s{" "}
+                name, description, screenshots and languages in the app&apos;s{" "}
                 <Link
                   to="/apps/$id"
                   params={{ id: appId }}
@@ -814,9 +812,9 @@ function DeployPanel({
                 >
                   Store tab
                 </Link>
-                ; screenshots, category, age rating and App Privacy in App Store Connect; and the
-                content rating, data safety form and a closed test in Play Console. Once the listing
-                is complete, every later release is fully automatic.
+                ; category, age rating and App Privacy in App Store Connect; and the content rating,
+                data safety form and a closed test in Play Console. Once the listing is complete,
+                every later release is fully automatic.
               </p>
             </div>
           </div>

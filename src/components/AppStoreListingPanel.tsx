@@ -19,7 +19,6 @@ import {
 import {
   addAppStoreLocale,
   getAppStoreListing,
-  getAppStoreScreenshots,
   prepareNextAppStoreVersion,
   removeAppStoreLocale,
   saveAppStoreLocale,
@@ -35,13 +34,13 @@ import {
   type AscFields,
   type AscTextField,
 } from "@/lib/store-listing";
+import { AscScreenshotsEditor } from "@/components/StoreImagesEditor";
 import {
   AddLanguageDialog,
   LanguageSelect,
   LimitedField,
   Notice,
   RefreshButton,
-  ScreenshotStrip,
 } from "@/components/StoreListingParts";
 
 const FIELDS: {
@@ -85,7 +84,6 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
   const prepareFn = useServerFn(prepareNextAppStoreVersion);
   const addFn = useServerFn(addAppStoreLocale);
   const removeFn = useServerFn(removeAppStoreLocale);
-  const screenshotsFn = useServerFn(getAppStoreScreenshots);
 
   const queryKey = ["store-listing", "ios", appId];
   const q = useQuery({
@@ -122,14 +120,6 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
       const { [key]: _, ...rest } = d;
       return rest;
     });
-
-  const screenshotsQ = useQuery({
-    queryKey: ["store-images", "ios", appId, view?.kind, current?.locale],
-    queryFn: () => screenshotsFn({ data: { appId, view: view!.kind, locale: current!.locale } }),
-    enabled: !!view && !!current,
-    refetchOnWindowFocus: false,
-    staleTime: 60_000,
-  });
 
   const saveM = useMutation({
     mutationFn: () =>
@@ -366,19 +356,19 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
 
           <div className="space-y-2 pt-2">
             <h3 className="text-sm font-medium">Screenshots · {localeLabel(current.locale)}</h3>
-            <ScreenshotStrip
-              groups={screenshotsQ.data?.groups}
-              loading={screenshotsQ.isLoading}
-              error={screenshotsQ.error as Error | null}
-              empty="No screenshots for this language on this version."
+            <AscScreenshotsEditor
+              appId={appId}
+              viewKind={view.kind}
+              locale={current.locale}
+              editable={view.versionEditable}
+              readOnlyNote={
+                view.kind === "next"
+                  ? "Apple is reviewing this version; its screenshots can change once the review ends."
+                  : next?.versionEditable
+                    ? `The live version's screenshots can't change. Edit them on version ${next.versionString}, which goes live with the next release.`
+                    : "The live version's screenshots can't change. Prepare the next version above to change them."
+              }
             />
-            <p className="text-xs text-muted-foreground">
-              To add, remove or reorder screenshots, use{" "}
-              <a href={ascUrl} target="_blank" rel="noreferrer" className="underline">
-                App Store Connect
-              </a>{" "}
-              → the version → the language.
-            </p>
           </div>
         </>
       )}

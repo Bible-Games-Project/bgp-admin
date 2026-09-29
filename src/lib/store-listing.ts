@@ -246,7 +246,7 @@ export function ascThumbnailUrl(
 // App Store screenshot sets by device, most important first. Anything Apple returns that
 // is not listed here still shows, under its raw name, after these.
 const ASC_DISPLAY_TYPES: [string, string][] = [
-  ["APP_IPHONE_67", 'iPhone 6.7" / 6.9"'],
+  ["APP_IPHONE_67", 'iPhone 6.9"'],
   ["APP_IPHONE_65", 'iPhone 6.5"'],
   ["APP_IPHONE_61", 'iPhone 6.1"'],
   ["APP_IPHONE_58", 'iPhone 5.8"'],
@@ -277,9 +277,96 @@ export const PLAY_IMAGE_TYPES: [string, string][] = [
   ["tenInchScreenshots", '10" tablet screenshots'],
 ];
 
+export type StoreImage = {
+  id: string;
+  /** Null while the store is still processing an upload. */
+  url: string | null;
+  /** Apple processes uploads after the fact; a failed one says why. */
+  state?: "processing" | "failed";
+  error?: string;
+};
+
 export type ScreenshotGroup = {
   key: string;
   label: string;
-  /** `url` is null while Apple is still processing an upload. */
-  images: { id: string; url: string | null }[];
+  images: StoreImage[];
 };
+
+/**
+ * App Store screenshot slots that can be uploaded to, with the portrait sizes Apple
+ * accepts (landscape is the same, swapped). The 6.9" iPhone set is the one Apple
+ * requires; it scales it down for smaller iPhones. The iPad set is only required when
+ * the app runs on iPad. 6.5" is kept for apps that already have screenshots there.
+ */
+export const ASC_UPLOAD_SLOTS: { type: string; sizes: [number, number][]; always: boolean }[] = [
+  {
+    type: "APP_IPHONE_67",
+    sizes: [
+      [1320, 2868],
+      [1290, 2796],
+      [1260, 2736],
+    ],
+    always: true,
+  },
+  {
+    type: "APP_IPHONE_65",
+    sizes: [
+      [1284, 2778],
+      [1242, 2688],
+    ],
+    always: false,
+  },
+  {
+    type: "APP_IPAD_PRO_3GEN_129",
+    sizes: [
+      [2064, 2752],
+      [2048, 2732],
+    ],
+    always: true,
+  },
+];
+
+export const ASC_MAX_SCREENSHOTS = 10;
+
+/** Why Apple would refuse this image for the slot, or null when it fits. */
+export function ascSizeProblem(type: string, width: number, height: number): string | null {
+  const slot = ASC_UPLOAD_SLOTS.find((s) => s.type === type);
+  if (!slot) return "Screenshots can't be uploaded to this slot from here.";
+  const fits = slot.sizes.some(
+    ([w, h]) => (width === w && height === h) || (width === h && height === w),
+  );
+  if (fits) return null;
+  const accepted = slot.sizes.map(([w, h]) => `${w}×${h}`).join(", ");
+  return `${width}×${height} doesn't fit ${ascDisplayTypeLabel(type)}. Apple accepts ${accepted} (or the same turned sideways).`;
+}
+
+export const PLAY_IMAGE_RULES: Record<
+  string,
+  { max: number; min?: number; exact?: [number, number]; png?: boolean }
+> = {
+  icon: { max: 1, min: 1, exact: [512, 512], png: true },
+  featureGraphic: { max: 1, min: 1, exact: [1024, 500] },
+  phoneScreenshots: { max: 8, min: 2 },
+  sevenInchScreenshots: { max: 8 },
+  tenInchScreenshots: { max: 8 },
+};
+
+/** Why Google Play would refuse this image for the slot, or null when it fits. */
+export function playSizeProblem(type: string, width: number, height: number): string | null {
+  const rule = PLAY_IMAGE_RULES[type];
+  if (!rule) return "Images can't be uploaded to this slot from here.";
+  if (rule.exact) {
+    const [w, h] = rule.exact;
+    return width === w && height === h
+      ? null
+      : `${width}×${height} doesn't fit. Google Play needs exactly ${w}×${h}.`;
+  }
+  const short = Math.min(width, height);
+  const long = Math.max(width, height);
+  if (short < 320) return `${width}×${height} is too small. Each side must be at least 320 px.`;
+  if (long > 3840) return `${width}×${height} is too big. No side may exceed 3840 px.`;
+  if (long > short * 2) {
+    return `${width}×${height} is too tall. Google Play refuses screenshots more than twice as long as they are wide.`;
+  }
+  return null;
+}

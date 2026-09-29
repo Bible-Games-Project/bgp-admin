@@ -39,11 +39,13 @@ export function StoreListingTab({
             <ToggleGroupItem value="ios">App Store</ToggleGroupItem>
             <ToggleGroupItem value="play">Google Play</ToggleGroupItem>
           </ToggleGroup>
-          {store === "ios" ? (
+          {/* Both stay mounted, so switching store never drops unsaved edits. */}
+          <div hidden={store !== "ios"}>
             <AppStoreListingPanel appId={appId} />
-          ) : (
+          </div>
+          <div hidden={store !== "play"}>
             <PlayListingPanel appId={appId} />
-          )}
+          </div>
         </>
       )}
     </div>
