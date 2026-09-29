@@ -17,7 +17,7 @@ gh run list --repo Bible-Games-Project/bgp-admin --workflow supabase-backup.yml 
 gh run download <run-id> --repo Bible-Games-Project/bgp-admin --dir backup
 age --decrypt \
   --identity <(security find-generic-password -s "Supabase bgp-admin backup key" -w) \
-  --output backup.dump backup/*.dump.age
+  --output backup.dump backup/*/*.dump.age
 ```
 
 Once it's decrypted, `backup.dump` holds password hashes and TOTP secrets in the clear. Delete it when you're done.
