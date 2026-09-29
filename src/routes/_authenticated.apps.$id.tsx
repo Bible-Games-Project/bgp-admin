@@ -9,11 +9,12 @@ import { AppAssetUpload } from "@/components/AppAssetUpload";
 import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
 import { AppSetupTab } from "@/components/AppSetupTab";
 import { AppAddonsTab } from "@/components/AppAddonsTab";
+import { StoreListingTab } from "@/components/StoreListingTab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
-const TABS = ["general", "branding", "environment", "setup", "addons"] as const;
+const TABS = ["general", "branding", "store", "environment", "setup", "addons"] as const;
 type Tab = (typeof TABS)[number];
 
 export const Route = createFileRoute("/_authenticated/apps/$id")({
@@ -140,12 +141,21 @@ function AppDetailPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue={tab ?? "general"} className="w-full mb-6">
+      {/* The open tab lives in ?tab=, so links like "Store tab" work from anywhere,
+          including from another tab of this same page. */}
+      <Tabs
+        value={tab ?? "general"}
+        onValueChange={(t) =>
+          navigate({ to: "/apps/$id", params: { id }, search: { tab: t as Tab }, replace: true })
+        }
+        className="w-full mb-6"
+      >
         {/* justify-start + internal scroll: on narrow screens the strip pans
             within itself instead of overflowing the page */}
         <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="branding">Branding</TabsTrigger>
+          <TabsTrigger value="store">Store</TabsTrigger>
           <TabsTrigger value="environment">Environment</TabsTrigger>
           <TabsTrigger value="setup">Setup</TabsTrigger>
           <TabsTrigger value="addons">Addons</TabsTrigger>
@@ -205,6 +215,10 @@ function AppDetailPage() {
               />
             </div>
           </div>
+        </TabsContent>
+
+        <TabsContent value="store">
+          <StoreListingTab appId={id} bundleId={(app as any).bundle_id ?? null} />
         </TabsContent>
 
         <TabsContent value="environment">
