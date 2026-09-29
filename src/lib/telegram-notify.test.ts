@@ -44,8 +44,25 @@ describe("notify-telegram.yml speaks about failures", () => {
   });
 
   it("has a distinct headline when a store failed", () => {
-    expect(workflow).toContain("Publish had a problem");
+    expect(workflow).toContain("had a problem");
     expect(workflow).toContain("Beta published successfully");
+  });
+
+  it("tells a production release from a beta", () => {
+    expect(workflow).toContain("github.event.inputs.production");
+    expect(workflow).toContain("Production release");
+  });
+
+  // format('{0}/actions/runs/{1}', …) dropped the owner/repo, so the link 404'd.
+  it("links the run with its owner/repo path", () => {
+    expect(workflow).toContain(
+      "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+    );
+    expect(workflow).not.toContain("'{0}/actions/runs/{1}'");
+  });
+
+  it("leaves out platforms whose job was skipped", () => {
+    expect(workflow).toMatch(/""\|skipped\) return 0/);
   });
 
   // curl --data-urlencode escapes "%" itself, so a pre-escaped %0A shows up in
