@@ -16,5 +16,5 @@ name = "bgp-admin-preview"
 # here: they're real secrets, pushed as Worker secrets from GitHub Actions
 # secrets in cloudflare-preview.yml instead.
 [vars]
-SUPABASE_URL = "https://fioplqdupisrrcbrpdrm.supabase.co"
-SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpb3BscWR1cGlzcnJjYnJwZHJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4ODgwMTMsImV4cCI6MjA5NTQ2NDAxM30.IepO5XuWfnGF2Qa7zTDEIOtMRxQpVttlWtlZIpOfE-k"
+SUPABASE_URL = "https://jolsgcmdbhpaoofjabfg.supabase.co"
+SUPABASE_PUBLISHABLE_KEY = "sb_publishable_kZYF8K2bZgoS1W3rPPdLOw_aJ87GcME"

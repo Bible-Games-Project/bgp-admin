@@ -23,7 +23,7 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
 // There the bundle is served from capacitor://localhost (iOS) or
 // https://localhost (Android), where no TanStack Start server exists, so
 // server-function RPCs must target the deployed console instead. Set
-// VITE_APP_SERVER_ORIGIN (e.g. "https://bgp-admin.lovable.app") when building
+// VITE_APP_SERVER_ORIGIN (e.g. "https://bgp-admin-preview.biblegamesproject.workers.dev") when building
 // the app bundle; the web build is unaffected because the rewrite only kicks
 // in inside a native WebView. The server side of this lives in
 // lib/cors-middleware.ts.

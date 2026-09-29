@@ -27,6 +27,18 @@ jobs:
       - name: Build
         run: bun run build
 
+      # Applies any new file in supabase/migrations to the console's own Supabase
+      # project before the new code goes live (a no-op when nothing is pending).
+      # It goes through the session pooler because GitHub runners have no IPv6 and
+      # the project's direct database host is IPv6-only. The database password
+      # (SUPABASE_DB_PASSWORD) is a repo secret.
+      - name: Apply database migrations
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: >-
+          npx -y supabase@2.118.0 db push --yes
+          --db-url "postgresql://postgres.jolsgcmdbhpaoofjabfg:${SUPABASE_DB_PASSWORD}@aws-1-eu-west-3.pooler.supabase.com:5432/postgres"
+
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
@@ -40,7 +52,8 @@ jobs:
           # rejects secret names starting with "GITHUB_"; only the Worker-side name
           # (what process.env.GITHUB_PAT reads) needs to match the app's code.
           # SUPABASE_SERVICE_ROLE_KEY isn't listed here: it's unused (no code
-          # imports supabaseAdmin) and Lovable Cloud doesn't expose its value anyway.
+          # imports supabaseAdmin), and server functions query Supabase as the
+          # signed-in user so RLS applies.
           # APP_STORE_CONNECT_* and GOOGLE_PLAY_SERVICE_ACCOUNT_JSON are the same
           # org-level secrets the deploy workflows use. The console uses them to show which
           # version App Store Connect expects before a production release

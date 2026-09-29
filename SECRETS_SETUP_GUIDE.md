@@ -88,7 +88,7 @@ base64 -i file.ext
 
 | Secret | Level | Exact Location |
 |--------|-------|----------------|
-| `GITHUB_PAT` | **Environment Variable** | Lovable Cloud → bgp-admin project → Settings → Environment Variables |
+| `GITHUB_PAT` | **Worker secret** | GitHub secret `GH_PAT` in bgp-admin, pushed to the Worker as `GITHUB_PAT` by `cloudflare-preview.yml` |
 | Shared iOS secrets | **Organization Level** | GitHub → Bible-Games-Project (org) → Settings → Secrets → Actions → Organization secrets |
 | App-specific iOS secrets | **Repository Level** | GitHub → eden-choice-chronicles → Settings → Secrets → Actions → Repository secrets |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | **Organization Level** | GitHub → Bible-Games-Project (org) → Settings → Secrets → Actions → Organization secrets |
@@ -131,8 +131,8 @@ base64 -i file.ext
 
 ## 1️⃣ bgp-admin - GitHub PAT ✅
 
-**Level:** Environment Variable (Lovable Cloud)
-**Exact location:** https://lovable.dev → bgp-admin project → Settings → Environment Variables
+**Level:** Worker secret, set from a bgp-admin GitHub secret
+**Exact location:** https://github.com/Bible-Games-Project/bgp-admin/settings/secrets/actions → `GH_PAT` (GitHub rejects secret names starting with `GITHUB_`). `cloudflare-preview.yml` pushes it to the Worker as `GITHUB_PAT` on every push to main.
 
 ### Secret:
 - [x] `GITHUB_PAT` ✅
@@ -146,8 +146,7 @@ base64 -i file.ext
   - [x] **`repo`** - Full control of repositories (read/write contents, and required to create new repositories in the `Bible-Games-Project` org)
   - [x] **`workflow`** - Required to read/write `.github/workflows/*.yml` files and trigger Actions
 - [x] Token copied
-- [x] Configured in Lovable Cloud (Environment Variables → GITHUB_PAT)
-- [x] **Also configured as GitHub Secret in bgp-admin repository**: Go to https://github.com/Bible-Games-Project/bgp-admin/settings/secrets/actions → New repository secret → Name: `GITHUB_PAT`, Value: (paste token)
+- [x] **Configured as GitHub Secret in bgp-admin repository**: Go to https://github.com/Bible-Games-Project/bgp-admin/settings/secrets/actions → New repository secret → Name: `GH_PAT`, Value: (paste token)
 
 **Used for:** everything above, plus creating brand-new app repositories from `Apps → New app → Create new repo` (`POST /orgs/Bible-Games-Project/repos`).
 
@@ -657,7 +656,7 @@ base64 -i ExportOptions.plist | pbcopy
 ## 📝 Final Configuration Checklist
 
 ### bgp-admin:
-- [x] `GITHUB_PAT` configured in Lovable Cloud ✅
+- [x] `GH_PAT` configured as a bgp-admin GitHub secret (Worker secret `GITHUB_PAT`) ✅
 
 ### Organization Secrets (Bible-Games-Project):
 
@@ -694,7 +693,7 @@ base64 -i ExportOptions.plist | pbcopy
 ### Configure Secrets:
 | What to configure | Where to go | Type |
 |-------------------|-------------|------|
-| `GITHUB_PAT` | [Lovable Cloud](https://lovable.dev) → bgp-admin → Settings → Env Variables | Environment Variable |
+| `GITHUB_PAT` | [bgp-admin GitHub secrets](https://github.com/Bible-Games-Project/bgp-admin/settings/secrets/actions) → `GH_PAT` | Worker secret |
 | Shared iOS/Android secrets | [Organization Secrets](https://github.com/organizations/Bible-Games-Project/settings/secrets/actions) → **New organization secret** | Organization Secret |
 | App-specific iOS/Android secrets | [eden-choice-chronicles Secrets](https://github.com/Bible-Games-Project/eden-choice-chronicles/settings/secrets/actions) → **New repository secret** | Repository Secret |
 

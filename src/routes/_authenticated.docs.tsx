@@ -312,9 +312,11 @@ function SetupPrerequisites() {
             <div className="rounded-md bg-muted p-3">
               <div className="font-medium text-xs mb-2">Where to configure it</div>
               <p className="text-muted-foreground text-xs">
-                Lovable Cloud → bgp-admin project → Settings → Environment Variables
+                GitHub → Bible-Games-Project/bgp-admin → Settings → Secrets and variables →
+                Actions
                 <br />
-                Add: <code>GITHUB_PAT</code> = your token
+                Add: <code>GH_PAT</code> = your token. The next push to main copies it to the
+                console as <code>GITHUB_PAT</code>.
               </p>
             </div>
           </div>
