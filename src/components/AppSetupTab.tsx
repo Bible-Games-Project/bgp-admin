@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -672,11 +673,22 @@ export function AppSetupTab({
             <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
               <p className="font-medium">Complete this before the first Release to Production.</p>
               <p className="text-muted-foreground mt-1">
-                Uploading builds is automated; creating and filling a store listing is not. Until
-                screenshots, description, category, privacy policy, and age rating are in place in
-                App Store Connect — and the content rating, data safety form, and a closed test in
-                Play Console — the production release will fail at the submission step. Every
-                release after that is fully automatic.
+                Uploading builds is automated; creating the app in each store is not. Once it
+                exists, fill in its name, description, keywords, privacy policy URL and languages in
+                the{" "}
+                <Link
+                  to="/apps/$id"
+                  params={{ id: appId }}
+                  search={{ tab: "store" }}
+                  className="text-foreground underline underline-offset-2"
+                >
+                  Store tab
+                </Link>
+                . The rest is done in each store&apos;s own console: screenshots, category, age
+                rating and App Privacy in App Store Connect; the content rating, data safety form,
+                target audience and a closed test in Play Console. Until all of that is in place the
+                production release fails at the submission step. Every release after that is fully
+                automatic.
               </p>
             </div>
             <div className="rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground space-y-2.5">
@@ -718,6 +730,12 @@ export function AppSetupTab({
                     is ticked. Without it uploads still succeed and only the final commit fails,
                     with <code>The caller does not have permission</code> — testing deploys work
                     while every production release fails.
+                  </li>
+                  <li>
+                    Once for the whole account, not per app: in that user&apos;s{" "}
+                    <strong>Account permissions</strong>, tick{" "}
+                    <strong>&ldquo;Manage store presence&rdquo;</strong>. The Store tab needs it to
+                    save listing changes; without it the listing can be read but not edited.
                   </li>
                 </ol>
               </div>

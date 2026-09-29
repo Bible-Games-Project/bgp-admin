@@ -573,6 +573,8 @@ base64 -i ExportOptions.plist | pbcopy
      - ✅ Manage testing tracks and edit tester lists
      - ✅ Release to testing tracks
      - ✅ **Release to production, exclude devices, and use Play App Signing**
+   - Account permissions (once, covers every app):
+     - ✅ **Manage store presence** — lets the console's Store tab edit store listings
    - Click **"Invite user"**
 
    > ⚠️ The production checkbox is the one that gets missed. Without it the upload still

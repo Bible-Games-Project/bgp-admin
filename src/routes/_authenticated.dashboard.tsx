@@ -741,8 +741,18 @@ function DeployPanel({
                       depends on it.
                     </li>
                     <li>
-                      If it is the store listing — screenshots, description, privacy, age rating —
-                      fix it in App Store Connect. No new build is involved.
+                      If it is the store listing, fix the texts (name, description, keywords) in
+                      this app&apos;s{" "}
+                      <Link
+                        to="/apps/$id"
+                        params={{ id: appId }}
+                        search={{ tab: "store" }}
+                        className="text-foreground underline underline-offset-2"
+                      >
+                        Store tab
+                      </Link>
+                      , and screenshots, privacy or age rating in App Store Connect. No new build is
+                      involved.
                     </li>
                     <li>
                       If it is the app itself, fix the code, merge to {ref}, then use{" "}
@@ -790,13 +800,23 @@ function DeployPanel({
             )}
 
             <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
-              <p className="font-medium">First release of an app? Expect this to fail.</p>
+              <p className="font-medium">
+                First release of an app? Complete its store listing first.
+              </p>
               <p className="text-muted-foreground mt-1">
-                An app&apos;s first production release needs its store listing completed by hand:
-                screenshots, description, category, privacy policy, and age rating in App Store
-                Connect, plus the content rating, data safety form, and a closed test in Play
-                Console. Nothing here can fill those in. Once the listing is complete, every later
-                release is fully automatic.
+                Apple and Google refuse a first release with an incomplete listing. Fill in the
+                name, description, keywords and languages in the app&apos;s{" "}
+                <Link
+                  to="/apps/$id"
+                  params={{ id: appId }}
+                  search={{ tab: "store" }}
+                  className="text-foreground underline underline-offset-2"
+                >
+                  Store tab
+                </Link>
+                ; screenshots, category, age rating and App Privacy in App Store Connect; and the
+                content rating, data safety form and a closed test in Play Console. Once the listing
+                is complete, every later release is fully automatic.
               </p>
             </div>
           </div>

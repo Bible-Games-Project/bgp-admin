@@ -128,10 +128,10 @@ export function AppForm({
         label="App name"
         hint={
           createRepo
-            ? "The name under the app icon on players' phones. The repo name below is filled in from it. The store listing's name is separate: set it by hand in App Store Connect and Google Play Console."
+            ? "The name under the app icon on players' phones. The repo name below is filled in from it. The name in the stores is separate: set it in the app's Store tab once the app exists in App Store Connect and Google Play."
             : showCreateRepoOption
-            ? "The name under the app icon on players' phones. The store listing's name is separate: set it by hand in App Store Connect and Google Play Console."
-            : "The name under the app icon on players' phones. Saving a new name commits it to the app repo; players see it once a new build is released to production and they update. The store listing's name is separate: set it by hand in App Store Connect and Google Play Console."
+            ? "The name under the app icon on players' phones. The name in the stores is separate: set it in the app's Store tab once the app exists in App Store Connect and Google Play."
+            : "The name under the app icon on players' phones. Saving a new name commits it to the app repo; players see it once a new build is released to production and they update. The name in the stores is separate: set it in the Store tab."
         }
       >
         <Input
