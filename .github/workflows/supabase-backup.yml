@@ -1,0 +1,65 @@
+name: Supabase backup
+
+# The console's Supabase project (jolsgcmdbhpaoofjabfg) is on the free plan, which
+# keeps no backups we can restore. This takes a full pg_dump every night and keeps it
+# as a workflow artifact for 90 days.
+#
+# This repo is public, so anyone signed in to GitHub can download these artifacts.
+# The dump holds password hashes and the TOTP secrets in auth.mfa_factors, so it is
+# encrypted with age before it leaves the runner. Only the public key is here; the
+# private key is in Pau's macOS Keychain ("Supabase bgp-admin backup key").
+# supabase/BACKUPS.md explains how to restore.
+on:
+  schedule:
+    - cron: "43 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      # pg_dump must be at least the server's major version (17), and the runner
+      # ships PostgreSQL 16, so the client comes from the PostgreSQL apt repo.
+      - name: Install pg_dump 17 and age
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-17 age
+
+      - name: Dump, check and encrypt the database
+        id: dump
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          AGE_RECIPIENT: age1v2pq4vjr03a3w66sqe3fqg0zapz0qcmppvr3x506zezzrxgh65msrvlshk
+        # Session pooler: GitHub runners have no IPv6 and the direct host is IPv6-only.
+        run: |
+          pg_bin=/usr/lib/postgresql/17/bin
+          name="bgp-admin-db-$(date -u +%Y-%m-%dT%H%MZ)"
+          "$pg_bin/pg_dump" --format=custom --file="$RUNNER_TEMP/db.dump" \
+            "postgresql://postgres.jolsgcmdbhpaoofjabfg:${SUPABASE_DB_PASSWORD}@aws-1-eu-west-3.pooler.supabase.com:5432/postgres"
+
+          # Refuse to keep a dump that lacks the console's own data.
+          "$pg_bin/pg_restore" --list "$RUNNER_TEMP/db.dump" > "$RUNNER_TEMP/toc.txt"
+          for table in "auth users" "auth mfa_factors" "public apps" "public admins"; do
+            if ! grep -q "TABLE DATA $table " "$RUNNER_TEMP/toc.txt"; then
+              echo "::error::The dump has no data for ${table/ /.}"
+              exit 1
+            fi
+          done
+
+          mkdir "$RUNNER_TEMP/out"
+          age --recipient "$AGE_RECIPIENT" --output "$RUNNER_TEMP/out/$name.dump.age" "$RUNNER_TEMP/db.dump"
+          rm "$RUNNER_TEMP/db.dump"
+          ls -l "$RUNNER_TEMP/out"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.dump.outputs.name }}
+          path: ${{ runner.temp }}/out/${{ steps.dump.outputs.name }}.dump.age
+          retention-days: 90
+          # Encrypted data doesn't compress.
+          compression-level: 0
+          if-no-files-found: error
