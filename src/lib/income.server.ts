@@ -56,9 +56,11 @@ export async function createAppStoreReports(): Promise<AppStoreReports | null> {
   if (!keyId || !keyBase64 || !issuerId || !vendor) return null;
 
   const token = await mintToken(keyId, issuerId, decodeBase64Text(keyBase64));
-  const get = (path: string) =>
+  // Apple answers 406 to a sales report request with no Accept header. Node's fetch adds
+  // one on its own, the Worker's does not, so each call names the type it expects.
+  const get = (path: string, accept: string) =>
     fetch(`https://api.appstoreconnect.apple.com${path}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, Accept: accept },
     });
 
   const salesReport = async (
@@ -70,6 +72,7 @@ export async function createAppStoreReports(): Promise<AppStoreReports | null> {
       `/v1/salesReports?filter[frequency]=${frequency}&filter[reportType]=SALES` +
         `&filter[reportSubType]=SUMMARY&filter[vendorNumber]=${vendor}` +
         `&filter[reportDate]=${date}&filter[version]=${version}`,
+      "application/a-gzip",
     );
     if (res.ok) {
       const bytes = new Uint8Array(await res.arrayBuffer());
@@ -94,7 +97,7 @@ export async function createAppStoreReports(): Promise<AppStoreReports | null> {
   };
 
   const catalog = async (): Promise<AscCatalog> => {
-    const res = await get("/v1/apps?fields[apps]=name,bundleId,sku&limit=200");
+    const res = await get("/v1/apps?fields[apps]=name,bundleId,sku&limit=200", "application/json");
     const text = await res.text();
     if (!res.ok) {
       throw new AscError(
