@@ -139,9 +139,11 @@ jobs:
             return text ? JSON.parse(text) : {};
           }
 
+          // Apple's filter also matches longer bundle IDs that start with this one
+          // (…didacticjesusgame returns …didacticjesusgame.pro): only an exact match is the app.
           get(`/v1/apps?filter[bundleId]=${encodeURIComponent(bundleId)}`)
             .then(async (appsRes) => {
-              const app = (appsRes.data || [])[0];
+              const app = (appsRes.data || []).find((a) => a.attributes?.bundleId === bundleId);
               if (!app) {
                 throw new Error(
                   `No app found in App Store Connect for bundle id ${bundleId}. Create the app record there first, or fix bundle-identifier in .github/workflows/deploy.yml.`,
@@ -742,7 +744,8 @@ jobs:
           async function main() {
             console.log(`Looking up app by bundle id ${bundleId}...`);
             const appsRes = await api('GET', `/v1/apps?filter[bundleId]=${encodeURIComponent(bundleId)}`);
-            const app = appsRes.data && appsRes.data[0];
+            // The filter matches partially too; submitting to the wrong app must never happen.
+            const app = (appsRes.data || []).find((a) => a.attributes?.bundleId === bundleId);
             if (!app) throw new Error(`No app found in App Store Connect for bundle id ${bundleId}`);
             const appId = app.id;
             console.log(`App id: ${appId}`);
