@@ -1,5 +1,14 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Rocket, LogOut, Terminal, ShieldCheck, Boxes, BookOpen, DollarSign } from "lucide-react";
+import {
+  Rocket,
+  LogOut,
+  Terminal,
+  ShieldCheck,
+  Boxes,
+  BookOpen,
+  DollarSign,
+  Star,
+} from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -19,6 +28,7 @@ const items = [
   { title: "Deploy", url: "/dashboard", icon: Rocket },
   { title: "Apps", url: "/apps", icon: Boxes },
   { title: "Revenue", url: "/revenue", icon: DollarSign },
+  { title: "Reviews", url: "/reviews", icon: Star },
   { title: "Docs", url: "/docs", icon: BookOpen },
   { title: "Security", url: "/settings/security", icon: ShieldCheck },
 ];

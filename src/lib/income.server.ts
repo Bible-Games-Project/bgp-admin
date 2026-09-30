@@ -159,6 +159,8 @@ export type PlayReports = {
   list: (prefix: string) => Promise<string[]>;
   /** The CSV inside one of the bucket's report zips. */
   csv: (name: string) => Promise<string>;
+  /** A report that isn't zipped, such as the monthly review exports. */
+  text: (name: string) => Promise<string>;
 };
 
 /**
@@ -218,6 +220,12 @@ export async function createPlayReports(): Promise<PlayReports | null> {
         entry.method === 8 ? await inflate(entry.data, "deflate-raw") : entry.data,
       );
     },
+    text: async (name) =>
+      decodeReportText(
+        new Uint8Array(
+          await (await get(`${base}/${encodeURIComponent(name)}?alt=media`)).arrayBuffer(),
+        ),
+      ),
   };
 }
 

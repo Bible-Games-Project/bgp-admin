@@ -11,14 +11,15 @@ import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
 import { AppSetupTab } from "@/components/AppSetupTab";
 import { AppAddonsTab } from "@/components/AppAddonsTab";
 import { StoreListingTab } from "@/components/StoreListingTab";
+import { ReviewsView } from "@/components/ReviewsView";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
-const TABS = ["general", "branding", "store", "environment", "setup", "addons"] as const;
+const TABS = ["general", "branding", "store", "reviews", "environment", "setup", "addons"] as const;
 type Tab = (typeof TABS)[number];
 /** The console doesn't build a game that isn't a web game, so only these apply to it. */
-const EXTERNAL_TABS: readonly Tab[] = ["general", "store"];
+const EXTERNAL_TABS: readonly Tab[] = ["general", "store", "reviews"];
 
 export const Route = createFileRoute("/_authenticated/apps/$id")({
   // ?tab=setup opens that tab directly, e.g. from a cell of the setup overview.
@@ -226,6 +227,7 @@ function AppDetailPage() {
           <TabsTrigger value="general">General</TabsTrigger>
           {!external && <TabsTrigger value="branding">Branding</TabsTrigger>}
           <TabsTrigger value="store">Store</TabsTrigger>
+          <TabsTrigger value="reviews">Reviews</TabsTrigger>
           {!external && <TabsTrigger value="environment">Environment</TabsTrigger>}
           {!external && <TabsTrigger value="setup">Setup</TabsTrigger>}
           {!external && <TabsTrigger value="addons">Addons</TabsTrigger>}
@@ -283,6 +285,20 @@ function AppDetailPage() {
 
         <TabsContent value="store">
           <StoreListingTab appId={id} storeIds={storeIds} external={external} />
+        </TabsContent>
+
+        <TabsContent value="reviews">
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-semibold mb-1">Reviews</h2>
+              <p className="text-sm text-muted-foreground">
+                Ratings and reviews from every store this game is on, read live from them. Replies
+                to App Store and Google Play reviews are sent from here; Steam replies are written
+                on Steam.
+              </p>
+            </div>
+            <ReviewsView apps={[{ id, name: app.name, ids: storeIds }]} />
+          </div>
         </TabsContent>
 
         <TabsContent value="environment">

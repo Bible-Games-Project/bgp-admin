@@ -15,6 +15,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForbiddenRouteImport } from './routes/forbidden'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedReviewsRouteImport } from './routes/_authenticated.reviews'
 import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticated.revenue'
 import { Route as AuthenticatedDocsRouteImport } from './routes/_authenticated.docs'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
@@ -51,6 +52,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedReviewsRoute = AuthenticatedReviewsRouteImport.update({
+  id: '/reviews',
+  path: '/reviews',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedRevenueRoute = AuthenticatedRevenueRouteImport.update({
   id: '/revenue',
@@ -98,6 +104,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/docs': typeof AuthenticatedDocsRoute
   '/revenue': typeof AuthenticatedRevenueRoute
+  '/reviews': typeof AuthenticatedReviewsRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/apps/setup': typeof AuthenticatedAppsSetupRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
@@ -112,6 +119,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/docs': typeof AuthenticatedDocsRoute
   '/revenue': typeof AuthenticatedRevenueRoute
+  '/reviews': typeof AuthenticatedReviewsRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/apps/setup': typeof AuthenticatedAppsSetupRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
@@ -128,6 +136,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/docs': typeof AuthenticatedDocsRoute
   '/_authenticated/revenue': typeof AuthenticatedRevenueRoute
+  '/_authenticated/reviews': typeof AuthenticatedReviewsRoute
   '/_authenticated/apps/$id': typeof AuthenticatedAppsIdRoute
   '/_authenticated/apps/setup': typeof AuthenticatedAppsSetupRoute
   '/_authenticated/settings/security': typeof AuthenticatedSettingsSecurityRoute
@@ -144,6 +153,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/docs'
     | '/revenue'
+    | '/reviews'
     | '/apps/$id'
     | '/apps/setup'
     | '/settings/security'
@@ -158,6 +168,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/docs'
     | '/revenue'
+    | '/reviews'
     | '/apps/$id'
     | '/apps/setup'
     | '/settings/security'
@@ -173,6 +184,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/docs'
     | '/_authenticated/revenue'
+    | '/_authenticated/reviews'
     | '/_authenticated/apps/$id'
     | '/_authenticated/apps/setup'
     | '/_authenticated/settings/security'
@@ -232,6 +244,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/reviews': {
+      id: '/_authenticated/reviews'
+      path: '/reviews'
+      fullPath: '/reviews'
+      preLoaderRoute: typeof AuthenticatedReviewsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/revenue': {
       id: '/_authenticated/revenue'
       path: '/revenue'
@@ -288,6 +307,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDocsRoute: typeof AuthenticatedDocsRoute
   AuthenticatedRevenueRoute: typeof AuthenticatedRevenueRoute
+  AuthenticatedReviewsRoute: typeof AuthenticatedReviewsRoute
   AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
   AuthenticatedAppsSetupRoute: typeof AuthenticatedAppsSetupRoute
   AuthenticatedSettingsSecurityRoute: typeof AuthenticatedSettingsSecurityRoute
@@ -298,6 +318,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedDocsRoute: AuthenticatedDocsRoute,
   AuthenticatedRevenueRoute: AuthenticatedRevenueRoute,
+  AuthenticatedReviewsRoute: AuthenticatedReviewsRoute,
   AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
   AuthenticatedAppsSetupRoute: AuthenticatedAppsSetupRoute,
   AuthenticatedSettingsSecurityRoute: AuthenticatedSettingsSecurityRoute,
