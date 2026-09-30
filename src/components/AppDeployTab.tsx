@@ -1,18 +1,9 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import { Rocket, Loader2, ExternalLink, RefreshCw, GitBranch, TriangleAlert } from "lucide-react";
 import {
-  Rocket,
-  Loader2,
-  ExternalLink,
-  RefreshCw,
-  GitBranch,
-  Boxes,
-  TriangleAlert,
-} from "lucide-react";
-import {
-  isCurrentUserAdmin,
   listRepoRuns,
   triggerDeploy,
   getRepoMarketingVersion,
@@ -20,18 +11,8 @@ import {
 } from "@/lib/deploy.functions";
 import { cancelOpenReviewSubmission, getAppStoreVersionState } from "@/lib/appstore.functions";
 import { checkAndroidKeystoreSecrets, checkIosSecrets } from "@/lib/capacitor.functions";
-import { listApps } from "@/lib/apps.functions";
-import { isWebGame } from "@/lib/app-kind";
 import { DEFAULT_RELEASE_NOTES } from "@/lib/release-notes";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -42,10 +23,6 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-
-export const Route = createFileRoute("/_authenticated/dashboard")({
-  component: DashboardPage,
-});
 
 // App Store Connect states are SHOUTED_CONSTANTS; nobody should have to read those.
 function humanState(state: string): string {
@@ -940,148 +917,45 @@ function RunsHistory({ appId }: { appId: string }) {
   );
 }
 
-function DashboardPage() {
-  const adminFn = useServerFn(isCurrentUserAdmin);
-  const listFn = useServerFn(listApps);
-  const adminQ = useQuery({ queryKey: ["isAdmin"], queryFn: () => adminFn() });
-  const sessionQ = useQuery({
-    queryKey: ["sessionUser"],
-    queryFn: async () => {
-      const { data } = await supabase.auth.getUser();
-      return data.user ? { id: data.user.id, email: data.user.email ?? null } : null;
-    },
-  });
-  const appsQ = useQuery({
-    queryKey: ["apps"],
-    queryFn: () => listFn(),
-    enabled: !!adminQ.data?.isAdmin,
-  });
-  // No auto-selection: the user must explicitly pick a project to avoid
-  // accidentally deploying the wrong app.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  if (adminQ.isLoading) {
-    return (
-      <div className="p-8 text-sm text-muted-foreground flex items-center gap-2">
-        <Loader2 className="h-4 w-4 animate-spin" /> Checking access…
-      </div>
-    );
-  }
-
-  if (!adminQ.data?.isAdmin) {
-    return (
-      <div className="p-8 max-w-md">
-        <h1 className="text-xl font-display font-semibold">Access denied</h1>
-        <p className="text-sm text-muted-foreground mt-2">
-          Your account is signed in but not authorized to use this console. Ask an admin to add your
-          user to the allow list.
-        </p>
-        {sessionQ.data && (
-          <div className="mt-4 rounded-md border border-border bg-card p-3 text-xs font-mono space-y-1">
-            <div>
-              <span className="text-muted-foreground">signed in as: </span>
-              {sessionQ.data.email ?? "(no email)"}
-            </div>
-            <div>
-              <span className="text-muted-foreground">user_id: </span>
-              <span className="select-all">{sessionQ.data.id}</span>
-            </div>
-            <p className="text-muted-foreground pt-1">
-              An admin must add this exact user_id to the <code>admins</code> table.
-            </p>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Only web games are built and deployed here; games made with another engine are
-  // built and uploaded with their own tools.
-  const allApps = appsQ.data?.apps ?? [];
-  const apps = allApps.filter(isWebGame);
-  const otherGames = allApps.filter((a) => !isWebGame(a) && a.is_active);
-  const selected = apps.find((a) => a.id === selectedId);
-
-  if (appsQ.isLoading) {
-    return <div className="p-8 text-sm text-muted-foreground">Loading apps…</div>;
-  }
-
-  if (apps.length === 0) {
-    return (
-      <div className="p-6 md:p-8 max-w-2xl mx-auto w-full">
-        <div className="rounded-md border border-border bg-card p-8 text-center">
-          <Boxes className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground mb-4">
-            No apps registered yet. Add one to start deploying.
-          </p>
-          <Button asChild>
-            <Link to="/apps">Go to Apps</Link>
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
+/** A web game's Deploy tab: send a build to the stores, then follow its runs. */
+export function AppDeployTab({
+  app,
+}: {
+  app: {
+    id: string;
+    is_active: boolean;
+    default_ref: string;
+    marketing_version: string | null;
+    github_owner: string;
+    github_repo: string;
+  };
+}) {
   return (
-    <div className="p-6 md:p-8 max-w-3xl mx-auto w-full">
-      <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <span className="label-mono">project</span>
-          <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">
-            {selected?.name ?? "—"}
-          </h1>
-          {selected && (
-            <p className="text-xs text-muted-foreground mt-1 font-mono">
-              {selected.github_owner}/{selected.github_repo}
-            </p>
-          )}
-        </div>
-        <div className="min-w-[220px]">
-          <Select value={selectedId ?? undefined} onValueChange={setSelectedId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select app" />
-            </SelectTrigger>
-            <SelectContent>
-              {apps.map((a) => (
-                <SelectItem key={a.id} value={a.id} disabled={!a.is_active}>
-                  {a.name} {!a.is_active && "(disabled)"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {!selected && (
-        <div className="rounded-md border border-dashed border-border bg-card p-8 text-center">
-          <Boxes className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">Select a project to see the deploy panel.</p>
-          {otherGames.length > 0 && (
-            <p className="text-xs text-muted-foreground mt-3">
-              {otherGames.map((a) => a.name).join(", ")}{" "}
-              {otherGames.length === 1 ? "isn't a web game, so it isn't" : "aren't web games, so they aren't"}{" "}
-              deployed from here: new versions are built and uploaded with their own tools (Unity,
-              Xcode, Play Console, Steamworks). Their store pages are in Apps → the game → Store.
-            </p>
-          )}
-        </div>
+    <>
+      {app.is_active ? (
+        <DeployPanel
+          appId={app.id}
+          defaultRef={app.default_ref}
+          currentVersion={app.marketing_version}
+          githubOwner={app.github_owner}
+          githubRepo={app.github_repo}
+        />
+      ) : (
+        <section className="mb-10 rounded-md border border-border bg-card p-5 text-sm text-muted-foreground">
+          This app is disabled, so it can&apos;t be deployed. To deploy it again, turn on{" "}
+          <span className="text-foreground">Active</span> in the{" "}
+          <Link
+            to="/apps/$id"
+            params={{ id: app.id }}
+            search={{ tab: "general" }}
+            className="text-foreground underline underline-offset-2"
+          >
+            General tab
+          </Link>{" "}
+          and save the changes.
+        </section>
       )}
-
-      {selected && (
-        <>
-          {/* Keyed by app so ticks, notes and version typed for one app never carry over
-              to the next one picked. */}
-          <DeployPanel
-            key={selected.id}
-            appId={selected.id}
-            defaultRef={selected.default_ref}
-            currentVersion={selected.marketing_version}
-            githubOwner={selected.github_owner}
-            githubRepo={selected.github_repo}
-          />
-          <RunsHistory appId={selected.id} />
-        </>
-      )}
-    </div>
+      <RunsHistory appId={app.id} />
+    </>
   );
 }

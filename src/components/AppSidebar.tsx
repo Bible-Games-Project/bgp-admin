@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Rocket, LogOut, Terminal, ShieldCheck, Boxes, DollarSign, Star } from "lucide-react";
+import { LogOut, Terminal, ShieldCheck, Boxes, DollarSign, Star } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -16,7 +16,6 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 
 const items = [
-  { title: "Deploy", url: "/dashboard", icon: Rocket },
   { title: "Apps", url: "/apps", icon: Boxes },
   { title: "Revenue", url: "/revenue", icon: DollarSign },
   { title: "Reviews", url: "/reviews", icon: Star },
@@ -52,11 +51,7 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
-                    isActive={
-                      item.url === "/dashboard"
-                        ? pathname === item.url
-                        : pathname === item.url || pathname.startsWith(item.url + "/")
-                    }
+                    isActive={pathname === item.url || pathname.startsWith(item.url + "/")}
                   >
                     <Link
                       to={item.url}

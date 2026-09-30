@@ -79,13 +79,13 @@ export function nextSearch(search: Record<string, unknown>): { next?: string } {
 
 /**
  * Where to go once signed in: the page that sent the user to sign in, if it is
- * one of the console's own pages, else the dashboard. Anything else (another
+ * one of the console's own pages, else the apps list. Anything else (another
  * site, the sign-in pages themselves) is ignored.
  */
 export function afterSignIn(next: string | undefined): string {
   if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) {
-    return "/dashboard";
+    return "/apps";
   }
-  if (/^\/(login|setup-mfa|mfa-challenge|forbidden)(?=[/?#]|$)/.test(next)) return "/dashboard";
+  if (/^\/(login|setup-mfa|mfa-challenge|forbidden)(?=[/?#]|$)/.test(next)) return "/apps";
   return next;
 }

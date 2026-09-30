@@ -21,10 +21,10 @@ function NotFoundComponent() {
         <p className="mt-3 text-sm text-muted-foreground">This route does not exist.</p>
         <div className="mt-6">
           <Link
-            to="/dashboard"
+            to="/apps"
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
-            Go to dashboard
+            Go to apps
           </Link>
         </div>
       </div>

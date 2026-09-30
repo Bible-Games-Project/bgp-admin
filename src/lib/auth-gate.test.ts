@@ -9,14 +9,14 @@ describe("afterSignIn", () => {
     );
   });
 
-  test("falls back to the dashboard for anything else", () => {
-    expect(afterSignIn(undefined)).toBe("/dashboard");
-    expect(afterSignIn("")).toBe("/dashboard");
-    expect(afterSignIn("https://evil.example/apps")).toBe("/dashboard");
-    expect(afterSignIn("//evil.example/apps")).toBe("/dashboard");
-    expect(afterSignIn("/\\evil.example")).toBe("/dashboard");
-    expect(afterSignIn("/login?next=/apps")).toBe("/dashboard");
-    expect(afterSignIn("/mfa-challenge")).toBe("/dashboard");
+  test("falls back to the apps list for anything else", () => {
+    expect(afterSignIn(undefined)).toBe("/apps");
+    expect(afterSignIn("")).toBe("/apps");
+    expect(afterSignIn("https://evil.example/apps")).toBe("/apps");
+    expect(afterSignIn("//evil.example/apps")).toBe("/apps");
+    expect(afterSignIn("/\\evil.example")).toBe("/apps");
+    expect(afterSignIn("/login?next=/apps")).toBe("/apps");
+    expect(afterSignIn("/mfa-challenge")).toBe("/apps");
   });
 
   test("a page whose name only starts like a sign-in page is kept", () => {

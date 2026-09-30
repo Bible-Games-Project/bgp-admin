@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Boxes, Github, ImageIcon, ListChecks, Store } from "lucide-react";
+import { Plus, Boxes, Github, ImageIcon, ListChecks, Rocket, Store } from "lucide-react";
 import { listApps, createApp, createAppWithRepo, createExternalGame } from "@/lib/apps.functions";
 import { appStoreIds, isWebGame, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
 import { Button } from "@/components/ui/button";
@@ -109,20 +109,22 @@ function AppsPage() {
               </DialogHeader>
               <AppForm
                 initial={emptyAppForm}
-                submitting={createWithRepoM.isPending || createM.isPending || createExternalM.isPending}
+                submitting={
+                  createWithRepoM.isPending || createM.isPending || createExternalM.isPending
+                }
                 submitLabel="Create app"
                 showCreateRepoOption
                 onSubmit={(v, meta) =>
                   meta.mode === "external"
                     ? createExternalM.mutate(v)
                     : meta.mode === "create"
-                    ? createWithRepoM.mutate(v)
-                    : createM.mutate({
-                        ...v,
-                        notes: v.notes || null,
-                        bundle_id: v.bundle_id || null,
-                        revenuecat_app_id: v.revenuecat_app_id || null,
-                      })
+                      ? createWithRepoM.mutate(v)
+                      : createM.mutate({
+                          ...v,
+                          notes: v.notes || null,
+                          bundle_id: v.bundle_id || null,
+                          revenuecat_app_id: v.revenuecat_app_id || null,
+                        })
                 }
                 onCancel={() => setOpen(false)}
               />
@@ -143,61 +145,79 @@ function AppsPage() {
 
       <div className="grid gap-3">
         {q.data?.apps.map((a) => (
-          <Link
+          <div
             key={a.id}
-            to="/apps/$id"
-            params={{ id: a.id }}
-            className="rounded-md border border-border bg-card p-4 hover:bg-accent/40 transition-colors flex items-center gap-4"
+            className="rounded-md border border-border bg-card hover:bg-accent/40 transition-colors flex flex-col sm:flex-row sm:items-center"
           >
-            <div className="h-10 w-10 rounded-md border border-border bg-muted/40 flex items-center justify-center overflow-hidden shrink-0">
-              {a.icon_data_url ? (
-                <img
-                  src={a.icon_data_url}
-                  alt={`${a.name} icon`}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <ImageIcon className="h-4 w-4 text-muted-foreground" />
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="font-display font-semibold">{a.name}</span>
-                {!a.is_active && (
-                  <span className="text-[10px] font-mono uppercase text-destructive border border-destructive/40 rounded px-1.5 py-0.5">
-                    disabled
-                  </span>
+            <Link
+              to="/apps/$id"
+              params={{ id: a.id }}
+              className="p-4 flex items-center gap-4 min-w-0 flex-1"
+            >
+              <div className="h-10 w-10 rounded-md border border-border bg-muted/40 flex items-center justify-center overflow-hidden shrink-0">
+                {a.icon_data_url ? (
+                  <img
+                    src={a.icon_data_url}
+                    alt={`${a.name} icon`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
                 )}
               </div>
-              {isWebGame(a) ? (
-                <div className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1.5 flex-wrap">
-                  <Github className="h-3 w-3 shrink-0" />
-                  <a
-                    href={`https://github.com/${a.github_owner}/${a.github_repo}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="hover:text-foreground hover:underline"
-                  >
-                    {a.github_owner}/{a.github_repo}
-                  </a>
-                  <span>· {a.default_ref}</span>
-                  <a
-                    href={`https://bgp-${a.github_repo}.pages.dev`}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="text-muted-foreground/70 hover:text-foreground hover:underline"
-                  >
-                    bgp-{a.github_repo}.pages.dev
-                  </a>
-                  {a.steam_app_id != null && <SteamLink appId={a.steam_app_id} />}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-display font-semibold">{a.name}</span>
+                  {!a.is_active && (
+                    <span className="text-[10px] font-mono uppercase text-destructive border border-destructive/40 rounded px-1.5 py-0.5">
+                      disabled
+                    </span>
+                  )}
                 </div>
-              ) : (
-                <OtherEngineStores app={a} />
-              )}
-            </div>
-          </Link>
+                {isWebGame(a) ? (
+                  <div className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1.5 flex-wrap">
+                    <Github className="h-3 w-3 shrink-0" />
+                    <a
+                      href={`https://github.com/${a.github_owner}/${a.github_repo}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="hover:text-foreground hover:underline"
+                    >
+                      {a.github_owner}/{a.github_repo}
+                    </a>
+                    <span>· {a.default_ref}</span>
+                    <a
+                      href={`https://bgp-${a.github_repo}.pages.dev`}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-muted-foreground/70 hover:text-foreground hover:underline"
+                    >
+                      bgp-{a.github_repo}.pages.dev
+                    </a>
+                    {a.steam_app_id != null && <SteamLink appId={a.steam_app_id} />}
+                  </div>
+                ) : (
+                  <OtherEngineStores app={a} />
+                )}
+              </div>
+            </Link>
+            {/* Deploying starts from the game's own card, next to its icon and name, so
+              there is no doubt about which game is being sent to the stores. */}
+            {isWebGame(a) && a.is_active && (
+              <Button
+                asChild
+                size="sm"
+                variant="outline"
+                className="gap-2 shrink-0 self-start mx-4 mb-4 sm:self-auto sm:ml-0 sm:mb-0"
+              >
+                <Link to="/apps/$id" params={{ id: a.id }} search={{ tab: "deploy" }}>
+                  <Rocket className="h-4 w-4" /> Deploy
+                </Link>
+              </Button>
+            )}
+          </div>
         ))}
       </div>
     </div>

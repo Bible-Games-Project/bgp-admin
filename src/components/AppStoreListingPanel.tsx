@@ -254,6 +254,7 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
 
       {view && (
         <ViewNotice
+          appId={appId}
           view={view}
           next={next ?? null}
           hasLive={!!live}
@@ -409,6 +410,7 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
 }
 
 function ViewNotice({
+  appId,
   view,
   next,
   hasLive,
@@ -417,6 +419,7 @@ function ViewNotice({
   onPrepare,
   onShowNext,
 }: {
+  appId: string;
   view: AscView;
   next: AscView | null;
   hasLive: boolean;
@@ -443,7 +446,12 @@ function ViewNotice({
         }
       >
         Changes saved here go live when this version is released with{" "}
-        <Link to="/dashboard" className="underline">
+        <Link
+          to="/apps/$id"
+          params={{ id: appId }}
+          search={{ tab: "deploy" }}
+          className="underline"
+        >
           Release to Production
         </Link>
         . What&apos;s New is written there too, when you release.

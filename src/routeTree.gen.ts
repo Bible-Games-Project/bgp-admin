@@ -13,11 +13,11 @@ import { Route as SetupMfaRouteImport } from './routes/setup-mfa'
 import { Route as MfaChallengeRouteImport } from './routes/mfa-challenge'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForbiddenRouteImport } from './routes/forbidden'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedReviewsRouteImport } from './routes/_authenticated.reviews'
 import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticated.revenue'
-import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
 import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authenticated.apps.index'
 import { Route as AuthenticatedSettingsSecurityRouteImport } from './routes/_authenticated.settings.security'
 import { Route as AuthenticatedAppsSetupRouteImport } from './routes/_authenticated.apps.setup'
@@ -43,6 +43,11 @@ const ForbiddenRoute = ForbiddenRouteImport.update({
   path: '/forbidden',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -60,11 +65,6 @@ const AuthenticatedReviewsRoute = AuthenticatedReviewsRouteImport.update({
 const AuthenticatedRevenueRoute = AuthenticatedRevenueRouteImport.update({
   id: '/revenue',
   path: '/revenue',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedAppsIndexRoute = AuthenticatedAppsIndexRouteImport.update({
@@ -91,11 +91,11 @@ const AuthenticatedAppsIdRoute = AuthenticatedAppsIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
   '/forbidden': typeof ForbiddenRoute
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
-  '/dashboard': typeof AuthenticatedDashboardRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/reviews': typeof AuthenticatedReviewsRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
@@ -105,11 +105,11 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
   '/forbidden': typeof ForbiddenRoute
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
-  '/dashboard': typeof AuthenticatedDashboardRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/reviews': typeof AuthenticatedReviewsRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
@@ -121,11 +121,11 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
+  '/dashboard': typeof DashboardRoute
   '/forbidden': typeof ForbiddenRoute
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
-  '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/revenue': typeof AuthenticatedRevenueRoute
   '/_authenticated/reviews': typeof AuthenticatedReviewsRoute
   '/_authenticated/apps/$id': typeof AuthenticatedAppsIdRoute
@@ -137,11 +137,11 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/dashboard'
     | '/forbidden'
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
-    | '/dashboard'
     | '/revenue'
     | '/reviews'
     | '/apps/$id'
@@ -151,11 +151,11 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/dashboard'
     | '/forbidden'
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
-    | '/dashboard'
     | '/revenue'
     | '/reviews'
     | '/apps/$id'
@@ -166,11 +166,11 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/dashboard'
     | '/forbidden'
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
-    | '/_authenticated/dashboard'
     | '/_authenticated/revenue'
     | '/_authenticated/reviews'
     | '/_authenticated/apps/$id'
@@ -182,6 +182,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  DashboardRoute: typeof DashboardRoute
   ForbiddenRoute: typeof ForbiddenRoute
   LoginRoute: typeof LoginRoute
   MfaChallengeRoute: typeof MfaChallengeRoute
@@ -218,6 +219,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ForbiddenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated': {
       id: '/_authenticated'
       path: ''
@@ -244,13 +252,6 @@ declare module '@tanstack/react-router' {
       path: '/revenue'
       fullPath: '/revenue'
       preLoaderRoute: typeof AuthenticatedRevenueRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/dashboard': {
-      id: '/_authenticated/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/apps/': {
@@ -285,7 +286,6 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteChildren {
-  AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedRevenueRoute: typeof AuthenticatedRevenueRoute
   AuthenticatedReviewsRoute: typeof AuthenticatedReviewsRoute
   AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
@@ -295,7 +295,6 @@ interface AuthenticatedRouteChildren {
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
-  AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedRevenueRoute: AuthenticatedRevenueRoute,
   AuthenticatedReviewsRoute: AuthenticatedReviewsRoute,
   AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
@@ -311,6 +310,7 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  DashboardRoute: DashboardRoute,
   ForbiddenRoute: ForbiddenRoute,
   LoginRoute: LoginRoute,
   MfaChallengeRoute: MfaChallengeRoute,

@@ -11,12 +11,22 @@ import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
 import { AppSetupTab } from "@/components/AppSetupTab";
 import { AppAddonsTab } from "@/components/AppAddonsTab";
 import { StoreListingTab } from "@/components/StoreListingTab";
+import { AppDeployTab } from "@/components/AppDeployTab";
 import { ReviewsView } from "@/components/ReviewsView";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
-const TABS = ["general", "branding", "store", "reviews", "environment", "setup", "addons"] as const;
+const TABS = [
+  "deploy",
+  "general",
+  "branding",
+  "store",
+  "reviews",
+  "environment",
+  "setup",
+  "addons",
+] as const;
 type Tab = (typeof TABS)[number];
 /** The console doesn't build a game that isn't a web game, so only these apply to it. */
 const EXTERNAL_TABS: readonly Tab[] = ["general", "store", "reviews"];
@@ -136,68 +146,84 @@ function AppDetailPage() {
         <ArrowLeft className="h-3 w-3" /> apps
       </button>
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <span className="label-mono">app</span>
-          <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">{app.name}</h1>
-          {external ? (
-            <p className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-3 flex-wrap">
-              <span>not a web game</span>
-              {storeIds.ios && <span className="break-all">App Store {storeIds.ios}</span>}
-              {storeIds.android && (
-                <a
-                  href={playStoreUrl(storeIds.android)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
-                >
-                  Google Play <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-              {storeIds.steam && (
-                <a
-                  href={steamStoreUrl(storeIds.steam)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
-                >
-                  Steam <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-3 flex-wrap">
-              <span className="break-all">
-                {app.github_owner}/{app.github_repo}
-              </span>
-              <a
-                href={`https://github.com/${app.github_owner}/${app.github_repo}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
-              >
-                GitHub <ExternalLink className="h-3 w-3" />
-              </a>
-              <a
-                href={`https://bgp-${app.github_repo}.pages.dev`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
-              >
-                Cloudflare preview <ExternalLink className="h-3 w-3" />
-              </a>
-              {storeIds.steam && (
-                <a
-                  href={steamStoreUrl(storeIds.steam)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
-                >
-                  Steam <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-            </p>
+      <div className="flex items-center justify-between gap-4 mb-6">
+        {/* The icon next to the name, so it is plain which game is about to be deployed. */}
+        <div className="flex items-center gap-4 min-w-0">
+          {app.icon_data_url && (
+            <img
+              src={app.icon_data_url}
+              alt={`${app.name} icon`}
+              className="h-14 w-14 rounded-xl border border-border object-cover shrink-0"
+            />
           )}
+          <div className="min-w-0">
+            <span className="label-mono">app</span>
+            <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">{app.name}</h1>
+            {external ? (
+              <>
+                <p className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-3 flex-wrap">
+                  <span>not a web game</span>
+                  {storeIds.ios && <span className="break-all">App Store {storeIds.ios}</span>}
+                  {storeIds.android && (
+                    <a
+                      href={playStoreUrl(storeIds.android)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                    >
+                      Google Play <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                  {storeIds.steam && (
+                    <a
+                      href={steamStoreUrl(storeIds.steam)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                    >
+                      Steam <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  New versions of it are built and uploaded with its own tools (Unity, Xcode, Play
+                  Console, Steamworks), so it has no Deploy tab here.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-3 flex-wrap">
+                <span className="break-all">
+                  {app.github_owner}/{app.github_repo}
+                </span>
+                <a
+                  href={`https://github.com/${app.github_owner}/${app.github_repo}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                >
+                  GitHub <ExternalLink className="h-3 w-3" />
+                </a>
+                <a
+                  href={`https://bgp-${app.github_repo}.pages.dev`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                >
+                  Cloudflare preview <ExternalLink className="h-3 w-3" />
+                </a>
+                {storeIds.steam && (
+                  <a
+                    href={steamStoreUrl(storeIds.steam)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                  >
+                    Steam <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </p>
+            )}
+          </div>
         </div>
         <Button
           variant="ghost"
@@ -224,6 +250,7 @@ function AppDetailPage() {
         {/* justify-start + internal scroll: on narrow screens the strip pans
             within itself instead of overflowing the page */}
         <TabsList className="max-w-full justify-start overflow-x-auto">
+          {!external && <TabsTrigger value="deploy">Deploy</TabsTrigger>}
           <TabsTrigger value="general">General</TabsTrigger>
           {!external && <TabsTrigger value="branding">Branding</TabsTrigger>}
           <TabsTrigger value="store">Store</TabsTrigger>
@@ -232,6 +259,12 @@ function AppDetailPage() {
           {!external && <TabsTrigger value="setup">Setup</TabsTrigger>}
           {!external && <TabsTrigger value="addons">Addons</TabsTrigger>}
         </TabsList>
+
+        {isWebGame(app) && (
+          <TabsContent value="deploy">
+            <AppDeployTab app={app} />
+          </TabsContent>
+        )}
 
         <TabsContent value="general">
           <AppForm
