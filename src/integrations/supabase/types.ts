@@ -82,6 +82,7 @@ export type Database = {
           bundle_id: string | null
           created_at: string
           default_ref: string
+          full_game_id: string | null
           github_owner: string | null
           github_repo: string | null
           icon_data_url: string | null
@@ -99,6 +100,7 @@ export type Database = {
           bundle_id?: string | null
           created_at?: string
           default_ref?: string
+          full_game_id?: string | null
           github_owner?: string | null
           github_repo?: string | null
           icon_data_url?: string | null
@@ -116,6 +118,7 @@ export type Database = {
           bundle_id?: string | null
           created_at?: string
           default_ref?: string
+          full_game_id?: string | null
           github_owner?: string | null
           github_repo?: string | null
           icon_data_url?: string | null
@@ -127,6 +130,41 @@ export type Database = {
           slug?: string
           steam_app_id?: number | null
           updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "apps_full_game_id_fkey"
+            columns: ["full_game_id"]
+            isOneToOne: false
+            referencedRelation: "apps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      download_reports: {
+        Row: {
+          fetched_at: string
+          period: string
+          report: string
+          rows: Json
+          source: string
+          version: string | null
+        }
+        Insert: {
+          fetched_at?: string
+          period: string
+          report: string
+          rows?: Json
+          source: string
+          version?: string | null
+        }
+        Update: {
+          fetched_at?: string
+          period?: string
+          report?: string
+          rows?: Json
+          source?: string
+          version?: string | null
         }
         Relationships: []
       }

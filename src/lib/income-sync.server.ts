@@ -1,26 +1,49 @@
-// Keeps the stores' sales reports in the database (income_reports) for the Revenue page.
-// Runs every hour on the Worker (src/tasks/income-sync.ts) and whenever someone presses
-// Refresh on the page. It writes with the service role: the hourly run has no user.
+// Keeps the stores' sales reports in the database (income_reports) for the Revenue page,
+// and the downloads they and Google's install statistics hold (download_reports) for the
+// Downloads page. Runs every hour on the Worker (src/tasks/income-sync.ts) and whenever
+// someone presses Refresh on the page. It writes with the service role: the hourly run
+// has no user.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
+import type { StoredDownloads } from "./downloads";
 import type { IncomeSource } from "./income";
 import { type ReportState, supersededReports } from "./income-sync";
-import { syncAppStore, syncGooglePlay } from "./income.server";
+import { syncAppStore, syncGooglePlay, syncGooglePlayInstalls } from "./income.server";
 
 /**
  * Downloads the reports the database lacks. `remaining` is how many are still missing
- * because this run stopped at REPORTS_PER_RUN; the next run goes on from there.
+ * because this run stopped at its limits; the next run goes on from there.
  */
 export async function syncIncome(): Promise<{ remaining: number }> {
   const db = supabaseAdmin;
-  const { data, error } = await db
-    .from("income_reports")
-    .select("source, report, period, version, unconverted");
-  if (error) throw new Error(`Could not read the stored income reports: ${error.message}`);
-  const stored = data as ReportState[];
+  const [incomeRes, downloadsRes] = await Promise.all([
+    db.from("income_reports").select("source, report, period, version, unconverted"),
+    db.from("download_reports").select("source, report, period, version"),
+  ]);
+  if (incomeRes.error) {
+    throw new Error(`Could not read the stored income reports: ${incomeRes.error.message}`);
+  }
+  if (downloadsRes.error) {
+    throw new Error(`Could not read the stored downloads: ${downloadsRes.error.message}`);
+  }
+  const stored = incomeRes.data as ReportState[];
+  const storedDownloads = downloadsRes.data as Omit<StoredDownloads, "rows">[];
 
-  const [appStore, googlePlay] = await Promise.all([syncAppStore(stored), syncGooglePlay(stored)]);
+  // An App Store report counts as stored once both its income and its downloads are:
+  // the ones read before downloads were kept are read once more.
+  const withDownloads = new Set(
+    storedDownloads.filter((r) => r.source === "app_store").map((r) => r.report),
+  );
+  const appStoreStored = stored.filter(
+    (r) => r.source !== "app_store" || withDownloads.has(r.report),
+  );
+
+  const [appStore, googlePlay, installs] = await Promise.all([
+    syncAppStore(appStoreStored),
+    syncGooglePlay(stored),
+    syncGooglePlayInstalls(storedDownloads),
+  ]);
   const checkedAt = new Date().toISOString();
   const fetched = [...appStore.reports, ...googlePlay.reports];
   if (fetched.length) {
@@ -31,19 +54,43 @@ export async function syncIncome(): Promise<{ remaining: number }> {
       );
     if (error) throw new Error(`Could not store the income reports: ${error.message}`);
   }
+  const fetchedDownloads = [...(appStore.downloads ?? []), ...installs.downloads];
+  if (fetchedDownloads.length) {
+    const { error } = await db.from("download_reports").upsert(
+      fetchedDownloads.map((r) => ({
+        ...r,
+        rows: r.rows as unknown as Json,
+        fetched_at: checkedAt,
+      })),
+    );
+    if (error) throw new Error(`Could not store the downloads: ${error.message}`);
+  }
 
   // A month the store has closed since replaces the days or the estimate it was read from.
   const superseded = supersededReports([...stored, ...fetched]);
+  const supersededDownloads = supersededReports(
+    [...storedDownloads, ...fetchedDownloads].map((r) => ({ ...r, unconverted: [] })),
+  );
   for (const source of ["app_store", "google_play"] as IncomeSource[]) {
     const reports = superseded.filter((r) => r.source === source).map((r) => r.report);
-    if (!reports.length) continue;
+    if (reports.length) {
+      const { error } = await db
+        .from("income_reports")
+        .delete()
+        .eq("source", source)
+        .in("report", reports);
+      // Not fatal: the page skips superseded reports, and the next run tries again.
+      if (error) console.error(`Could not drop the superseded ${source} reports: ${error.message}`);
+    }
+  }
+  const oldDays = supersededDownloads.filter((r) => r.source === "app_store").map((r) => r.report);
+  if (oldDays.length) {
     const { error } = await db
-      .from("income_reports")
+      .from("download_reports")
       .delete()
-      .eq("source", source)
-      .in("report", reports);
-    // Not fatal: the page skips superseded reports, and the next run tries again.
-    if (error) console.error(`Could not drop the superseded ${source} reports: ${error.message}`);
+      .eq("source", "app_store")
+      .in("report", oldDays);
+    if (error) console.error(`Could not drop the superseded download reports: ${error.message}`);
   }
 
   const { error: statusError } = await db.from("income_sync").upsert([
@@ -52,5 +99,5 @@ export async function syncIncome(): Promise<{ remaining: number }> {
   ]);
   if (statusError) throw new Error(`Could not record the income run: ${statusError.message}`);
 
-  return { remaining: appStore.remaining + googlePlay.remaining };
+  return { remaining: appStore.remaining + googlePlay.remaining + installs.remaining };
 }

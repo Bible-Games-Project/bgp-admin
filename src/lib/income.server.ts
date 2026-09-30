@@ -3,6 +3,12 @@
 // this file only fetches and unpacks.
 
 import { AscError, describeAppleError, mintToken } from "./asc.server";
+import {
+  type StoredDownloads,
+  appStoreDownloadRows,
+  installsFile,
+  playInstallRows,
+} from "./downloads";
 import { fetchAccessToken, readServiceAccount } from "./google-play.server";
 import { addMonths, mergeRows, monthKey } from "./income";
 import {
@@ -251,6 +257,8 @@ export async function createPlayReports(): Promise<PlayReports | null> {
 export type SourceSync = {
   /** The reports read in this run, to store. */
   reports: StoredReport[];
+  /** App Store: the same reports' first-time downloads, for download_reports. */
+  downloads?: StoredDownloads[];
   /** Why the store could not be read, and what to do about it. */
   problem?: string;
   /** Reports left for the next run, once this one read REPORTS_PER_RUN. */
@@ -335,6 +343,14 @@ export async function syncAppStore(stored: ReportState[], now = new Date()): Pro
           rows: mergeRows(parsed.rows),
         };
       }),
+      downloads: found.map(({ request, report }) => ({
+        source: "app_store",
+        report: request.report,
+        period: request.period,
+        version: null,
+        rows:
+          report.status === "ok" ? appStoreDownloadRows(report.text, request.period, catalog) : [],
+      })),
       remaining,
     };
   } catch (err) {
@@ -410,5 +426,62 @@ export async function syncGooglePlay(stored: ReportState[]): Promise<SourceSync>
       problem: `Could not read the Google Play reports: ${(err as Error)?.message ?? "unknown error"}`,
       remaining: 0,
     };
+  }
+}
+
+/* ------------------------------------------------------------------------------------ */
+/* Google Play installs                                                                  */
+/* ------------------------------------------------------------------------------------ */
+
+/**
+ * The most install files one run reads, on top of the income reports (the run shares the
+ * Worker's 50 requests). Each game has one a month, and Google rewrites the current
+ * month's every day, so after the first few hours a run reads a handful at most.
+ */
+export const INSTALL_FILES_PER_RUN = 4;
+
+/**
+ * The monthly install statistics (stats/installs/…_overview.csv) that changed since they
+ * were stored. Reading them needs the same permission as the financial reports, whose
+ * missing permission the income job already reports, so a refusal here stays quiet.
+ */
+export async function syncGooglePlayInstalls(
+  stored: Pick<StoredDownloads, "source" | "report" | "version">[],
+): Promise<{ downloads: StoredDownloads[]; remaining: number }> {
+  try {
+    const api = await createPlayReports();
+    if (!api) return { downloads: [], remaining: 0 };
+    const have = new Set(stored.map((r) => `${r.source}|${r.report}|${r.version ?? ""}`));
+    const wanted = (await api.files("stats/installs/installs_"))
+      .map((f) => ({ ...f, file: installsFile(f.name) }))
+      .filter((f) => f.file)
+      .map((f) => ({
+        name: f.name,
+        packageName: f.file!.packageName,
+        month: f.file!.month,
+        report: `installs:${f.file!.packageName}:${f.file!.month}`,
+        version: `${f.name}#${f.generation}`,
+      }))
+      .filter((f) => !have.has(`google_play|${f.report}|${f.version}`))
+      .sort((a, b) => b.month.localeCompare(a.month));
+    const batch = wanted.slice(0, INSTALL_FILES_PER_RUN);
+    const texts = await Promise.all(batch.map((f) => api.text(f.name)));
+    return {
+      downloads: batch.map((f, i) => ({
+        source: "google_play",
+        report: f.report,
+        period: f.month,
+        version: f.version,
+        rows: playInstallRows(texts[i], f.packageName, f.month),
+      })),
+      remaining: wanted.length - batch.length,
+    };
+  } catch (err) {
+    if (!(err instanceof PlayReportsError && (err.status === 401 || err.status === 403))) {
+      console.error(
+        `[income] Could not read Google Play's install statistics: ${(err as Error).message}`,
+      );
+    }
+    return { downloads: [], remaining: 0 };
   }
 }

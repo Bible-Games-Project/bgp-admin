@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, ExternalLink, Star, DollarSign } from "lucide-react";
+import { ArrowLeft, Trash2, ExternalLink, Star, DollarSign, Download } from "lucide-react";
 import { getApp, updateApp, deleteApp } from "@/lib/apps.functions";
 import { checkPreviewDeployWorkflow } from "@/lib/capacitor.functions";
 import { Button } from "@/components/ui/button";
@@ -240,7 +240,8 @@ function AppDetailPage() {
         </Button>
       </div>
 
-      {/* The Reviews and Revenue pages cover every game; these open them on this one. */}
+      {/* The Reviews, Revenue and Downloads pages cover every game; these open them on
+          this one. */}
       {(isOnAnyStore(storeIds) || revenueKey) && (
         <div className="flex flex-wrap gap-2 -mt-2 mb-6">
           {isOnAnyStore(storeIds) && (
@@ -254,6 +255,13 @@ function AppDetailPage() {
             <Button asChild size="sm" variant="outline" className="gap-2">
               <Link to="/revenue" search={{ preset: "12m", app: revenueKey, store: null }}>
                 <DollarSign className="h-4 w-4" /> Revenue
+              </Link>
+            </Button>
+          )}
+          {(storeIds.ios || storeIds.android) && (
+            <Button asChild size="sm" variant="outline" className="gap-2">
+              <Link to="/downloads" search={{ preset: "12m", app: id, store: null }}>
+                <Download className="h-4 w-4" /> Downloads
               </Link>
             </Button>
           )}

@@ -19,6 +19,7 @@ import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated.
 import { Route as AuthenticatedReviewsRouteImport } from './routes/_authenticated.reviews'
 import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticated.revenue'
 import { Route as AuthenticatedExpensesRouteImport } from './routes/_authenticated.expenses'
+import { Route as AuthenticatedDownloadsRouteImport } from './routes/_authenticated.downloads'
 import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authenticated.apps.index'
 import { Route as AuthenticatedSettingsSecurityRouteImport } from './routes/_authenticated.settings.security'
 import { Route as AuthenticatedSettingsNotificationsRouteImport } from './routes/_authenticated.settings.notifications'
@@ -74,6 +75,11 @@ const AuthenticatedExpensesRoute = AuthenticatedExpensesRouteImport.update({
   path: '/expenses',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedDownloadsRoute = AuthenticatedDownloadsRouteImport.update({
+  id: '/downloads',
+  path: '/downloads',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedAppsIndexRoute = AuthenticatedAppsIndexRouteImport.update({
   id: '/apps/',
   path: '/apps/',
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
+  '/downloads': typeof AuthenticatedDownloadsRoute
   '/expenses': typeof AuthenticatedExpensesRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/reviews': typeof AuthenticatedReviewsRoute
@@ -124,6 +131,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
+  '/downloads': typeof AuthenticatedDownloadsRoute
   '/expenses': typeof AuthenticatedExpensesRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/reviews': typeof AuthenticatedReviewsRoute
@@ -142,6 +150,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
+  '/_authenticated/downloads': typeof AuthenticatedDownloadsRoute
   '/_authenticated/expenses': typeof AuthenticatedExpensesRoute
   '/_authenticated/revenue': typeof AuthenticatedRevenueRoute
   '/_authenticated/reviews': typeof AuthenticatedReviewsRoute
@@ -161,6 +170,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
+    | '/downloads'
     | '/expenses'
     | '/revenue'
     | '/reviews'
@@ -176,6 +186,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
+    | '/downloads'
     | '/expenses'
     | '/revenue'
     | '/reviews'
@@ -193,6 +204,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/mfa-challenge'
     | '/setup-mfa'
+    | '/_authenticated/downloads'
     | '/_authenticated/expenses'
     | '/_authenticated/revenue'
     | '/_authenticated/reviews'
@@ -285,6 +297,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedExpensesRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/downloads': {
+      id: '/_authenticated/downloads'
+      path: '/downloads'
+      fullPath: '/downloads'
+      preLoaderRoute: typeof AuthenticatedDownloadsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/apps/': {
       id: '/_authenticated/apps/'
       path: '/apps'
@@ -324,6 +343,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedDownloadsRoute: typeof AuthenticatedDownloadsRoute
   AuthenticatedExpensesRoute: typeof AuthenticatedExpensesRoute
   AuthenticatedRevenueRoute: typeof AuthenticatedRevenueRoute
   AuthenticatedReviewsRoute: typeof AuthenticatedReviewsRoute
@@ -336,6 +356,7 @@ interface AuthenticatedRouteChildren {
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedDownloadsRoute: AuthenticatedDownloadsRoute,
   AuthenticatedExpensesRoute: AuthenticatedExpensesRoute,
   AuthenticatedRevenueRoute: AuthenticatedRevenueRoute,
   AuthenticatedReviewsRoute: AuthenticatedReviewsRoute,

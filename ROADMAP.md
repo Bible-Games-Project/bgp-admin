@@ -18,7 +18,7 @@ written in Catalan) saying what shipped and how to try it.
 | 4 | Google Play crashes and ANRs on Home | done | (Home commit) | (with Home) |
 | 5 | Telegram alerts and weekly summary | built, sent by the monitor job | (Home commit) | |
 | 6 | Notifications settings (test message, move to a group) | done | (Notifications commit) | (with alerts) |
-| 7 | Downloads page and demo → full conversion | todo | | |
+| 7 | Downloads page and demo → full conversion | done | (Downloads commit) | |
 | 8 | Testers page (TestFlight, Google Play testing) | todo | | |
 
 ## Design
@@ -106,8 +106,8 @@ web game's repo secret, which their deploy notifications read.
   propagating on 2026-09-30.
 - Conversion: for a free game with in-app purchases, purchases per download; for a
   demo, full-game sales per demo download. A demo points at its full game with a new
-  column `apps.full_game_id`, set on the game's General tab (Didactic Jesus Demo →
-  Didactic Jesus Game (Android)).
+  column `apps.full_game_id`, set in the Demos card of the Downloads page itself, next
+  to the numbers it changes (Didactic Jesus Demo → Didactic Jesus Game (Android)).
 - Filters by game and period like Revenue; a **Downloads** button on each game's page.
 
 ### Testers (`/testers`)
