@@ -17,7 +17,6 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedReviewsRouteImport } from './routes/_authenticated.reviews'
 import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticated.revenue'
-import { Route as AuthenticatedDocsRouteImport } from './routes/_authenticated.docs'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
 import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authenticated.apps.index'
 import { Route as AuthenticatedSettingsSecurityRouteImport } from './routes/_authenticated.settings.security'
@@ -63,11 +62,6 @@ const AuthenticatedRevenueRoute = AuthenticatedRevenueRouteImport.update({
   path: '/revenue',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedDocsRoute = AuthenticatedDocsRouteImport.update({
-  id: '/docs',
-  path: '/docs',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -102,7 +96,6 @@ export interface FileRoutesByFullPath {
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/docs': typeof AuthenticatedDocsRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/reviews': typeof AuthenticatedReviewsRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
@@ -117,7 +110,6 @@ export interface FileRoutesByTo {
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/docs': typeof AuthenticatedDocsRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/reviews': typeof AuthenticatedReviewsRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
@@ -134,7 +126,6 @@ export interface FileRoutesById {
   '/mfa-challenge': typeof MfaChallengeRoute
   '/setup-mfa': typeof SetupMfaRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
-  '/_authenticated/docs': typeof AuthenticatedDocsRoute
   '/_authenticated/revenue': typeof AuthenticatedRevenueRoute
   '/_authenticated/reviews': typeof AuthenticatedReviewsRoute
   '/_authenticated/apps/$id': typeof AuthenticatedAppsIdRoute
@@ -151,7 +142,6 @@ export interface FileRouteTypes {
     | '/mfa-challenge'
     | '/setup-mfa'
     | '/dashboard'
-    | '/docs'
     | '/revenue'
     | '/reviews'
     | '/apps/$id'
@@ -166,7 +156,6 @@ export interface FileRouteTypes {
     | '/mfa-challenge'
     | '/setup-mfa'
     | '/dashboard'
-    | '/docs'
     | '/revenue'
     | '/reviews'
     | '/apps/$id'
@@ -182,7 +171,6 @@ export interface FileRouteTypes {
     | '/mfa-challenge'
     | '/setup-mfa'
     | '/_authenticated/dashboard'
-    | '/_authenticated/docs'
     | '/_authenticated/revenue'
     | '/_authenticated/reviews'
     | '/_authenticated/apps/$id'
@@ -258,13 +246,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRevenueRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/docs': {
-      id: '/_authenticated/docs'
-      path: '/docs'
-      fullPath: '/docs'
-      preLoaderRoute: typeof AuthenticatedDocsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -305,7 +286,6 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
-  AuthenticatedDocsRoute: typeof AuthenticatedDocsRoute
   AuthenticatedRevenueRoute: typeof AuthenticatedRevenueRoute
   AuthenticatedReviewsRoute: typeof AuthenticatedReviewsRoute
   AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
@@ -316,7 +296,6 @@ interface AuthenticatedRouteChildren {
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
-  AuthenticatedDocsRoute: AuthenticatedDocsRoute,
   AuthenticatedRevenueRoute: AuthenticatedRevenueRoute,
   AuthenticatedReviewsRoute: AuthenticatedReviewsRoute,
   AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
