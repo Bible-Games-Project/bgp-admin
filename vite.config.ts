@@ -16,10 +16,19 @@ const nitro: NitroPluginConfig = {
     "income:sync": {
       handler: fileURLToPath(new URL("./src/tasks/income-sync.ts", import.meta.url)),
     },
+    "monitor:run": {
+      handler: fileURLToPath(new URL("./src/tasks/monitor.ts", import.meta.url)),
+    },
   },
-  // Every hour, a few minutes past. The Revenue page tells people how often, from
-  // SYNC_EVERY_MINUTES in src/lib/income-sync.ts: change both together.
-  scheduledTasks: { "7 * * * *": ["income:sync"] },
+  // Each cron is a run of its own, with its own 50 requests on Cloudflare's free plan.
+  scheduledTasks: {
+    // Every hour, a few minutes past. The Revenue page tells people how often, from
+    // SYNC_EVERY_MINUTES in src/lib/income-sync.ts: change both together.
+    "7 * * * *": ["income:sync"],
+    // Every 15 minutes, off the income job's minute. MONITOR_EVERY_MINUTES in
+    // src/lib/monitor.ts has to match.
+    "2,17,32,47 * * * *": ["monitor:run"],
+  },
 };
 
 // Note: no spa.prerender here. The Capacitor app's static index.html comes from

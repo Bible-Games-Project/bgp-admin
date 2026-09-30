@@ -58,6 +58,24 @@ export type Database = {
           },
         ]
       }
+      app_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       apps: {
         Row: {
           android_package_name: string | null
@@ -207,6 +225,27 @@ export type Database = {
           checked_at?: string
           problem?: string | null
           source?: string
+        }
+        Relationships: []
+      }
+      monitor_checks: {
+        Row: {
+          key: string
+          problem: string | null
+          ran_at: string
+          state: Json
+        }
+        Insert: {
+          key: string
+          problem?: string | null
+          ran_at: string
+          state?: Json
+        }
+        Update: {
+          key?: string
+          problem?: string | null
+          ran_at?: string
+          state?: Json
         }
         Relationships: []
       }

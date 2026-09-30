@@ -190,19 +190,24 @@ export function ReviewsView({
   apps,
   appFilter,
   onAppFilterChange,
+  initialSentiment = "all",
+  initialWaitingOnly = false,
 }: {
   apps: ReviewsApp[];
   /** A game's id, or "all". */
   appFilter: string;
   onAppFilterChange: (appId: string) => void;
+  /** Filters to start with, e.g. from Home's "Reply" button. */
+  initialSentiment?: Sentiment | "all";
+  initialWaitingOnly?: boolean;
 }) {
   const sources = useReviewSources(apps);
   const ratings = useAppStoreRatings(apps);
   const many = apps.length > 1;
 
   const [storeFilter, setStoreFilter] = useState<ReviewStore | "all">("all");
-  const [sentiment, setSentiment] = useState<Sentiment | "all">("all");
-  const [waitingOnly, setWaitingOnly] = useState(false);
+  const [sentiment, setSentiment] = useState<Sentiment | "all">(initialSentiment);
+  const [waitingOnly, setWaitingOnly] = useState(initialWaitingOnly);
   const [shown, setShown] = useState(PAGE_SIZE);
   const filter =
     <T,>(set: (v: T) => void) =>

@@ -8,9 +8,20 @@ import { listApps } from "@/lib/apps.functions";
 import { isCurrentUserAdmin } from "@/lib/deploy.functions";
 
 export const Route = createFileRoute("/_authenticated/reviews")({
-  // ?app= picks one game, e.g. from the Reviews button on a game's page.
-  validateSearch: (search: Record<string, unknown>): { app?: string } =>
-    typeof search.app === "string" ? { app: search.app } : {},
+  // ?app= picks one game, e.g. from the Reviews button on a game's page. Home's "Reply"
+  // button also asks for the reviews waiting for a reply (?waiting=1), the bad ones
+  // first (?sentiment=negative).
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { app?: string; waiting?: "1"; sentiment?: "positive" | "neutral" | "negative" } => ({
+    ...(typeof search.app === "string" ? { app: search.app } : {}),
+    ...(search.waiting === "1" || search.waiting === 1 ? { waiting: "1" as const } : {}),
+    ...(search.sentiment === "positive" ||
+    search.sentiment === "neutral" ||
+    search.sentiment === "negative"
+      ? { sentiment: search.sentiment }
+      : {}),
+  }),
   component: ReviewsPage,
 });
 
@@ -70,6 +81,8 @@ function ReviewsPage() {
         onAppFilterChange={(id) =>
           navigate({ search: id === "all" ? {} : { app: id }, replace: true })
         }
+        initialSentiment={search.sentiment ?? "all"}
+        initialWaitingOnly={search.waiting === "1"}
       />
     </div>
   );

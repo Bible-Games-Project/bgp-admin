@@ -15,7 +15,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForbiddenRouteImport } from './routes/forbidden'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated.index'
 import { Route as AuthenticatedReviewsRouteImport } from './routes/_authenticated.reviews'
 import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticated.revenue'
 import { Route as AuthenticatedExpensesRouteImport } from './routes/_authenticated.expenses'
@@ -53,10 +53,10 @@ const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
+const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedReviewsRoute = AuthenticatedReviewsRouteImport.update({
   id: '/reviews',
@@ -96,7 +96,7 @@ const AuthenticatedAppsIdRoute = AuthenticatedAppsIdRouteImport.update({
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof AuthenticatedIndexRoute
   '/dashboard': typeof DashboardRoute
   '/forbidden': typeof ForbiddenRoute
   '/login': typeof LoginRoute
@@ -111,7 +111,6 @@ export interface FileRoutesByFullPath {
   '/apps/': typeof AuthenticatedAppsIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/forbidden': typeof ForbiddenRoute
   '/login': typeof LoginRoute
@@ -120,6 +119,7 @@ export interface FileRoutesByTo {
   '/expenses': typeof AuthenticatedExpensesRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/reviews': typeof AuthenticatedReviewsRoute
+  '/': typeof AuthenticatedIndexRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/apps/setup': typeof AuthenticatedAppsSetupRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
@@ -127,7 +127,6 @@ export interface FileRoutesByTo {
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/dashboard': typeof DashboardRoute
   '/forbidden': typeof ForbiddenRoute
@@ -137,6 +136,7 @@ export interface FileRoutesById {
   '/_authenticated/expenses': typeof AuthenticatedExpensesRoute
   '/_authenticated/revenue': typeof AuthenticatedRevenueRoute
   '/_authenticated/reviews': typeof AuthenticatedReviewsRoute
+  '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/apps/$id': typeof AuthenticatedAppsIdRoute
   '/_authenticated/apps/setup': typeof AuthenticatedAppsSetupRoute
   '/_authenticated/settings/security': typeof AuthenticatedSettingsSecurityRoute
@@ -160,7 +160,6 @@ export interface FileRouteTypes {
     | '/apps/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
     | '/dashboard'
     | '/forbidden'
     | '/login'
@@ -169,13 +168,13 @@ export interface FileRouteTypes {
     | '/expenses'
     | '/revenue'
     | '/reviews'
+    | '/'
     | '/apps/$id'
     | '/apps/setup'
     | '/settings/security'
     | '/apps'
   id:
     | '__root__'
-    | '/'
     | '/_authenticated'
     | '/dashboard'
     | '/forbidden'
@@ -185,6 +184,7 @@ export interface FileRouteTypes {
     | '/_authenticated/expenses'
     | '/_authenticated/revenue'
     | '/_authenticated/reviews'
+    | '/_authenticated/'
     | '/_authenticated/apps/$id'
     | '/_authenticated/apps/setup'
     | '/_authenticated/settings/security'
@@ -192,7 +192,6 @@ export interface FileRouteTypes {
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   DashboardRoute: typeof DashboardRoute
   ForbiddenRoute: typeof ForbiddenRoute
@@ -245,12 +244,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
+    '/_authenticated/': {
+      id: '/_authenticated/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/reviews': {
       id: '/_authenticated/reviews'
@@ -308,6 +307,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedExpensesRoute: typeof AuthenticatedExpensesRoute
   AuthenticatedRevenueRoute: typeof AuthenticatedRevenueRoute
   AuthenticatedReviewsRoute: typeof AuthenticatedReviewsRoute
+  AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
   AuthenticatedAppsSetupRoute: typeof AuthenticatedAppsSetupRoute
   AuthenticatedSettingsSecurityRoute: typeof AuthenticatedSettingsSecurityRoute
@@ -318,6 +318,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedExpensesRoute: AuthenticatedExpensesRoute,
   AuthenticatedRevenueRoute: AuthenticatedRevenueRoute,
   AuthenticatedReviewsRoute: AuthenticatedReviewsRoute,
+  AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
   AuthenticatedAppsSetupRoute: AuthenticatedAppsSetupRoute,
   AuthenticatedSettingsSecurityRoute: AuthenticatedSettingsSecurityRoute,
@@ -329,7 +330,6 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 )
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   DashboardRoute: DashboardRoute,
   ForbiddenRoute: ForbiddenRoute,
