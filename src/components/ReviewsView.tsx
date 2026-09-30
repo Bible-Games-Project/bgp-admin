@@ -182,15 +182,24 @@ function useAppStoreRatings(apps: ReviewsApp[]) {
 /* ------------------------------------------------------------------------------------ */
 
 /**
- * Ratings and reviews of one game (its Reviews tab) or of every game (the Reviews page),
- * read live from the stores, with replies sent straight back to them.
+ * Ratings and reviews of every game (the Reviews page), read live from the stores, with
+ * replies sent straight back to them. The game picked lives in the page's URL, so a
+ * game's page can link here with that game already picked.
  */
-export function ReviewsView({ apps }: { apps: ReviewsApp[] }) {
+export function ReviewsView({
+  apps,
+  appFilter,
+  onAppFilterChange,
+}: {
+  apps: ReviewsApp[];
+  /** A game's id, or "all". */
+  appFilter: string;
+  onAppFilterChange: (appId: string) => void;
+}) {
   const sources = useReviewSources(apps);
   const ratings = useAppStoreRatings(apps);
   const many = apps.length > 1;
 
-  const [appFilter, setAppFilter] = useState("all");
   const [storeFilter, setStoreFilter] = useState<ReviewStore | "all">("all");
   const [sentiment, setSentiment] = useState<Sentiment | "all">("all");
   const [waitingOnly, setWaitingOnly] = useState(false);
@@ -234,7 +243,7 @@ export function ReviewsView({ apps }: { apps: ReviewsApp[] }) {
     return (
       <Notice tone="warn" title="No store IDs yet.">
         Reviews are read from the stores by the game's App Store bundle ID, Google Play package name
-        or Steam App ID. Add them in the General tab.
+        or Steam App ID. Add them in each game's General tab.
       </Notice>
     );
   }
@@ -258,7 +267,7 @@ export function ReviewsView({ apps }: { apps: ReviewsApp[] }) {
           sources={sources}
           ratings={ratings}
           selected={appFilter}
-          onSelect={filter(setAppFilter)}
+          onSelect={filter(onAppFilterChange)}
         />
       ) : (
         <ScoreCards sources={sources} ratings={ratings} />
@@ -291,7 +300,7 @@ export function ReviewsView({ apps }: { apps: ReviewsApp[] }) {
             )}
           </h3>
           {many && (
-            <Select value={appFilter} onValueChange={filter(setAppFilter)}>
+            <Select value={appFilter} onValueChange={filter(onAppFilterChange)}>
               <SelectTrigger className="w-full sm:w-52">
                 <SelectValue />
               </SelectTrigger>
@@ -490,7 +499,7 @@ function ScoreValue({ score, large }: { score: Score; large?: boolean }) {
   );
 }
 
-/** One card per store: the Reviews tab of a single game. */
+/** One card per store, for when only one game is on the stores. */
 function ScoreCards({
   sources,
   ratings,

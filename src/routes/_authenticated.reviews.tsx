@@ -8,10 +8,15 @@ import { listApps } from "@/lib/apps.functions";
 import { isCurrentUserAdmin } from "@/lib/deploy.functions";
 
 export const Route = createFileRoute("/_authenticated/reviews")({
+  // ?app= picks one game, e.g. from the Reviews button on a game's page.
+  validateSearch: (search: Record<string, unknown>): { app?: string } =>
+    typeof search.app === "string" ? { app: search.app } : {},
   component: ReviewsPage,
 });
 
 function ReviewsPage() {
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   const adminFn = useServerFn(isCurrentUserAdmin);
   const adminQ = useQuery({ queryKey: ["isAdmin"], queryFn: () => adminFn() });
   const listAppsFn = useServerFn(listApps);
@@ -58,7 +63,14 @@ function ReviewsPage() {
           are written on Steam.
         </p>
       </div>
-      <ReviewsView apps={apps} />
+      <ReviewsView
+        apps={apps}
+        // A game that is gone, or not on any store, is not in the list: show them all.
+        appFilter={apps.some((a) => a.id === search.app) ? search.app! : "all"}
+        onAppFilterChange={(id) =>
+          navigate({ search: id === "all" ? {} : { app: id }, replace: true })
+        }
+      />
     </div>
   );
 }

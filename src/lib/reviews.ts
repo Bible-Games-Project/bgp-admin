@@ -1,6 +1,6 @@
 // Ratings and reviews from the App Store, Google Play and Steam, in the one shape the
-// Reviews page and the app Reviews tab show. Pure (no fetch, no env), so every mapper can
-// be tested with real API answers and report excerpts; reviews.server.ts fetches.
+// Reviews page shows. Pure (no fetch, no env), so every mapper can be tested with real
+// API answers and report excerpts; reviews.server.ts fetches.
 
 import { parseTable } from "./income-reports";
 

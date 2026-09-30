@@ -196,9 +196,14 @@ function RevenuePage() {
       !!p.message && all.findIndex((o) => o.message === p.message) === i,
   );
 
-  const appOptions = [
-    ...new Map(rows.filter((r) => r.appKey).map((r) => [r.appKey, r.appName])),
-  ].sort((a, b) => a[1].localeCompare(b[1]));
+  const appOptionNames = new Map(rows.filter((r) => r.appKey).map((r) => [r.appKey, r.appName]));
+  // A game's page links here with ?app= set. A game that has earned nothing yet has no
+  // rows, and still has to show in the picker, or the picker reads blank.
+  const pickedApp = search.app ? consoleApps.get(search.app) : undefined;
+  if (pickedApp && !appOptionNames.has(pickedApp.key)) {
+    appOptionNames.set(pickedApp.key, pickedApp.name);
+  }
+  const appOptions = [...appOptionNames].sort((a, b) => a[1].localeCompare(b[1]));
   const filtered = rows.filter(
     (r) => (!search.store || r.source === search.store) && (!search.app || r.appKey === search.app),
   );

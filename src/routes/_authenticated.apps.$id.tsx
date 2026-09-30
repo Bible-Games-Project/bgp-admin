@@ -1,36 +1,26 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, ExternalLink } from "lucide-react";
+import { ArrowLeft, Trash2, ExternalLink, Star, DollarSign } from "lucide-react";
 import { getApp, updateApp, deleteApp } from "@/lib/apps.functions";
 import { checkPreviewDeployWorkflow } from "@/lib/capacitor.functions";
 import { Button } from "@/components/ui/button";
 import { AppForm, parseSteamAppId, type AppFormValues } from "@/components/AppForm";
-import { appStoreIds, isWebGame, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
+import { appStoreIds, isOnAnyStore, isWebGame, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
 import { AppAssetUpload } from "@/components/AppAssetUpload";
 import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
 import { AppSetupTab } from "@/components/AppSetupTab";
 import { AppAddonsTab } from "@/components/AppAddonsTab";
 import { StoreListingTab } from "@/components/StoreListingTab";
 import { AppDeployTab } from "@/components/AppDeployTab";
-import { ReviewsView } from "@/components/ReviewsView";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
-const TABS = [
-  "deploy",
-  "general",
-  "branding",
-  "store",
-  "reviews",
-  "environment",
-  "setup",
-  "addons",
-] as const;
+const TABS = ["deploy", "general", "branding", "store", "environment", "setup", "addons"] as const;
 type Tab = (typeof TABS)[number];
 /** The console doesn't build a game that isn't a web game, so only these apply to it. */
-const EXTERNAL_TABS: readonly Tab[] = ["general", "store", "reviews"];
+const EXTERNAL_TABS: readonly Tab[] = ["general", "store"];
 
 export const Route = createFileRoute("/_authenticated/apps/$id")({
   // ?tab=setup opens that tab directly, e.g. from a cell of the setup overview.
@@ -107,6 +97,8 @@ function AppDetailPage() {
   const app = q.data!.app;
   const external = !isWebGame(app);
   const storeIds = appStoreIds(app);
+  // The Revenue page knows a game by its App Store bundle ID, or else its Play package name.
+  const revenueKey = storeIds.ios ?? storeIds.android;
   const activeTab: Tab = tab && (!external || EXTERNAL_TABS.includes(tab)) ? tab : "general";
 
   const initial: AppFormValues = {
@@ -250,6 +242,26 @@ function AppDetailPage() {
         </Button>
       </div>
 
+      {/* The Reviews and Revenue pages cover every game; these open them on this one. */}
+      {(isOnAnyStore(storeIds) || revenueKey) && (
+        <div className="flex flex-wrap gap-2 -mt-2 mb-6">
+          {isOnAnyStore(storeIds) && (
+            <Button asChild size="sm" variant="outline" className="gap-2">
+              <Link to="/reviews" search={{ app: id }}>
+                <Star className="h-4 w-4" /> Reviews
+              </Link>
+            </Button>
+          )}
+          {revenueKey && (
+            <Button asChild size="sm" variant="outline" className="gap-2">
+              <Link to="/revenue" search={{ preset: "12m", app: revenueKey, store: null }}>
+                <DollarSign className="h-4 w-4" /> Revenue
+              </Link>
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* The open tab lives in ?tab=, so links like "Store tab" work from anywhere,
           including from another tab of this same page. */}
       <Tabs
@@ -266,7 +278,6 @@ function AppDetailPage() {
           <TabsTrigger value="general">General</TabsTrigger>
           {!external && <TabsTrigger value="branding">Branding</TabsTrigger>}
           <TabsTrigger value="store">Store</TabsTrigger>
-          <TabsTrigger value="reviews">Reviews</TabsTrigger>
           {!external && <TabsTrigger value="environment">Environment</TabsTrigger>}
           {!external && <TabsTrigger value="setup">Setup</TabsTrigger>}
           {!external && <TabsTrigger value="addons">Addons</TabsTrigger>}
@@ -330,20 +341,6 @@ function AppDetailPage() {
 
         <TabsContent value="store">
           <StoreListingTab appId={id} storeIds={storeIds} external={external} />
-        </TabsContent>
-
-        <TabsContent value="reviews">
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold mb-1">Reviews</h2>
-              <p className="text-sm text-muted-foreground">
-                Ratings and reviews from every store this game is on, read live from them. Replies
-                to App Store and Google Play reviews are sent from here; Steam replies are written
-                on Steam.
-              </p>
-            </div>
-            <ReviewsView apps={[{ id, name: app.name, ids: storeIds }]} />
-          </div>
         </TabsContent>
 
         <TabsContent value="environment">
