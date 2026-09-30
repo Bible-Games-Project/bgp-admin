@@ -130,7 +130,10 @@ export async function createAscApi(): Promise<AscApi | null> {
   };
 }
 
+// Apple's filter matches part of a bundle ID too: com.biblegamesproject.didacticjesusgame
+// (the demo, not on the App Store) returns com.biblegamesproject.didacticjesusgame.pro.
+// Only an exact match is the app.
 export async function findAscApp(api: AscApi, bundleId: string) {
   const res = await api.get(`/v1/apps?filter[bundleId]=${encodeURIComponent(bundleId)}`);
-  return res.data?.[0] ?? null;
+  return res.data?.find((app: any) => app.attributes?.bundleId === bundleId) ?? null;
 }
