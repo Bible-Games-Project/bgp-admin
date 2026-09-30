@@ -64,7 +64,6 @@ function AppsPage() {
           repoName: v.github_repo,
           notes: v.notes || null,
           bundle_id: v.bundle_id || null,
-          revenuecat_app_id: v.revenuecat_app_id || null,
         },
       }),
     onSuccess: (result) => {
@@ -138,7 +137,6 @@ function AppsPage() {
                           ...v,
                           notes: v.notes || null,
                           bundle_id: v.bundle_id || null,
-                          revenuecat_app_id: v.revenuecat_app_id || null,
                         })
                 }
                 onCancel={() => setOpen(false)}

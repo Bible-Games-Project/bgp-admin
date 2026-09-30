@@ -109,7 +109,6 @@ function AppDetailPage() {
     bundle_id: app.bundle_id ?? "",
     android_package_name: app.android_package_name ?? "",
     steam_app_id: app.steam_app_id?.toString() ?? "",
-    revenuecat_app_id: app.revenuecat_app_id ?? "",
     notes: app.notes ?? "",
     is_active: app.is_active,
   };
@@ -135,7 +134,6 @@ function AppDetailPage() {
       steam_app_id,
       notes,
       bundle_id: v.bundle_id || null,
-      revenuecat_app_id: v.revenuecat_app_id || null,
     };
   };
 

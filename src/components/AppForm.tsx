@@ -19,7 +19,6 @@ export type AppFormValues = {
   bundle_id: string;
   android_package_name: string;
   steam_app_id: string;
-  revenuecat_app_id: string;
   notes: string;
   is_active: boolean;
 };
@@ -32,7 +31,6 @@ export const emptyAppForm: AppFormValues = {
   bundle_id: "",
   android_package_name: "",
   steam_app_id: "",
-  revenuecat_app_id: "",
   notes: "",
   is_active: true,
 };
@@ -345,13 +343,6 @@ export function AppForm({
                     value={v.bundle_id}
                     onChange={(e) => upd("bundle_id", e.target.value)}
                     placeholder="com.acme.app"
-                  />
-                </Field>
-                <Field label="RevenueCat App ID" hint="Starts with 'app' — RevenueCat → Project Settings → Apps">
-                  <Input
-                    value={v.revenuecat_app_id}
-                    onChange={(e) => upd("revenuecat_app_id", e.target.value)}
-                    placeholder="app163ea91532"
                   />
                 </Field>
                 {/* A new web game can't be on Steam yet, so this only shows once it exists. */}
