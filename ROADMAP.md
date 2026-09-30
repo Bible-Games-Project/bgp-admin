@@ -110,7 +110,11 @@ web game's repo secret, which their deploy notifications read.
   to the numbers it changes (Didactic Jesus Demo → Didactic Jesus Game (Android)).
 - Filters by game and period like Revenue; a **Downloads** button on each game's page.
 
-### Testers (`/testers`)
+### Testers (a tab on each game's page)
+
+Pau asked on 2026-09-30 for Testers to be a tab of the game, not a sidebar page: testers
+are managed one game at a time. It first shipped as a global `/testers` page (6bc4cbd).
+
 
 - TestFlight, all through the ASC API: each game's groups and testers; invite by email
   (into an external group the console creates when missing); remove; public link on or
@@ -118,7 +122,6 @@ web game's repo secret, which their deploy notifications read.
 - Google Play: the API only manages Google Groups on testing tracks, not email lists,
   so the page shows the testing releases and the join link, and sends people to Play
   Console to add emails.
-- A **Testers** button on each game's page.
 
 ## Tech debt
 
@@ -128,8 +131,9 @@ web game's repo secret, which their deploy notifications read.
   / `purchase_events` tables are unused since Revenue reads the stores' reports. The
   games' in-app purchases still use RevenueCat's SDK (the IAP addon); only the
   webhook side goes.
-- Explained to Pau, not changed: a push to `deploy-app` or a merged PR in a game repo
-  runs both the iOS and Android jobs, whatever the game is set up for.
+- A push to `deploy-app` or a merged PR in a game repo ran both the iOS and Android jobs,
+  whatever the game was set up for. Fixed on 2026-09-30 at Pau's request: the generated
+  deploy.yml has a `plan` job that picks the platforms by the repo's signing secrets.
 
 ## Open questions and follow-ups
 

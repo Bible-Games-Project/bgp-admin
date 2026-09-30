@@ -13,74 +13,22 @@ Reusable GitHub Actions workflows for Bible Games Project apps.
 
 ## Usage
 
-In each project repo, create `.github/workflows/deploy.yml`:
+Each game repo's `.github/workflows/deploy.yml` is written by the console (Setup tab →
+Deploy Workflow, or the Setup overview when it's out of date), from
+`buildDeployWorkflowYaml` in `src/lib/capacitor.functions.ts`. Don't write it by hand: the
+console compares every repo's file with what it would write and flags any difference.
 
-```yaml
-name: Deploy App
+What the generated file does:
 
-on:
-  push:
-    branches: [deploy-app]
-  pull_request:
-    branches: [main]
-    types: [closed]
-  workflow_dispatch:
-    inputs:
-      deploy_ios:
-        description: "Deploy iOS"
-        type: boolean
-        default: false
-      deploy_android:
-        description: "Deploy Android"
-        type: boolean
-        default: false
-
-jobs:
-  ios:
-    if: |
-      github.ref == 'refs/heads/deploy-app' ||
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy_ios == true)
-    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-ios.yml@main
-    secrets:
-      IOS_BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}
-      IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
-      IOS_BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_BUILD_PROVISION_PROFILE_BASE64 }}
-      IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
-      IOS_EXPORT_OPTIONS_PLIST: ${{ secrets.IOS_EXPORT_OPTIONS_PLIST }}
-      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
-
-  android:
-    if: |
-      github.ref == 'refs/heads/deploy-app' ||
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy_android == true)
-    uses: Bible-Games-Project/bgp-admin/.github/workflows/deploy-android.yml@main
-    with:
-      package-name: com.your.package.name    # ← CHANGE THIS
-    secrets:
-      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
-      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-
-  notify:
-    needs: [ios, android]
-    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')
-    uses: Bible-Games-Project/bgp-admin/.github/workflows/notify-telegram.yml@main
-    with:
-      app-name: "Your App Name"              # ← CHANGE THIS
-    secrets:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-
-  tag:
-    needs: [ios, android]
-    if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')
-    uses: Bible-Games-Project/bgp-admin/.github/workflows/tag-release.yml@main
-```
+- **Started from the console** (`workflow_dispatch`): deploys the platforms ticked in the
+  game's Deploy tab, to testing or to production.
+- **Started on its own** (a push to `deploy-app`, or a pull request merged into `main`):
+  a `plan` job deploys only the platforms whose signing secrets the repo has
+  (`IOS_BUILD_PROVISION_PROFILE_BASE64` + `IOS_EXPORT_OPTIONS_PLIST` for iOS,
+  `ANDROID_KEYSTORE` + `KEYSTORE_PASSWORD` + `KEY_ALIAS` for Android), the same rule the
+  Deploy tab uses. A game on one store never fails on the other.
+- Calls `deploy-ios.yml` / `deploy-android.yml` from this repo, then `notify-telegram.yml`
+  and `tag-release.yml`.
 
 ## Repository Setup
 
