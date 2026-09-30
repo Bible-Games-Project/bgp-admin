@@ -147,9 +147,11 @@ are managed one game at a time. It first shipped as a global `/testers` page (6b
   Release it now button, and every TestFlight
   write (invite, remove, public link, send to testers). The test message works (Pau
   checked it on 2026-09-30).
-- The Telegram group waits for Joan to make a Telegram account. Until then the alerts go
-  to Pau's own chat, so Joan doesn't see them. Moving it is by hand now (see Design →
-  Telegram).
+- Telegram group: done on 2026-09-30 11:00 UTC. Pau created it, added the bot and moved
+  everything there with the Notifications page just before it was removed (app_settings
+  and every repo's TELEGRAM_CHAT_ID now hold the group). Joan joins once he has Telegram.
+  If Telegram ever upgrades it to a supergroup, the console follows the new ID by itself
+  but the repos' secrets must be updated by hand (see Design → Telegram).
 - Google Play downloads, and the demo's conversion, wait for the reports bucket
   permission (the same one Revenue waits for).
 - The first production monitor run was 2026-09-30 10:17 UTC; it only recorded the
