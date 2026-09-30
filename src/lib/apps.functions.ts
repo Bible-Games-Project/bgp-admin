@@ -289,8 +289,6 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
     // ── 2. Create Cloudflare Pages project ──────────────────────────
     const cfToken = process.env.CLOUDFLARE_API_TOKEN;
     const cfAccount = process.env.CLOUDFLARE_ACCOUNT_ID;
-    const tgToken = process.env.TELEGRAM_BOT_TOKEN;
-    const tgChat = process.env.TELEGRAM_CHAT_ID;
     if (cfToken && cfAccount) {
       try {
         const cfRes = await fetch(
@@ -457,7 +455,7 @@ export const createAppWithRepo = createServerFn({ method: "POST" })
       const failed = await setRepoSecrets(repoName, [
         ...cfSecrets,
         // Publish notifications arrive on Telegram without a manual step
-        ...(tgToken && tgChat ? telegramSecrets() : []),
+        ...(await telegramSecrets()),
       ]);
       for (const name of failed) {
         warnings.push(`Could not set ${name} secret.`);

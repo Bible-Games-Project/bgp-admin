@@ -17,7 +17,7 @@ written in Catalan) saying what shipped and how to try it.
 | 3 | Expirations and yearly requirements on Home | done | (Home commit) | (with Home) |
 | 4 | Google Play crashes and ANRs on Home | done | (Home commit) | (with Home) |
 | 5 | Telegram alerts and weekly summary | built, sent by the monitor job | (Home commit) | |
-| 6 | Notifications settings (test message, move to a group) | todo | | (with alerts) |
+| 6 | Notifications settings (test message, move to a group) | done | (Notifications commit) | (with alerts) |
 | 7 | Downloads page and demo → full conversion | todo | | |
 | 8 | Testers page (TestFlight, Google Play testing) | todo | | |
 

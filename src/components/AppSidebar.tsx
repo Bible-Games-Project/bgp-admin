@@ -1,5 +1,15 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { LogOut, Terminal, ShieldCheck, Boxes, DollarSign, Receipt, Star, House } from "lucide-react";
+import {
+  LogOut,
+  Terminal,
+  ShieldCheck,
+  Boxes,
+  DollarSign,
+  Receipt,
+  Star,
+  House,
+  Bell,
+} from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -21,6 +31,7 @@ const items = [
   { title: "Revenue", url: "/revenue", icon: DollarSign },
   { title: "Expenses", url: "/expenses", icon: Receipt },
   { title: "Reviews", url: "/reviews", icon: Star },
+  { title: "Notifications", url: "/settings/notifications", icon: Bell },
   { title: "Security", url: "/settings/security", icon: ShieldCheck },
 ];
 

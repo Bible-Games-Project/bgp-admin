@@ -1,4 +1,5 @@
 import { githubHeaders } from "@/lib/github.functions";
+import { telegramChatId } from "@/lib/telegram.server";
 import nacl from "tweetnacl";
 import { blake2b } from "blakejs";
 
@@ -7,10 +8,11 @@ const ORG = "Bible-Games-Project";
 
 // Secrets that wire a repo's publish runs to the Telegram chat. Missing
 // environment values simply mean the secret is skipped, never a hard failure:
-// creating an app must not depend on notifications being configured.
-export const telegramSecrets = (): { name: string; value: string }[] => {
+// creating an app must not depend on notifications being configured. The chat
+// picked in Settings → Notifications wins over the TELEGRAM_CHAT_ID secret.
+export const telegramSecrets = async (): Promise<{ name: string; value: string }[]> => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chat = process.env.TELEGRAM_CHAT_ID;
+  const chat = await telegramChatId().catch(() => process.env.TELEGRAM_CHAT_ID || null);
   if (!token || !chat) return [];
   return [
     { name: "TELEGRAM_BOT_TOKEN", value: token },
@@ -73,4 +75,4 @@ export const setRepoSecrets = async (
 // Convenience wrapper: only the Telegram device, used by createApp (linked
 // repos) and createAppWithRepo (new repos) so both paths notify the same chat.
 export const setPublishTelegramSecrets = async (repoName: string): Promise<string[]> =>
-  setRepoSecrets(repoName, telegramSecrets());
+  setRepoSecrets(repoName, await telegramSecrets());
