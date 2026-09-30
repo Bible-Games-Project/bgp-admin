@@ -12,14 +12,14 @@ written in Catalan) saying what shipped and how to try it.
 | --- | --- | --- | --- | --- |
 | 0 | Tech debt: exact bundle ID match in deploy-ios.yml | done | 41179c8 | — |
 | 0 | Tech debt: remove the RevenueCat webhook and the purchases tables | done | d5bbf73 | — |
-| 1 | Monitor job (the base for Home and alerts) | done | (Home commit) | — |
-| 2 | Home page: what needs attention | done | (Home commit) | |
-| 3 | Expirations and yearly requirements on Home | done | (Home commit) | (with Home) |
-| 4 | Google Play crashes and ANRs on Home | done | (Home commit) | (with Home) |
-| 5 | Telegram alerts and weekly summary | built, sent by the monitor job | (Home commit) | |
-| 6 | Notifications settings (test message, move to a group) | done | (Notifications commit) | (with alerts) |
-| 7 | Downloads page and demo → full conversion | done | (Downloads commit) | |
-| 8 | Testers page (TestFlight, Google Play testing) | done; writes not yet tried on the real stores | (Testers commit) | |
+| 1 | Monitor job (the base for Home and alerts) | done | 7819f38 | — |
+| 2 | Home page: what needs attention | done | 7819f38 | [#31](https://trello.com/c/R10wvjXf) |
+| 3 | Expirations and yearly requirements on Home | done | 7819f38 | #31 |
+| 4 | Google Play crashes and ANRs on Home | done | 7819f38 | #31 |
+| 5 | Telegram alerts and weekly summary | done; no alert seen live yet | 7819f38 | [#32](https://trello.com/c/jh9c3KQo) |
+| 6 | Notifications settings (test message, move to a group) | done; not tried live | dcba79f | #32 |
+| 7 | Downloads page and demo → full conversion | done | c03c0a2 | [#33](https://trello.com/c/YlTs7lpL) |
+| 8 | Testers page (TestFlight, Google Play testing) | done; writes not yet tried on the real stores | 6bc4cbd | [#34](https://trello.com/c/8cQKcJ67) |
 
 ## Design
 
@@ -134,3 +134,12 @@ web game's repo secret, which their deploy notifications read.
 ## Open questions and follow-ups
 
 - Steam revenue and wishlists: waiting for Joan's Financial API key (card #26).
+- Not tried against the real services yet, handed to Joan on the Trello cards: the
+  Telegram test message and move to a group, the Release it now button, and every
+  TestFlight write (invite, remove, public link, send to testers).
+- Google Play downloads, and the demo's conversion, wait for the reports bucket
+  permission (the same one Revenue waits for).
+- The first production monitor run was 2026-09-30 10:17 UTC; it only recorded the
+  current state, so the first Telegram alert comes with the next real change.
+- The console's GitHub token (GH_PAT) reports no expiry date, so Home shows no reminder
+  for it.
