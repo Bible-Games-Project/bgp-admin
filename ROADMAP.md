@@ -17,7 +17,7 @@ written in Catalan) saying what shipped and how to try it.
 | 3 | Expirations and yearly requirements on Home | done | 7819f38 | #31 |
 | 4 | Google Play crashes and ANRs on Home | done | 7819f38 | #31 |
 | 5 | Telegram alerts and weekly summary | done; no alert seen live yet | 7819f38 | [#32](https://trello.com/c/jh9c3KQo) |
-| 6 | Notifications settings (test message, move to a group) | done; not tried live | dcba79f | #32 |
+| 6 | Notifications settings (test message, move to a group) | done; test message works (Pau, 2026-09-30); group waits for Joan to join Telegram | dcba79f | #32 |
 | 7 | Downloads page and demo → full conversion | done | c03c0a2 | [#33](https://trello.com/c/YlTs7lpL) |
 | 8 | Testers page (TestFlight, Google Play testing) | done; writes not yet tried on the real stores | 6bc4cbd | [#34](https://trello.com/c/8cQKcJ67) |
 
@@ -138,9 +138,12 @@ are managed one game at a time. It first shipped as a global `/testers` page (6b
 ## Open questions and follow-ups
 
 - Steam revenue and wishlists: waiting for Joan's Financial API key (card #26).
-- Not tried against the real services yet, handed to Joan on the Trello cards: the
-  Telegram test message and move to a group, the Release it now button, and every
-  TestFlight write (invite, remove, public link, send to testers).
+- Not tried against the real services yet, handed to Joan on the Trello cards: moving
+  the Telegram messages to a group, the Release it now button, and every TestFlight
+  write (invite, remove, public link, send to testers). The test message works (Pau
+  checked it on 2026-09-30).
+- The Telegram group waits for Joan to make a Telegram account. Until then the alerts go
+  to Pau's own chat, so Joan doesn't see them.
 - Google Play downloads, and the demo's conversion, wait for the reports bucket
   permission (the same one Revenue waits for).
 - The first production monitor run was 2026-09-30 10:17 UTC; it only recorded the
