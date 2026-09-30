@@ -10,7 +10,6 @@ import {
   House,
   Bell,
   Download,
-  FlaskConical,
 } from "lucide-react";
 import {
   Sidebar,
@@ -34,7 +33,6 @@ const items = [
   { title: "Downloads", url: "/downloads", icon: Download },
   { title: "Expenses", url: "/expenses", icon: Receipt },
   { title: "Reviews", url: "/reviews", icon: Star },
-  { title: "Testers", url: "/testers", icon: FlaskConical },
   { title: "Notifications", url: "/settings/notifications", icon: Bell },
   { title: "Security", url: "/settings/security", icon: ShieldCheck },
 ];

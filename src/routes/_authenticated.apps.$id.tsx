@@ -1,15 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import {
-  ArrowLeft,
-  Trash2,
-  ExternalLink,
-  Star,
-  DollarSign,
-  Download,
-  FlaskConical,
-} from "lucide-react";
+import { ArrowLeft, Trash2, ExternalLink, Star, DollarSign, Download } from "lucide-react";
 import { getApp, updateApp, deleteApp } from "@/lib/apps.functions";
 import { checkPreviewDeployWorkflow } from "@/lib/capacitor.functions";
 import { Button } from "@/components/ui/button";
@@ -21,14 +13,24 @@ import { AppSetupTab } from "@/components/AppSetupTab";
 import { AppAddonsTab } from "@/components/AppAddonsTab";
 import { StoreListingTab } from "@/components/StoreListingTab";
 import { AppDeployTab } from "@/components/AppDeployTab";
+import { AppTestersTab } from "@/components/AppTestersTab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
-const TABS = ["deploy", "general", "branding", "store", "environment", "setup", "addons"] as const;
+const TABS = [
+  "deploy",
+  "general",
+  "branding",
+  "store",
+  "testers",
+  "environment",
+  "setup",
+  "addons",
+] as const;
 type Tab = (typeof TABS)[number];
 /** The console doesn't build a game that isn't a web game, so only these apply to it. */
-const EXTERNAL_TABS: readonly Tab[] = ["general", "store"];
+const EXTERNAL_TABS: readonly Tab[] = ["general", "store", "testers"];
 
 export const Route = createFileRoute("/_authenticated/apps/$id")({
   // ?tab=setup opens that tab directly, e.g. from a cell of the setup overview.
@@ -107,7 +109,12 @@ function AppDetailPage() {
   const storeIds = appStoreIds(app);
   // The Revenue page knows a game by its App Store bundle ID, or else its Play package name.
   const revenueKey = storeIds.ios ?? storeIds.android;
-  const activeTab: Tab = tab && (!external || EXTERNAL_TABS.includes(tab)) ? tab : "general";
+  // Testers needs the game on a store; a link to it for one that isn't opens General.
+  const hasTesters = Boolean(storeIds.ios || storeIds.android);
+  const activeTab: Tab =
+    tab && (!external || EXTERNAL_TABS.includes(tab)) && (tab !== "testers" || hasTesters)
+      ? tab
+      : "general";
 
   const initial: AppFormValues = {
     name: app.name,
@@ -248,8 +255,8 @@ function AppDetailPage() {
         </Button>
       </div>
 
-      {/* The Reviews, Revenue, Downloads and Testers pages cover every game; these open
-          them on this one. */}
+      {/* The Reviews, Revenue and Downloads pages cover every game; these open them on
+          this one. */}
       {(isOnAnyStore(storeIds) || revenueKey) && (
         <div className="flex flex-wrap gap-2 -mt-2 mb-6">
           {isOnAnyStore(storeIds) && (
@@ -273,13 +280,6 @@ function AppDetailPage() {
               </Link>
             </Button>
           )}
-          {(storeIds.ios || storeIds.android) && (
-            <Button asChild size="sm" variant="outline" className="gap-2">
-              <Link to="/testers" search={{ app: id }}>
-                <FlaskConical className="h-4 w-4" /> Testers
-              </Link>
-            </Button>
-          )}
         </div>
       )}
 
@@ -299,6 +299,7 @@ function AppDetailPage() {
           <TabsTrigger value="general">General</TabsTrigger>
           {!external && <TabsTrigger value="branding">Branding</TabsTrigger>}
           <TabsTrigger value="store">Store</TabsTrigger>
+          {hasTesters && <TabsTrigger value="testers">Testers</TabsTrigger>}
           {!external && <TabsTrigger value="environment">Environment</TabsTrigger>}
           {!external && <TabsTrigger value="setup">Setup</TabsTrigger>}
           {!external && <TabsTrigger value="addons">Addons</TabsTrigger>}
@@ -363,6 +364,12 @@ function AppDetailPage() {
         <TabsContent value="store">
           <StoreListingTab appId={id} storeIds={storeIds} external={external} />
         </TabsContent>
+
+        {hasTesters && (
+          <TabsContent value="testers">
+            <AppTestersTab appId={id} storeIds={storeIds} />
+          </TabsContent>
+        )}
 
         <TabsContent value="environment">
           <AppEnvironmentEditor

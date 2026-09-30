@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -17,17 +16,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { appStoreIds } from "@/lib/app-kind";
-import { listApps } from "@/lib/apps.functions";
-import { isCurrentUserAdmin } from "@/lib/deploy.functions";
+import type { AppStoreIds } from "@/lib/app-kind";
 import {
   type BetaGroup,
   type PlayTesting,
@@ -39,13 +29,6 @@ import {
   sendBuildToBetaTesters,
   setBetaPublicLink,
 } from "@/lib/testers.functions";
-
-export const Route = createFileRoute("/_authenticated/testers")({
-  // ?app= picks the game, e.g. from the Testers button on a game's page.
-  validateSearch: (search: Record<string, unknown>): { app?: string } =>
-    typeof search.app === "string" ? { app: search.app } : {},
-  component: TestersPage,
-});
 
 const TESTER_STATES: Record<string, string> = {
   NOT_INVITED: "invitation waits for a build",
@@ -68,76 +51,19 @@ function copy(text: string) {
   );
 }
 
-function TestersPage() {
-  const search = Route.useSearch();
-  const navigate = Route.useNavigate();
-  const adminFn = useServerFn(isCurrentUserAdmin);
-  const adminQ = useQuery({ queryKey: ["isAdmin"], queryFn: () => adminFn() });
-  const listAppsFn = useServerFn(listApps);
-  const appsQ = useQuery({
-    queryKey: ["apps"],
-    queryFn: () => listAppsFn(),
-    enabled: !!adminQ.data?.isAdmin,
-  });
-
-  if (adminQ.isLoading || appsQ.isLoading) {
-    return (
-      <div className="p-8 text-sm text-muted-foreground flex items-center gap-2">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-      </div>
-    );
-  }
-  if (!adminQ.data?.isAdmin) {
-    return (
-      <div className="p-8 max-w-md">
-        <h1 className="text-xl font-display font-semibold">Access denied</h1>
-        <p className="text-sm text-muted-foreground mt-2">
-          Your account is not authorized to manage testers.
-        </p>
-      </div>
-    );
-  }
-
-  const games = (appsQ.data?.apps ?? [])
-    .filter((a) => a.is_active)
-    .map((a) => ({ id: a.id, name: a.name.trim(), ids: appStoreIds(a) }))
-    .filter((a) => a.ids.ios || a.ids.android)
-    .sort((a, b) => a.name.localeCompare(b.name));
-  const game = games.find((g) => g.id === search.app) ?? games[0];
-
+/**
+ * A game's Testers tab: who can try it before it's published, on TestFlight (managed
+ * from here) and on Google Play's testing tracks.
+ */
+export function AppTestersTab({ appId, storeIds }: { appId: string; storeIds: AppStoreIds }) {
   return (
-    <div className="p-6 md:p-8 max-w-4xl mx-auto w-full space-y-6">
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <span className="label-mono">players</span>
-          <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">Testers</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            People who try a game before it's published: TestFlight on iPhone and iPad, testing
-            tracks on Google Play.
-          </p>
-        </div>
-        {game && (
-          <Select
-            value={game.id}
-            onValueChange={(id) => navigate({ search: { app: id }, replace: true })}
-          >
-            <SelectTrigger className="w-[260px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {games.map((g) => (
-                <SelectItem key={g.id} value={g.id}>
-                  {g.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-
-      {!game && <p className="text-sm text-muted-foreground">No game is on a store yet.</p>}
-      {game?.ids.ios && <TestFlightCard key={`ios-${game.id}`} appId={game.id} />}
-      {game?.ids.android && <PlayCard key={`play-${game.id}`} appId={game.id} />}
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        People outside the team who try this game before it's published: TestFlight on iPhone and
+        iPad, testing tracks on Google Play.
+      </p>
+      {storeIds.ios && <TestFlightCard appId={appId} />}
+      {storeIds.android && <PlayCard appId={appId} />}
     </div>
   );
 }
