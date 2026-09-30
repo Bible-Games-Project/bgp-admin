@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Plus, Boxes, Github, ImageIcon, ListChecks, Rocket, Store } from "lucide-react";
 import { listApps, createApp, createAppWithRepo, createExternalGame } from "@/lib/apps.functions";
+import { checkPreviewDeployWorkflow } from "@/lib/capacitor.functions";
 import { appStoreIds, isWebGame, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,9 +27,23 @@ function AppsPage() {
   const createFn = useServerFn(createApp);
   const createAppWithRepoFn = useServerFn(createAppWithRepo);
   const createExternalFn = useServerFn(createExternalGame);
+  const checkPreviewFn = useServerFn(checkPreviewDeployWorkflow);
   const [open, setOpen] = useState(false);
 
   const q = useQuery({ queryKey: ["apps"], queryFn: () => listFn() });
+
+  // A game only has a Cloudflare preview once its repo runs preview-deploy.yml, so each
+  // one is checked before its link is shown. Same cache as the Setup tab and overview.
+  const webGames = (q.data?.apps ?? []).filter(isWebGame);
+  const previews = useQueries({
+    queries: webGames.map((a) => ({
+      queryKey: ["preview-deploy-workflow", a.id],
+      queryFn: () => checkPreviewFn({ data: { appId: a.id } }),
+      staleTime: 5 * 60_000,
+      retry: false,
+    })),
+  });
+  const previewUrl = new Map(webGames.map((a, i) => [a.id, previews[i]?.data?.previewUrl]));
 
   const createM = useMutation({
     mutationFn: (data: any) => createFn({ data }),
@@ -187,15 +202,17 @@ function AppsPage() {
                       {a.github_owner}/{a.github_repo}
                     </a>
                     <span>· {a.default_ref}</span>
-                    <a
-                      href={`https://bgp-${a.github_repo}.pages.dev`}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-muted-foreground/70 hover:text-foreground hover:underline"
-                    >
-                      bgp-{a.github_repo}.pages.dev
-                    </a>
+                    {previewUrl.get(a.id) && (
+                      <a
+                        href={previewUrl.get(a.id)!}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-muted-foreground/70 hover:text-foreground hover:underline"
+                      >
+                        bgp-{a.github_repo}.pages.dev
+                      </a>
+                    )}
                     {a.steam_app_id != null && <SteamLink appId={a.steam_app_id} />}
                   </div>
                 ) : (

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft, Trash2, ExternalLink } from "lucide-react";
 import { getApp, updateApp, deleteApp } from "@/lib/apps.functions";
+import { checkPreviewDeployWorkflow } from "@/lib/capacitor.functions";
 import { Button } from "@/components/ui/button";
 import { AppForm, parseSteamAppId, type AppFormValues } from "@/components/AppForm";
 import { appStoreIds, isWebGame, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
@@ -47,11 +48,20 @@ function AppDetailPage() {
   const getFn = useServerFn(getApp);
   const updateFn = useServerFn(updateApp);
   const deleteFn = useServerFn(deleteApp);
+  const checkPreviewFn = useServerFn(checkPreviewDeployWorkflow);
 
   const q = useQuery({
     queryKey: ["app", id],
     queryFn: () => getFn({ data: { id } }),
   });
+
+  // Shares its cache with the Setup tab, so turning the preview off there hides the link.
+  const previewQ = useQuery({
+    queryKey: ["preview-deploy-workflow", id],
+    queryFn: () => checkPreviewFn({ data: { appId: id } }),
+    enabled: !!q.data && isWebGame(q.data.app),
+  });
+  const previewUrl = previewQ.data?.previewUrl;
 
   const updateM = useMutation({
     mutationFn: (patch: any) => updateFn({ data: { id, patch } }),
@@ -203,14 +213,16 @@ function AppDetailPage() {
                 >
                   GitHub <ExternalLink className="h-3 w-3" />
                 </a>
-                <a
-                  href={`https://bgp-${app.github_repo}.pages.dev`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
-                >
-                  Cloudflare preview <ExternalLink className="h-3 w-3" />
-                </a>
+                {previewUrl && (
+                  <a
+                    href={previewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                  >
+                    Cloudflare preview <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
                 {storeIds.steam && (
                   <a
                     href={steamStoreUrl(storeIds.steam)}

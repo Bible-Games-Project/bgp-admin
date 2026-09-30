@@ -871,7 +871,7 @@ export function AppSetupTab({
                   </p>
                 </div>
               )}
-              {previewDeployDone && previewDeployQ.data?.previewUrl && (
+              {previewDeployQ.data?.previewUrl && (
                 <a
                   href={previewDeployQ.data.previewUrl}
                   target="_blank"

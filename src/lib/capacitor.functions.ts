@@ -8,7 +8,7 @@ import {
   commitPreviewWorkflow,
   findRepoProblem,
 } from "@/lib/github.functions";
-import { assertNotSelfRepo } from "@/lib/self-repo";
+import { assertNotSelfRepo, isSelfRepo } from "@/lib/self-repo";
 import { requireWebGame } from "@/lib/app-kind";
 
 async function assertAdmin(supabase: any, userId: string) {
@@ -673,11 +673,16 @@ export const checkPreviewDeployWorkflow = createServerFn({ method: "POST" })
     // A file committed by an older bgp-admin can break later: the first generator relied
     // on cloudflare/pages-action, which GitHub no longer serves.
     const outdated = res.ok && (await readBase64File(res)) !== buildPreviewDeployWorkflowYaml();
+    const disabled = await isPreviewDisabled(context.supabase, data.appId);
+    // Only an app whose repo runs preview-deploy.yml has a Pages site; for any other the
+    // address doesn't exist, so the console shows no preview link at all. bgp-admin
+    // itself deploys to Workers, not Pages.
+    const hasPreview = res.ok && !disabled && !isSelfRepo(app.github_owner, app.github_repo);
     return {
       exists: res.ok,
       outdated,
-      disabled: await isPreviewDisabled(context.supabase, data.appId),
-      previewUrl: `https://bgp-${app.github_repo}.pages.dev`,
+      disabled,
+      previewUrl: hasPreview ? `https://bgp-${app.github_repo}.pages.dev` : null,
     };
   });
 
