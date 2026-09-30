@@ -17,7 +17,7 @@ written in Catalan) saying what shipped and how to try it.
 | 3 | Expirations and yearly requirements on Home | done | 7819f38 | #31 |
 | 4 | Google Play crashes and ANRs on Home | done | 7819f38 | #31 |
 | 5 | Telegram alerts and weekly summary | done; no alert seen live yet | 7819f38 | [#32](https://trello.com/c/jh9c3KQo) |
-| 6 | Notifications settings (test message, move to a group) | done; test message works (Pau, 2026-09-30); group waits for Joan to join Telegram | dcba79f | #32 |
+| 6 | Notifications settings (test message, move to a group) | shipped in dcba79f, test message worked; page removed the same day at Pau's request | — | #32 |
 | 7 | Downloads page and demo → full conversion | done | c03c0a2 | [#33](https://trello.com/c/YlTs7lpL) |
 | 8 | Testers page (TestFlight, Google Play testing) | done; writes not yet tried on the real stores | 6bc4cbd | [#34](https://trello.com/c/8cQKcJ67) |
 
@@ -89,11 +89,16 @@ Sent by the monitor job with the bot the deploy workflows already use.
 The first run of each check only records what exists, so nothing old is announced.
 Deploy results are not repeated: `notify-telegram.yml` already sends them.
 
-**Moving the chat to a group** (Pau will do it later): Settings → Notifications shows
-where messages go and sends a test. "Move to a group" asks to add the bot to the group,
-finds it through `getUpdates`, and then updates `TELEGRAM_CHAT_ID` everywhere at once:
-the console's own setting (table `app_settings`), the bgp-admin repo secret, and every
-web game's repo secret, which their deploy notifications read.
+**Moving the chat to a group** (once Joan has Telegram): a Settings → Notifications page
+did this from the console (dcba79f), but Pau found it unnecessary and it was removed. To
+move the chat now, by hand:
+1. Get the group's chat ID: the bot must be in the group; its `getUpdates` lists it (the
+   bot token is only in GitHub secrets and the Worker, so read it from a one-off workflow
+   run in bgp-admin), or open the group in web.telegram.org, where the address ends in it.
+2. `insert into app_settings (key, value) values ('telegram_chat_id', '"<id>"')` (upsert):
+   the monitor job's alerts move at once.
+3. `gh secret set TELEGRAM_CHAT_ID` in bgp-admin and in every game repo, so their deploy
+   messages move too, and new repos created by the console get it.
 
 ### Downloads (`/downloads`)
 
@@ -138,12 +143,13 @@ are managed one game at a time. It first shipped as a global `/testers` page (6b
 ## Open questions and follow-ups
 
 - Steam revenue and wishlists: waiting for Joan's Financial API key (card #26).
-- Not tried against the real services yet, handed to Joan on the Trello cards: moving
-  the Telegram messages to a group, the Release it now button, and every TestFlight
+- Not tried against the real services yet, handed to Joan on the Trello cards: the
+  Release it now button, and every TestFlight
   write (invite, remove, public link, send to testers). The test message works (Pau
   checked it on 2026-09-30).
 - The Telegram group waits for Joan to make a Telegram account. Until then the alerts go
-  to Pau's own chat, so Joan doesn't see them.
+  to Pau's own chat, so Joan doesn't see them. Moving it is by hand now (see Design →
+  Telegram).
 - Google Play downloads, and the demo's conversion, wait for the reports bucket
   permission (the same one Revenue waits for).
 - The first production monitor run was 2026-09-30 10:17 UTC; it only recorded the

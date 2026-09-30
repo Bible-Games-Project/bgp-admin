@@ -1,6 +1,7 @@
 // Sends the console's own Telegram messages (the monitor job's alerts), through the same
-// bot and chat as the deploy workflows. The chat can be moved from the console: its
-// choice, in app_settings, wins over the TELEGRAM_CHAT_ID secret.
+// bot and chat as the deploy workflows. A chat stored in app_settings (telegram_chat_id)
+// wins over the TELEGRAM_CHAT_ID secret, so the alerts can move to another chat with a
+// database row; the games' deploy messages follow their repos' TELEGRAM_CHAT_ID secret.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 

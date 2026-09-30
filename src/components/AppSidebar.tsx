@@ -8,7 +8,6 @@ import {
   Receipt,
   Star,
   House,
-  Bell,
   Download,
 } from "lucide-react";
 import {
@@ -33,7 +32,6 @@ const items = [
   { title: "Downloads", url: "/downloads", icon: Download },
   { title: "Expenses", url: "/expenses", icon: Receipt },
   { title: "Reviews", url: "/reviews", icon: Star },
-  { title: "Notifications", url: "/settings/notifications", icon: Bell },
   { title: "Security", url: "/settings/security", icon: ShieldCheck },
 ];
 

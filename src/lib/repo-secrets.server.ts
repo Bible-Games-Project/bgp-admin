@@ -8,8 +8,8 @@ const ORG = "Bible-Games-Project";
 
 // Secrets that wire a repo's publish runs to the Telegram chat. Missing
 // environment values simply mean the secret is skipped, never a hard failure:
-// creating an app must not depend on notifications being configured. The chat
-// picked in Settings → Notifications wins over the TELEGRAM_CHAT_ID secret.
+// creating an app must not depend on notifications being configured. A chat
+// stored in app_settings wins over the TELEGRAM_CHAT_ID secret.
 export const telegramSecrets = async (): Promise<{ name: string; value: string }[]> => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chat = await telegramChatId().catch(() => process.env.TELEGRAM_CHAT_ID || null);
