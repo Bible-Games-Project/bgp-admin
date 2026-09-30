@@ -115,6 +115,56 @@ export type Database = {
         }
         Relationships: []
       }
+      expenses: {
+        Row: {
+          amount: number
+          app_id: string | null
+          created_at: string
+          currency: string
+          ends_on: string | null
+          frequency: string
+          id: string
+          name: string
+          notes: string | null
+          starts_on: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          app_id?: string | null
+          created_at?: string
+          currency?: string
+          ends_on?: string | null
+          frequency: string
+          id?: string
+          name: string
+          notes?: string | null
+          starts_on: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          app_id?: string | null
+          created_at?: string
+          currency?: string
+          ends_on?: string | null
+          frequency?: string
+          id?: string
+          name?: string
+          notes?: string | null
+          starts_on?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expenses_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "apps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       purchase_events: {
         Row: {
           created_at: string

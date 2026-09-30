@@ -1,14 +1,25 @@
 import { useMemo } from "react";
-import { createFileRoute } from "@tanstack/react-router";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { AlertTriangle, CalendarDays, Euro, Loader2, ShoppingBag, TrendingUp } from "lucide-react";
+import { Link, createFileRoute } from "@tanstack/react-router";
+import {
+  AlertTriangle,
+  CalendarDays,
+  Euro,
+  Loader2,
+  Receipt,
+  Scale,
+  ShoppingBag,
+  TrendingUp,
+} from "lucide-react";
 import {
   Bar,
-  BarChart,
   CartesianGrid,
+  ComposedChart,
   Legend,
+  Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip as RTooltip,
   XAxis,
@@ -54,6 +65,8 @@ import {
   getGooglePlayIncome,
 } from "@/lib/income.functions";
 import { appStoreIds } from "@/lib/app-kind";
+import { addCosts, paymentsIn, totalEur } from "@/lib/expenses";
+import { listExpenses } from "@/lib/expenses.functions";
 
 const searchSchema = z.object({
   preset: z.enum(["month", "12m", "year", "all"]).catch("12m"),
@@ -77,6 +90,10 @@ const SOURCE_COLORS: Record<IncomeSource, string> = {
   app_store: "var(--primary)",
   google_play: "var(--success)",
 };
+// Costs hang below zero in neutral grey, so they read as money going out rather than as
+// a third store.
+const EXPENSES_COLOR = "var(--muted-foreground)";
+const PROFIT_COLOR = "var(--foreground)";
 
 // The stores' reports change once a day at most.
 const STALE_MS = 30 * 60 * 1000;
@@ -144,8 +161,16 @@ function RevenuePage() {
     staleTime: STALE_MS,
   });
 
+  const listExpensesFn = useServerFn(listExpenses);
+  const expensesQ = useQuery({
+    queryKey: ["expenses"],
+    queryFn: () => listExpensesFn(),
+    enabled,
+  });
+
   const results = [appStoreQ, ...appStoreDaysQs, playQ];
   const loading = results.some((q) => q.isLoading);
+  const costsLoading = loading || expensesQ.isLoading;
 
   if (adminQ.isLoading) {
     return (
@@ -172,11 +197,14 @@ function RevenuePage() {
   // Each store reports a game under its own ID for that store; mapping them all to one
   // key adds a game up as one app even when its App Store and Google Play IDs differ.
   const consoleApps = new Map<string, { key: string; name: string }>();
+  // Expenses name a game by its console ID.
+  const keyOfApp = new Map<string, string>();
   for (const a of appsQ.data?.apps ?? []) {
     const ids = appStoreIds(a);
     const key = ids.ios ?? ids.android;
     if (!key) continue;
     for (const id of [ids.ios, ids.android]) if (id) consoleApps.set(id, { key, name: a.name });
+    keyOfApp.set(a.id, key);
   }
   const rows: IncomeRow[] = results
     .flatMap((q) => q.data?.rows ?? [])
@@ -195,6 +223,7 @@ function RevenuePage() {
     (p, i, all): p is { source: IncomeSource; message: string } =>
       !!p.message && all.findIndex((o) => o.message === p.message) === i,
   );
+  const expensesProblem = expensesQ.data?.problem ?? expensesQ.error?.message;
 
   const appOptionNames = new Map(rows.filter((r) => r.appKey).map((r) => [r.appKey, r.appName]));
   // A game's page links here with ?app= set. A game that has earned nothing yet has no
@@ -202,6 +231,12 @@ function RevenuePage() {
   const pickedApp = search.app ? consoleApps.get(search.app) : undefined;
   if (pickedApp && !appOptionNames.has(pickedApp.key)) {
     appOptionNames.set(pickedApp.key, pickedApp.name);
+  }
+  // A game with costs of its own but no sales yet can be picked too.
+  const namesByKey = new Map([...consoleApps.values()].map((a) => [a.key, a.name]));
+  for (const p of expensesQ.data?.payments ?? []) {
+    const key = p.appId ? keyOfApp.get(p.appId) : undefined;
+    if (key && !appOptionNames.has(key)) appOptionNames.set(key, namesByKey.get(key) ?? key);
   }
   const appOptions = [...appOptionNames].sort((a, b) => a[1].localeCompare(b[1]));
   const filtered = rows.filter(
@@ -212,7 +247,28 @@ function RevenuePage() {
   const period = totals(selected);
   const thisMonth = totals(filtered.filter((r) => r.period === currentMonth));
   const previousMonth = totals(filtered.filter((r) => r.period === lastMonth));
-  const chart = chartBuckets(selected, search.preset, now);
+  // Costs aren't tied to a store, so they only show with all stores. With a game picked,
+  // only the costs entered for that game count.
+  const showCosts = !search.store;
+  // Without the expenses, a profit would just repeat the income.
+  const costsKnown = showCosts && !expensesQ.isError;
+  const costPayments = paymentsIn(
+    (expensesQ.data?.payments ?? []).filter(
+      (p) => !search.app || (p.appId && keyOfApp.get(p.appId) === search.app),
+    ),
+    search.preset,
+    now,
+  );
+  const spent = totalEur(costPayments);
+  const profit = period.netEur - spent;
+  const chartCosts = costsKnown && costPayments.length > 0;
+  const chart = chartCosts
+    ? addCosts(
+        chartBuckets(selected, search.preset, now),
+        costPayments,
+        search.preset === "all",
+      ).map((b) => ({ ...b, expensesDown: -b.expenses }))
+    : chartBuckets(selected, search.preset, now);
   const apps = byApp(selected);
   const products = byProduct(selected);
   const sources: IncomeSource[] = search.store ? [search.store] : ["app_store", "google_play"];
@@ -224,7 +280,8 @@ function RevenuePage() {
           <span className="label-mono">analytics</span>
           <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">Revenue</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Everything the App Store and Google Play pay for every game, after their fees, in euros.
+            What the App Store and Google Play pay for every game after their fees, what the project
+            spends, and what's left, in euros.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -279,14 +336,68 @@ function RevenuePage() {
           <AlertDescription className="text-muted-foreground">{p.message}</AlertDescription>
         </Alert>
       ))}
+      {expensesProblem && (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Expenses are missing</AlertTitle>
+          <AlertDescription className="text-muted-foreground">{expensesProblem}</AlertDescription>
+        </Alert>
+      )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           label="Net income"
           value={<Amount value={period.netEur} estimated={period.estimated} />}
           hint={PRESET_LABELS[search.preset]}
           icon={<Euro className="h-4 w-4" />}
           loading={loading}
+        />
+        <StatCard
+          label="Expenses"
+          value={costsKnown ? fmtEUR(spent) : "—"}
+          hint={
+            !showCosts ? (
+              <AllStoresHint onClick={() => setSearch({ store: null })} />
+            ) : !costsKnown ? (
+              "Couldn't be loaded, see above"
+            ) : expensesQ.data?.expenses.length === 0 ? (
+              <>
+                None entered yet. <HintLink to="/expenses">Add them</HintLink>
+              </>
+            ) : (
+              <>
+                {search.app ? "Only this game's own costs" : PRESET_LABELS[search.preset]} ·{" "}
+                <HintLink to="/expenses">See them</HintLink>
+              </>
+            )
+          }
+          icon={<Receipt className="h-4 w-4" />}
+          loading={showCosts && expensesQ.isLoading}
+        />
+        <StatCard
+          label="Profit"
+          value={
+            costsKnown ? (
+              <span className={profit < 0 ? "text-destructive" : "text-success"}>
+                <Amount value={profit} estimated={period.estimated} />
+              </span>
+            ) : (
+              "—"
+            )
+          }
+          hint={
+            !showCosts ? (
+              <AllStoresHint onClick={() => setSearch({ store: null })} />
+            ) : !costsKnown ? (
+              "Needs the expenses"
+            ) : profit < 0 ? (
+              "Losing money: it spent more than it earned"
+            ) : (
+              "Income minus expenses"
+            )
+          }
+          icon={<Scale className="h-4 w-4" />}
+          loading={showCosts && costsLoading}
         />
         <StatCard
           label="This month"
@@ -314,19 +425,24 @@ function RevenuePage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-medium">
-            Income per {search.preset === "all" ? "year" : "month"}
+            {chartCosts ? "Income and expenses" : "Income"} per{" "}
+            {search.preset === "all" ? "year" : "month"}
           </CardTitle>
         </CardHeader>
         <CardContent className="h-[280px]">
-          {loading ? (
+          {costsLoading ? (
             <CenteredNote>
               <Loader2 className="h-4 w-4 animate-spin" />
             </CenteredNote>
-          ) : selected.length === 0 ? (
+          ) : selected.length === 0 && !chartCosts ? (
             <CenteredNote>No sales in this period.</CenteredNote>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chart} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+              <ComposedChart
+                data={chart}
+                stackOffset="sign"
+                margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis
                   dataKey="bucket"
@@ -337,7 +453,7 @@ function RevenuePage() {
                 <YAxis
                   tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
                   stroke="var(--border)"
-                  tickFormatter={(v) => `€${v}`}
+                  tickFormatter={(v: number) => (v < 0 ? `-€${-v}` : `€${v}`)}
                 />
                 <RTooltip
                   formatter={(v: number, name: string) => [fmtEUR(v), name]}
@@ -354,6 +470,7 @@ function RevenuePage() {
                   cursor={{ fill: "var(--muted)", opacity: 0.4 }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
+                {chartCosts && <ReferenceLine y={0} stroke="var(--muted-foreground)" />}
                 {sources.map((s, i) => (
                   <Bar
                     key={s}
@@ -364,7 +481,27 @@ function RevenuePage() {
                     radius={i === sources.length - 1 ? [4, 4, 0, 0] : undefined}
                   />
                 ))}
-              </BarChart>
+                {chartCosts && (
+                  <Bar
+                    dataKey="expensesDown"
+                    name="Expenses"
+                    stackId="income"
+                    fill={EXPENSES_COLOR}
+                    radius={[0, 0, 4, 4]}
+                  />
+                )}
+                {chartCosts && (
+                  <Line
+                    dataKey="profit"
+                    name="Profit"
+                    type="linear"
+                    stroke={PROFIT_COLOR}
+                    strokeWidth={2}
+                    dot={{ r: 4, fill: PROFIT_COLOR, strokeWidth: 0 }}
+                    activeDot={{ r: 5 }}
+                  />
+                )}
+              </ComposedChart>
             </ResponsiveContainer>
           )}
         </CardContent>
@@ -471,9 +608,36 @@ function RevenuePage() {
         Store sales are converted to euros at the European Central Bank's rate for each month. ≈
         marks Google Play months not closed yet (Google closes a month around the 5th of the next
         one); until then they're worked out from its sales minus its 15% fee. Today's sales show up
-        tomorrow.
+        tomorrow. Expenses are the ones entered on the{" "}
+        <Link to="/expenses" className="underline underline-offset-2 hover:text-foreground">
+          Expenses
+        </Link>{" "}
+        page, counted on the day each one is paid.
       </p>
     </div>
+  );
+}
+
+function HintLink({ to, children }: { to: "/expenses"; children: React.ReactNode }) {
+  return (
+    <Link to={to} className="underline underline-offset-2 hover:text-foreground">
+      {children}
+    </Link>
+  );
+}
+
+function AllStoresHint({ onClick }: { onClick: () => void }) {
+  return (
+    <>
+      Costs aren't split by store.{" "}
+      <button
+        type="button"
+        onClick={onClick}
+        className="underline underline-offset-2 hover:text-foreground"
+      >
+        Show all stores
+      </button>
+    </>
   );
 }
 
@@ -486,7 +650,7 @@ function StatCard({
 }: {
   label: string;
   value: React.ReactNode;
-  hint: string;
+  hint: React.ReactNode;
   icon: React.ReactNode;
   loading?: boolean;
 }) {
