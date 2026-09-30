@@ -165,6 +165,54 @@ export type Database = {
           },
         ]
       }
+      income_reports: {
+        Row: {
+          fetched_at: string
+          period: string
+          report: string
+          rows: Json
+          source: string
+          unconverted: string[]
+          version: string | null
+        }
+        Insert: {
+          fetched_at?: string
+          period: string
+          report: string
+          rows?: Json
+          source: string
+          unconverted?: string[]
+          version?: string | null
+        }
+        Update: {
+          fetched_at?: string
+          period?: string
+          report?: string
+          rows?: Json
+          source?: string
+          unconverted?: string[]
+          version?: string | null
+        }
+        Relationships: []
+      }
+      income_sync: {
+        Row: {
+          checked_at: string
+          problem: string | null
+          source: string
+        }
+        Insert: {
+          checked_at: string
+          problem?: string | null
+          source: string
+        }
+        Update: {
+          checked_at?: string
+          problem?: string | null
+          source?: string
+        }
+        Relationships: []
+      }
       purchase_events: {
         Row: {
           created_at: string

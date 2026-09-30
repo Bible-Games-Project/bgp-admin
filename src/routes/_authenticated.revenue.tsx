@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { Link, createFileRoute } from "@tanstack/react-router";
@@ -9,10 +9,12 @@ import {
   Euro,
   Loader2,
   Receipt,
+  RefreshCw,
   Scale,
   ShoppingBag,
   TrendingUp,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   Bar,
   CartesianGrid,
@@ -27,6 +29,7 @@ import {
 } from "recharts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -59,11 +62,8 @@ import {
   selectRows,
   totals,
 } from "@/lib/income";
-import {
-  getAppStoreIncome,
-  getAppStoreMonthByDay,
-  getGooglePlayIncome,
-} from "@/lib/income.functions";
+import { getIncome, refreshIncome } from "@/lib/income.functions";
+import { SYNC_EVERY_MINUTES } from "@/lib/income-sync";
 import { appStoreIds } from "@/lib/app-kind";
 import { addCosts, paymentsIn, totalEur } from "@/lib/expenses";
 import { listExpenses } from "@/lib/expenses.functions";
@@ -95,8 +95,10 @@ const SOURCE_COLORS: Record<IncomeSource, string> = {
 const EXPENSES_COLOR = "var(--muted-foreground)";
 const PROFIT_COLOR = "var(--foreground)";
 
-// The stores' reports change once a day at most.
-const STALE_MS = 30 * 60 * 1000;
+const SYNC_EVERY = SYNC_EVERY_MINUTES === 60 ? "every hour" : `every ${SYNC_EVERY_MINUTES} minutes`;
+// A refresh reads a limited number of reports per run (REPORTS_PER_RUN); only an empty
+// database needs more than one or two runs.
+const MAX_REFRESH_RUNS = 6;
 
 const fmtEUR = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "EUR" }).format(n);
@@ -134,32 +136,44 @@ function RevenuePage() {
   const listAppsFn = useServerFn(listApps);
   const appsQ = useQuery({ queryKey: ["apps"], queryFn: () => listAppsFn(), enabled });
 
-  const appStoreFn = useServerFn(getAppStoreIncome);
-  const appStoreDaysFn = useServerFn(getAppStoreMonthByDay);
-  const playFn = useServerFn(getGooglePlayIncome);
+  // The stores' reports, as the hourly job stored them. Read again now and then, so an
+  // open page picks up the job's next run.
+  const incomeFn = useServerFn(getIncome);
+  const incomeQ = useQuery({
+    queryKey: ["income"],
+    queryFn: () => incomeFn(),
+    enabled,
+    refetchInterval: 5 * 60 * 1000,
+  });
 
-  const appStoreQ = useQuery({
-    queryKey: ["income", "app_store"],
-    queryFn: () => appStoreFn(),
-    enabled,
-    staleTime: STALE_MS,
+  const queryClient = useQueryClient();
+  const refreshFn = useServerFn(refreshIncome);
+  const refresh = useMutation({
+    mutationFn: async () => {
+      for (let run = 0; run < MAX_REFRESH_RUNS; run++) {
+        const { remaining } = await refreshFn();
+        // Each run's reports show as soon as it's done.
+        await queryClient.invalidateQueries({ queryKey: ["income"] });
+        if (!remaining) break;
+      }
+    },
+    onError: (e: Error) =>
+      toast.error(`Couldn't refresh the store data: ${e.message}`, { duration: 15000 }),
   });
-  // The current month, and a last month Apple has not published yet, come day by day.
-  const dayMonths = [currentMonth, ...(appStoreQ.data?.pendingMonths ?? [])];
-  const appStoreDaysQs = useQueries({
-    queries: dayMonths.map((month) => ({
-      queryKey: ["income", "app_store_days", month],
-      queryFn: () => appStoreDaysFn({ data: { month } }),
-      enabled,
-      staleTime: STALE_MS,
-    })),
-  });
-  const playQ = useQuery({
-    queryKey: ["income", "google_play"],
-    queryFn: () => playFn(),
-    enabled,
-    staleTime: STALE_MS,
-  });
+  // A job that never ran (a new database) or stopped running is made up for on opening
+  // the page, once.
+  const checkedAt = incomeQ.data?.checkedAt ?? null;
+  const outdated =
+    incomeQ.isSuccess &&
+    (!checkedAt || Date.now() - Date.parse(checkedAt) > 2 * SYNC_EVERY_MINUTES * 60 * 1000);
+  const [autoRefreshed, setAutoRefreshed] = useState(false);
+  const { mutate: runRefresh } = refresh;
+  useEffect(() => {
+    if (outdated && !autoRefreshed) {
+      setAutoRefreshed(true);
+      runRefresh();
+    }
+  }, [outdated, autoRefreshed, runRefresh]);
 
   const listExpensesFn = useServerFn(listExpenses);
   const expensesQ = useQuery({
@@ -168,8 +182,8 @@ function RevenuePage() {
     enabled,
   });
 
-  const results = [appStoreQ, ...appStoreDaysQs, playQ];
-  const loading = results.some((q) => q.isLoading);
+  // Before the first run there is nothing to show but the refresh under way.
+  const loading = incomeQ.isLoading || (!checkedAt && refresh.isPending);
   const costsLoading = loading || expensesQ.isLoading;
 
   if (adminQ.isLoading) {
@@ -206,23 +220,12 @@ function RevenuePage() {
     for (const id of [ids.ios, ids.android]) if (id) consoleApps.set(id, { key, name: a.name });
     keyOfApp.set(a.id, key);
   }
-  const rows: IncomeRow[] = results
-    .flatMap((q) => q.data?.rows ?? [])
-    .map((r) => {
-      const app = consoleApps.get(r.appKey);
-      return app ? { ...r, appKey: app.key, appName: app.name } : r;
-    });
+  const rows: IncomeRow[] = (incomeQ.data?.rows ?? []).map((r) => {
+    const app = consoleApps.get(r.appKey);
+    return app ? { ...r, appKey: app.key, appName: app.name } : r;
+  });
 
-  const problems = [
-    ...[appStoreQ, ...appStoreDaysQs].map((q) => ({
-      source: "app_store" as IncomeSource,
-      message: q.data?.problem ?? q.error?.message,
-    })),
-    { source: "google_play" as IncomeSource, message: playQ.data?.problem ?? playQ.error?.message },
-  ].filter(
-    (p, i, all): p is { source: IncomeSource; message: string } =>
-      !!p.message && all.findIndex((o) => o.message === p.message) === i,
-  );
+  const problems = incomeQ.data?.problems ?? [];
   const expensesProblem = expensesQ.data?.problem ?? expensesQ.error?.message;
 
   const appOptionNames = new Map(rows.filter((r) => r.appKey).map((r) => [r.appKey, r.appName]));
@@ -329,10 +332,28 @@ function RevenuePage() {
         </div>
       </div>
 
+      <SyncBar
+        checkedAt={checkedAt}
+        refreshing={refresh.isPending}
+        onRefresh={() => refresh.mutate()}
+      />
+
+      {incomeQ.error && (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Income couldn't be loaded</AlertTitle>
+          <AlertDescription className="text-muted-foreground">
+            {incomeQ.error.message}
+          </AlertDescription>
+        </Alert>
+      )}
       {problems.map((p) => (
         <Alert key={p.message}>
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>{SOURCE_LABELS[p.source]} income is missing</AlertTitle>
+          <AlertTitle>
+            {SOURCE_LABELS[p.source]} income{" "}
+            {rows.some((r) => r.source === p.source) ? "may be incomplete" : "is missing"}
+          </AlertTitle>
           <AlertDescription className="text-muted-foreground">{p.message}</AlertDescription>
         </Alert>
       ))}
@@ -616,6 +637,49 @@ function RevenuePage() {
       </p>
     </div>
   );
+}
+
+/** When the store data was last read, how often that happens, and a way to do it now. */
+function SyncBar({
+  checkedAt,
+  refreshing,
+  onRefresh,
+}: {
+  checkedAt: string | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  // Keeps "updated … ago" true while the page stays open.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-x-3 gap-y-2 flex-wrap rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+      <span className="flex-1 min-w-[200px]">
+        {refreshing
+          ? "Reading the latest reports from the App Store and Google Play…"
+          : `Sales data updates automatically ${SYNC_EVERY}.${
+              checkedAt ? ` Last update ${timeAgo(checkedAt)}.` : ""
+            }`}
+      </span>
+      <Button variant="outline" size="sm" className="h-7" disabled={refreshing} onClick={onRefresh}>
+        <RefreshCw className={refreshing ? "animate-spin" : undefined} />
+        {refreshing ? "Refreshing…" : "Refresh now"}
+      </Button>
+    </div>
+  );
+}
+
+function timeAgo(iso: string) {
+  const minutes = Math.floor((Date.now() - Date.parse(iso)) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `on ${new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
 }
 
 function HintLink({ to, children }: { to: "/expenses"; children: React.ReactNode }) {

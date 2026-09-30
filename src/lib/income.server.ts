@@ -1,9 +1,10 @@
-// Downloads the stores' sales reports for the Revenue page. Parsing lives in
-// income-reports.ts; this file only fetches and unpacks.
+// Downloads the stores' sales reports that the income job (income-sync.server.ts) still
+// lacks. Parsing lives in income-reports.ts, and choosing the reports in income-sync.ts;
+// this file only fetches and unpacks.
 
 import { AscError, describeAppleError, mintToken } from "./asc.server";
 import { fetchAccessToken, readServiceAccount } from "./google-play.server";
-import { type IncomeRow, type SourceIncome, addMonths, mergeRows, monthKey } from "./income";
+import { addMonths, mergeRows, monthKey } from "./income";
 import {
   type AscCatalog,
   type EurRates,
@@ -13,9 +14,18 @@ import {
   findZipCsv,
   googlePlayEarningsRows,
   googlePlaySalesRows,
-  pickEarningsFiles,
-  reportMonth,
 } from "./income-reports";
+import {
+  type AppStoreRequest,
+  type BucketFile,
+  type ReportState,
+  type StoredReport,
+  REPORTS_PER_RUN,
+  appStoreClosedRequests,
+  appStoreDayRequests,
+  playRequests,
+  takeFiles,
+} from "./income-sync";
 import { decodeBase64Text } from "./jwt.server";
 
 async function inflate(
@@ -157,6 +167,8 @@ export type PlayReports = {
   serviceAccountEmail: string;
   /** Object names under a prefix of the reports bucket, e.g. "earnings/". */
   list: (prefix: string) => Promise<string[]>;
+  /** The same, with the generation Cloud Storage gives each new version of a file. */
+  files: (prefix: string) => Promise<BucketFile[]>;
   /** The CSV inside one of the bucket's report zips. */
   csv: (name: string) => Promise<string>;
   /** A report that isn't zipped, such as the monthly review exports. */
@@ -194,22 +206,25 @@ export async function createPlayReports(): Promise<PlayReports | null> {
     return res;
   };
 
+  const files = async (prefix: string) => {
+    const found: BucketFile[] = [];
+    let page = "";
+    do {
+      const url = `${base}?prefix=${encodeURIComponent(prefix)}&fields=items(name,generation),nextPageToken${page ? `&pageToken=${page}` : ""}`;
+      const json = (await (await get(url)).json()) as {
+        items?: BucketFile[];
+        nextPageToken?: string;
+      };
+      found.push(...(json.items ?? []).map(({ name, generation }) => ({ name, generation })));
+      page = json.nextPageToken ?? "";
+    } while (page);
+    return found;
+  };
+
   return {
     serviceAccountEmail: account.client_email,
-    list: async (prefix) => {
-      const names: string[] = [];
-      let page = "";
-      do {
-        const url = `${base}?prefix=${encodeURIComponent(prefix)}&fields=items(name),nextPageToken${page ? `&pageToken=${page}` : ""}`;
-        const json = (await (await get(url)).json()) as {
-          items?: { name: string }[];
-          nextPageToken?: string;
-        };
-        names.push(...(json.items ?? []).map((item) => item.name));
-        page = json.nextPageToken ?? "";
-      } while (page);
-      return names;
-    },
+    list: async (prefix) => (await files(prefix)).map((f) => f.name),
+    files,
     csv: async (name) => {
       const zip = new Uint8Array(
         await (await get(`${base}/${encodeURIComponent(name)}?alt=media`)).arrayBuffer(),
@@ -230,26 +245,22 @@ export async function createPlayReports(): Promise<PlayReports | null> {
 }
 
 /* ------------------------------------------------------------------------------------ */
-/* Income per store                                                                      */
+/* Reading what the database lacks                                                       */
 /* ------------------------------------------------------------------------------------ */
 
-// Apple's yearly reports for 2023 and 2024 were checked on 2026-09-29: both empty.
-const FIRST_SALES_YEAR = 2025;
+export type SourceSync = {
+  /** The reports read in this run, to store. */
+  reports: StoredReport[];
+  /** Why the store could not be read, and what to do about it. */
+  problem?: string;
+  /** Reports left for the next run, once this one read REPORTS_PER_RUN. */
+  remaining: number;
+};
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-type Parsed = { rows: IncomeRow[]; unconverted: string[] };
-
-/** Joins parsed reports and names any currency whose sales had to be left out. */
-function combine(parsed: Parsed[]): SourceIncome {
-  const unconverted = [...new Set(parsed.flatMap((p) => p.unconverted))];
-  return {
-    rows: mergeRows(parsed.flatMap((p) => p.rows)),
-    problem: unconverted.length
-      ? `Some sales in ${unconverted.join(", ")} are left out: no exchange rate to euros was found for that currency.`
-      : undefined,
-  };
-}
+/** The first day of a month ("2026-08") or a year ("2025"). */
+const firstDay = (period: string) => (period.length === 4 ? `${period}-01-01` : `${period}-01`);
 
 /* ------------------------------------------------------------------------------------ */
 /* App Store                                                                             */
@@ -265,87 +276,70 @@ function describeAppStoreProblem(err: unknown, keyId?: string): string {
   return `Could not read the App Store sales reports: ${(err as Error)?.message ?? "unknown error"}`;
 }
 
-async function withAppStore<T extends SourceIncome>(
-  empty: T,
-  fn: (api: AppStoreReports) => Promise<T>,
-): Promise<T> {
+/**
+ * Closed months and past years first, then day by day the current month and a last
+ * month Apple has not published yet (the first days of a month). A report Apple does not
+ * have yet is simply tried again on the next run.
+ */
+export async function syncAppStore(stored: ReportState[], now = new Date()): Promise<SourceSync> {
   let api: AppStoreReports | null = null;
   try {
     api = await createAppStoreReports();
-    if (!api) return { ...empty, problem: APP_STORE_NOT_SET_UP };
-    return await fn(api);
-  } catch (err) {
-    return { ...empty, problem: describeAppStoreProblem(err, api?.keyId) };
-  }
-}
+    if (!api) return { reports: [], problem: APP_STORE_NOT_SET_UP, remaining: 0 };
+    const reports = api;
+    const limit = REPORTS_PER_RUN.app_store;
+    const read = (requests: AppStoreRequest[]) =>
+      Promise.all(requests.map((r) => reports.salesReport(r.frequency, r.date)));
 
-/**
- * Every closed month Apple still keeps (the last twelve) plus one row set per earlier
- * year. The current month, and a last month Apple has not published yet (the first days
- * of a month), come day by day from readAppStoreMonthByDay: `pendingMonths` lists them.
- */
-export async function readAppStoreIncome(): Promise<SourceIncome & { pendingMonths: string[] }> {
-  return withAppStore({ rows: [], pendingMonths: [] as string[] }, async (api) => {
-    const now = new Date();
+    const closed = appStoreClosedRequests(stored, now);
+    const closedNow = closed.slice(0, limit);
+    const closedReports = await read(closedNow);
+
     const current = monthKey(now);
-    const months = Array.from({ length: 12 }, (_, i) => addMonths(current, i - 12));
-    const years: string[] = [];
-    for (let y = FIRST_SALES_YEAR; y < now.getUTCFullYear(); y++) years.push(String(y));
-
-    const [catalog, rates, monthly, yearly] = await Promise.all([
-      api.catalog(),
-      fetchEurRates(`${FIRST_SALES_YEAR}-01-01`, today()),
-      Promise.all(months.map((m) => api.salesReport("MONTHLY", m))),
-      Promise.all(years.map((y) => api.salesReport("YEARLY", y))),
-    ]);
-    const toEur = eurConverter(rates);
-    const parsed: Parsed[] = [];
-    const pendingMonths: string[] = [];
-    months.forEach((month, i) => {
-      const report = monthly[i];
-      if (report.status === "ok") parsed.push(appStoreRows(report.text, month, catalog, toEur));
-      // Only a just-closed month can be missing for want of publishing.
-      else if (report.status === "unavailable" && month === addMonths(current, -1)) {
-        pendingMonths.push(month);
-      }
-    });
-    years.forEach((year, i) => {
-      const report = yearly[i];
-      if (report.status === "ok") parsed.push(appStoreRows(report.text, year, catalog, toEur));
-    });
-    return { ...combine(parsed), pendingMonths };
-  });
-}
-
-/** One month from Apple's daily reports, for the current month or a just-closed one. */
-export async function readAppStoreMonthByDay(month: string): Promise<SourceIncome> {
-  const current = monthKey(new Date());
-  if (month !== current && month !== addMonths(current, -1)) {
-    throw new Error("Only the current and the previous month are read day by day.");
-  }
-  return withAppStore({ rows: [] }, async (api) => {
-    // Apple publishes a day's report the next morning, so the days run up to yesterday.
-    const days: string[] = [];
-    const [y, m] = month.split("-").map(Number);
-    for (let d = new Date(Date.UTC(y, m - 1, 1)); monthKey(d) === month; ) {
-      const day = d.toISOString().slice(0, 10);
-      if (day >= today()) break;
-      days.push(day);
-      d = new Date(d.getTime() + 86_400_000);
-    }
-    if (!days.length) return { rows: [] };
-    const [catalog, rates, reports] = await Promise.all([
-      api.catalog(),
-      fetchEurRates(`${month}-01`, today()),
-      Promise.all(days.map((day) => api.salesReport("DAILY", day))),
-    ]);
-    const toEur = eurConverter(rates);
-    return combine(
-      reports.flatMap((r) =>
-        r.status === "ok" ? [appStoreRows(r.text, month, catalog, toEur)] : [],
-      ),
+    const lastMonth = addMonths(current, -1);
+    const lastMonthAt = closedNow.findIndex((r) => r.report === `month:${lastMonth}`);
+    const lastMonthPending =
+      lastMonthAt >= 0 && closedReports[lastMonthAt].status === "unavailable";
+    const days = appStoreDayRequests(
+      stored,
+      [current, ...(lastMonthPending ? [lastMonth] : [])],
+      now,
     );
-  });
+    const daysNow = days.slice(0, limit - closedNow.length);
+    const dayReports = await read(daysNow);
+
+    const found = [...closedNow, ...daysNow]
+      .map((request, i) => ({ request, report: [...closedReports, ...dayReports][i] }))
+      .filter(({ report }) => report.status !== "unavailable");
+    const remaining = closed.length - closedNow.length + days.length - daysNow.length;
+    if (!found.length) return { reports: [], remaining };
+
+    const earliest = found.map((f) => f.request.period).sort()[0];
+    const [catalog, rates] = await Promise.all([
+      reports.catalog(),
+      fetchEurRates(firstDay(earliest), today()),
+    ]);
+    const toEur = eurConverter(rates);
+    return {
+      reports: found.map(({ request, report }) => {
+        const parsed =
+          report.status === "ok"
+            ? appStoreRows(report.text, request.period, catalog, toEur)
+            : { rows: [], unconverted: [] };
+        return {
+          source: "app_store",
+          report: request.report,
+          period: request.period,
+          version: null,
+          unconverted: parsed.unconverted,
+          rows: mergeRows(parsed.rows),
+        };
+      }),
+      remaining,
+    };
+  } catch (err) {
+    return { reports: [], problem: describeAppStoreProblem(err, api?.keyId), remaining: 0 };
+  }
 }
 
 /* ------------------------------------------------------------------------------------ */
@@ -357,57 +351,64 @@ const PLAY_NOT_SET_UP =
 
 /**
  * Closed months from the earnings reports (what Google pays), and months Google has not
- * closed yet (it does so around the 5th) estimated from the sales reports.
+ * closed yet (it does so around the 5th) estimated from the sales reports. Only the
+ * files Google added or rewrote since the last run are read.
  */
-export async function readGooglePlayIncome(): Promise<SourceIncome> {
+export async function syncGooglePlay(stored: ReportState[]): Promise<SourceSync> {
   let email = "the service account";
   try {
     const api = await createPlayReports();
-    if (!api) return { rows: [], problem: PLAY_NOT_SET_UP };
+    if (!api) return { reports: [], problem: PLAY_NOT_SET_UP, remaining: 0 };
     email = api.serviceAccountEmail;
 
-    const [earningsNames, salesNames] = await Promise.all([
-      api.list("earnings/"),
-      api.list("sales/"),
-    ]);
-    const earnings = pickEarningsFiles(earningsNames);
-    const estimated = salesNames
-      .map((name) => ({ name, month: reportMonth(name) }))
-      .filter((f): f is { name: string; month: string } => !!f.month && !earnings.has(f.month));
-    const files = [
-      ...[...earnings].flatMap(([month, names]) =>
-        names.map((name) => ({ name, month, kind: "earnings" as const })),
-      ),
-      ...estimated.map((f) => ({ ...f, kind: "sales" as const })),
-    ];
-    if (!files.length) return { rows: [] };
+    const [earnings, sales] = await Promise.all([api.files("earnings/"), api.files("sales/")]);
+    const requests = playRequests(stored, earnings, sales);
+    const batch = takeFiles(requests, REPORTS_PER_RUN.google_play);
+    const remaining = requests.length - batch.length;
+    if (!batch.length) return { reports: [], remaining };
 
     // Earnings are already in euros; only the estimated months need exchange rates.
-    const firstEstimated = estimated.map((f) => f.month).sort()[0];
+    const firstEstimated = batch
+      .filter((r) => r.kind === "sales")
+      .map((r) => r.period)
+      .sort()[0];
     const [rates, texts] = await Promise.all([
       firstEstimated
-        ? fetchEurRates(`${firstEstimated}-01`, today())
+        ? fetchEurRates(firstDay(firstEstimated), today())
         : Promise.resolve({ daily: {}, latest: {} }),
-      Promise.all(files.map((f) => api.csv(f.name))),
+      Promise.all(batch.map((r) => Promise.all(r.files.map((name) => api.csv(name))))),
     ]);
     const toEur = eurConverter(rates);
-    return combine(
-      files.map((f, i) =>
-        f.kind === "earnings"
-          ? googlePlayEarningsRows(texts[i], f.month, toEur)
-          : googlePlaySalesRows(texts[i], f.month, toEur),
-      ),
-    );
+    return {
+      reports: batch.map((request, i) => {
+        const parsed = texts[i].map((text) =>
+          request.kind === "earnings"
+            ? googlePlayEarningsRows(text, request.period, toEur)
+            : googlePlaySalesRows(text, request.period, toEur),
+        );
+        return {
+          source: "google_play",
+          report: request.report,
+          period: request.period,
+          version: request.version,
+          unconverted: [...new Set(parsed.flatMap((p) => p.unconverted))],
+          rows: mergeRows(parsed.flatMap((p) => p.rows)),
+        };
+      }),
+      remaining,
+    };
   } catch (err) {
     if (err instanceof PlayReportsError && (err.status === 401 || err.status === 403)) {
       return {
-        rows: [],
+        reports: [],
         problem: `The service account (${email}) can't read Google Play's financial reports. In Play Console → Users and permissions → ${email} → Account permissions, tick both "View app information and download bulk reports (read-only)" and "View financial data, orders and cancellation survey responses", then apply. Google needs both to open the reports, and can take up to a day to let it in.`,
+        remaining: 0,
       };
     }
     return {
-      rows: [],
+      reports: [],
       problem: `Could not read the Google Play reports: ${(err as Error)?.message ?? "unknown error"}`,
+      remaining: 0,
     };
   }
 }

@@ -36,12 +36,6 @@ export type IncomeRow = {
   estimated: boolean;
 };
 
-export type SourceIncome = {
-  rows: IncomeRow[];
-  /** Why this store's numbers are missing or incomplete, and what to do about it. */
-  problem?: string;
-};
-
 /** Adds up rows for the same product and period (e.g. a month read day by day). */
 export function mergeRows(rows: IncomeRow[]): IncomeRow[] {
   const merged = new Map<string, IncomeRow>();
