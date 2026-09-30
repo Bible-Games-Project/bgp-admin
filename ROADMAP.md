@@ -19,7 +19,7 @@ written in Catalan) saying what shipped and how to try it.
 | 5 | Telegram alerts and weekly summary | built, sent by the monitor job | (Home commit) | |
 | 6 | Notifications settings (test message, move to a group) | done | (Notifications commit) | (with alerts) |
 | 7 | Downloads page and demo → full conversion | done | (Downloads commit) | |
-| 8 | Testers page (TestFlight, Google Play testing) | todo | | |
+| 8 | Testers page (TestFlight, Google Play testing) | done; writes not yet tried on the real stores | (Testers commit) | |
 
 ## Design
 

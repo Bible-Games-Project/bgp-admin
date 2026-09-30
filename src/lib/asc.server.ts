@@ -63,7 +63,8 @@ export type AscApi = {
   get: (path: string) => Promise<any>;
   post: (path: string, body: unknown) => Promise<any>;
   patch: (path: string, body: unknown) => Promise<any>;
-  delete: (path: string) => Promise<any>;
+  /** `body`: relationship removals, which name what to remove in the body. */
+  delete: (path: string, body?: unknown) => Promise<any>;
 };
 
 /** Null when the Worker has no App Store Connect credentials configured. */
@@ -96,7 +97,7 @@ export async function createAscApi(): Promise<AscApi | null> {
     get: (path) => call("GET", path),
     post: (path, body) => call("POST", path, body),
     patch: (path, body) => call("PATCH", path, body),
-    delete: (path) => call("DELETE", path),
+    delete: (path, body) => call("DELETE", path, body),
   };
 }
 

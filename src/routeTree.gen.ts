@@ -16,6 +16,7 @@ import { Route as ForbiddenRouteImport } from './routes/forbidden'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated.index'
+import { Route as AuthenticatedTestersRouteImport } from './routes/_authenticated.testers'
 import { Route as AuthenticatedReviewsRouteImport } from './routes/_authenticated.reviews'
 import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticated.revenue'
 import { Route as AuthenticatedExpensesRouteImport } from './routes/_authenticated.expenses'
@@ -58,6 +59,11 @@ const AuthenticatedRoute = AuthenticatedRouteImport.update({
 const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedTestersRoute = AuthenticatedTestersRouteImport.update({
+  id: '/testers',
+  path: '/testers',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedReviewsRoute = AuthenticatedReviewsRouteImport.update({
@@ -119,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/expenses': typeof AuthenticatedExpensesRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/reviews': typeof AuthenticatedReviewsRoute
+  '/testers': typeof AuthenticatedTestersRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/apps/setup': typeof AuthenticatedAppsSetupRoute
   '/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
@@ -135,6 +142,7 @@ export interface FileRoutesByTo {
   '/expenses': typeof AuthenticatedExpensesRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/reviews': typeof AuthenticatedReviewsRoute
+  '/testers': typeof AuthenticatedTestersRoute
   '/': typeof AuthenticatedIndexRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/apps/setup': typeof AuthenticatedAppsSetupRoute
@@ -154,6 +162,7 @@ export interface FileRoutesById {
   '/_authenticated/expenses': typeof AuthenticatedExpensesRoute
   '/_authenticated/revenue': typeof AuthenticatedRevenueRoute
   '/_authenticated/reviews': typeof AuthenticatedReviewsRoute
+  '/_authenticated/testers': typeof AuthenticatedTestersRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/apps/$id': typeof AuthenticatedAppsIdRoute
   '/_authenticated/apps/setup': typeof AuthenticatedAppsSetupRoute
@@ -174,6 +183,7 @@ export interface FileRouteTypes {
     | '/expenses'
     | '/revenue'
     | '/reviews'
+    | '/testers'
     | '/apps/$id'
     | '/apps/setup'
     | '/settings/notifications'
@@ -190,6 +200,7 @@ export interface FileRouteTypes {
     | '/expenses'
     | '/revenue'
     | '/reviews'
+    | '/testers'
     | '/'
     | '/apps/$id'
     | '/apps/setup'
@@ -208,6 +219,7 @@ export interface FileRouteTypes {
     | '/_authenticated/expenses'
     | '/_authenticated/revenue'
     | '/_authenticated/reviews'
+    | '/_authenticated/testers'
     | '/_authenticated/'
     | '/_authenticated/apps/$id'
     | '/_authenticated/apps/setup'
@@ -274,6 +286,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/testers': {
+      id: '/_authenticated/testers'
+      path: '/testers'
+      fullPath: '/testers'
+      preLoaderRoute: typeof AuthenticatedTestersRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/reviews': {
@@ -347,6 +366,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedExpensesRoute: typeof AuthenticatedExpensesRoute
   AuthenticatedRevenueRoute: typeof AuthenticatedRevenueRoute
   AuthenticatedReviewsRoute: typeof AuthenticatedReviewsRoute
+  AuthenticatedTestersRoute: typeof AuthenticatedTestersRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
   AuthenticatedAppsSetupRoute: typeof AuthenticatedAppsSetupRoute
@@ -360,6 +380,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedExpensesRoute: AuthenticatedExpensesRoute,
   AuthenticatedRevenueRoute: AuthenticatedRevenueRoute,
   AuthenticatedReviewsRoute: AuthenticatedReviewsRoute,
+  AuthenticatedTestersRoute: AuthenticatedTestersRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
   AuthenticatedAppsSetupRoute: AuthenticatedAppsSetupRoute,

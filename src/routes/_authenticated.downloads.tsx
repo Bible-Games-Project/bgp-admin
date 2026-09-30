@@ -395,7 +395,10 @@ function DownloadsPage() {
                     {g.activeDevices == null ? "—" : fmt(g.activeDevices)}
                   </TableCell>
                   <TableCell className="text-right text-sm">
-                    <ConversionCell conversion={g.conversion} />
+                    <ConversionCell
+                      conversion={g.conversion}
+                      playMissing={!!data?.playProblem && g.google_play > 0}
+                    />
                   </TableCell>
                 </TableRow>
               ))}
@@ -535,7 +538,17 @@ function DemoRow({
   );
 }
 
-function ConversionCell({ conversion }: { conversion: Conversion }) {
+function ConversionCell({
+  conversion,
+  playMissing,
+}: {
+  conversion: Conversion;
+  /** Google Play's sales can't be read yet, so a Play-only rate would read 0%. */
+  playMissing: boolean;
+}) {
+  if (playMissing && conversion.kind !== "paid" && !("rate" in conversion && conversion.rate)) {
+    return <span className="text-muted-foreground text-xs">Needs Google Play's sales</span>;
+  }
   switch (conversion.kind) {
     case "paid":
       return <span className="text-muted-foreground">Paid game</span>;
