@@ -167,7 +167,7 @@ export type PlayReports = {
  * Null when the Worker lacks the service account or the bucket. Google keeps each
  * developer account's reports in its own Cloud Storage bucket (Play Console → Download
  * reports → Financial → Copy Cloud Storage URI); reading it needs the service account's
- * "View financial data" permission.
+ * "View app information and download bulk reports" and "View financial data" permissions.
  */
 export async function createPlayReports(): Promise<PlayReports | null> {
   const account = readServiceAccount();
@@ -402,7 +402,7 @@ export async function readGooglePlayIncome(): Promise<SourceIncome> {
     if (err instanceof PlayReportsError && (err.status === 401 || err.status === 403)) {
       return {
         rows: [],
-        problem: `The service account (${email}) can't read Google Play's financial reports. In Play Console → Users and permissions → ${email} → Account permissions, tick "View financial data, orders and cancellation survey responses" and apply. Google can take up to a day to let it in.`,
+        problem: `The service account (${email}) can't read Google Play's financial reports. In Play Console → Users and permissions → ${email} → Account permissions, tick both "View app information and download bulk reports (read-only)" and "View financial data, orders and cancellation survey responses", then apply. Google needs both to open the reports, and can take up to a day to let it in.`,
       };
     }
     return {
