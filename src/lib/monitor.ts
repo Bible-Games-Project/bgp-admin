@@ -194,6 +194,8 @@ export type AppStoreEvent = {
   version: string;
   /** Approved and published in one step. */
   live?: boolean;
+  /** Rejections: the version's state, which says whose job the fix is. */
+  state?: string;
 };
 
 /** What changed between two results. A game seen for the first time announces nothing. */
@@ -211,7 +213,7 @@ export function appStoreEvents(prev: AppStoreState | null, next: AppStoreState):
       if (v.state === "IN_REVIEW") events.push({ kind: "in_review", ...base });
       else if (REJECTED_STATES.includes(v.state)) {
         rejected = true;
-        events.push({ kind: "rejected", ...base });
+        events.push({ kind: "rejected", ...base, state: v.state });
       } else if (v.state === "PENDING_DEVELOPER_RELEASE") {
         events.push({ kind: "waiting_release", ...base });
       } else if (APPROVED_STATES.includes(v.state) && IN_REVIEW_STATES.includes(was)) {

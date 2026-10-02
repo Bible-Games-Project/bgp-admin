@@ -61,6 +61,11 @@ describe("notify-telegram.yml speaks about failures", () => {
     expect(workflow).not.toContain("'{0}/actions/runs/{1}'");
   });
 
+  it("points a failure at the console, which explains it", () => {
+    expect(workflow).toContain("What now:");
+    expect(workflow).toContain("CONSOLE_URL: https://bgp-admin-preview.biblegamesproject.workers.dev");
+  });
+
   it("leaves out platforms whose job was skipped", () => {
     expect(workflow).toMatch(/""\|skipped\) return 0/);
   });

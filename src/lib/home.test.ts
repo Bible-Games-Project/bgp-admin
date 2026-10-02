@@ -87,7 +87,7 @@ describe("attentionItems", () => {
     expect(attentionItems(input([]))).toEqual([]);
   });
 
-  test("a rejection points at Deploy and Apple's message, errors before warnings", () => {
+  test("a rejection points at Apple's message and Deploy, errors before warnings", () => {
     const items = attentionItems(
       input([
         row("app_store", {
@@ -105,13 +105,13 @@ describe("attentionItems", () => {
     expect(items.map((i) => i.id)).toEqual(["rejected:eden", "release:tls"]);
     expect(items[0].title).toBe("Apple rejected Bible Story Game 1.0.75");
     expect(items[0].actions[0]).toMatchObject({
+      kind: "external",
+      href: "https://appstoreconnect.apple.com/apps/6775889176/resolutioncenter",
+    });
+    expect(items[0].actions[1]).toMatchObject({
       kind: "link",
       to: "/apps/$id",
       search: { tab: "deploy" },
-    });
-    expect(items[0].actions[1]).toMatchObject({
-      kind: "external",
-      href: "https://appstoreconnect.apple.com/apps/6775889176/resolutioncenter",
     });
     expect(items[1].actions[0]).toEqual({
       kind: "release",
@@ -119,6 +119,64 @@ describe("attentionItems", () => {
       appId: "tls",
       versionId: "v1",
     });
+  });
+
+  test("an invalid build is the developer's, and a game built elsewhere has no Deploy button", () => {
+    const [item] = attentionItems(
+      input([
+        row("app_store", {
+          apps: {
+            tls: { ascId: "6740145333", unresolved: true, versions: [version("INVALID_BINARY")] },
+          },
+        }),
+      ]),
+    );
+    expect(item.title).toBe("Apple refused the build of The Lost Sheep 1.0.75");
+    expect(item.detail).toStartWith("For the developer:");
+    expect(item.detail).toContain("built outside the console");
+    expect(item.actions).toEqual([
+      {
+        kind: "external",
+        label: "Open App Store Connect",
+        href: "https://appstoreconnect.apple.com/apps/6740145333/distribution",
+      },
+    ]);
+  });
+
+  test("a rejected listing is yours, with the Store tab and no new build", () => {
+    const [item] = attentionItems(
+      input([
+        row("app_store", {
+          apps: {
+            eden: {
+              ascId: "6775889176",
+              unresolved: true,
+              versions: [version("METADATA_REJECTED")],
+            },
+          },
+        }),
+      ]),
+    );
+    expect(item.title).toBe("Apple rejected the store listing of Bible Story Game 1.0.75");
+    expect(item.detail).toStartWith("Yours to fix, in App Store Connect");
+    expect(item.actions.map((a) => a.label)).toEqual([
+      "Read Apple's message",
+      "Open the Store tab",
+    ]);
+  });
+
+  test("a reviewer's rejection of a game built elsewhere sends the code changes to the developer", () => {
+    const [item] = attentionItems(
+      input([
+        row("app_store", {
+          apps: {
+            tls: { ascId: "6740145333", unresolved: true, versions: [version("REJECTED")] },
+          },
+        }),
+      ]),
+    );
+    expect(item.detail).toContain("built outside the console");
+    expect(item.actions.map((a) => a.label)).toEqual(["Read Apple's message"]);
   });
 
   test("a failed deploy, a crashing game and low reviews each get an item", () => {
@@ -171,6 +229,12 @@ describe("attentionItems", () => {
     );
     const byId = Object.fromEntries(items.map((i) => [i.id, i]));
     expect(byId["deploy:eden"].title).toBe("The last deploy of Bible Story Game failed");
+    expect(byId["deploy:eden"].failedRun).toEqual({
+      appId: "eden",
+      runId: 1,
+      runUrl: "https://github.com/run/1",
+      game: "Bible Story Game",
+    });
     expect(byId["crashing:eden"].detail).toContain("6 crashes and 1 freeze");
     expect(byId["crashing:eden"].detail).toContain("NullPointerException");
     expect(byId["reviews:eden"].title).toBe(

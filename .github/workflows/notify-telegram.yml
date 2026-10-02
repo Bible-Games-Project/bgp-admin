@@ -83,6 +83,7 @@ jobs:
           # input is readable here without changing any repo's deploy.yml.
           PRODUCTION: ${{ github.event.inputs.production }}
           ACTOR: ${{ github.actor }}
+          CONSOLE_URL: https://bgp-admin-preview.biblegamesproject.workers.dev
         run: |
           # Telegram's HTML mode rejects the whole message on a stray <, > or &. sed, not
           # ${s//…}: bash 5.2 turns & in a replacement into the matched text.
@@ -142,6 +143,11 @@ jobs:
             MESSAGE+="🔀 <b>Pull request:</b> <a href='${PR_URL}'>$(esc "${PR_TITLE}")</a>${NL}"
           fi
           MESSAGE+="🔎 <b>Details:</b> <a href='${RUN_URL}'>open the run on GitHub</a>${NL}"
+          # The console reads the failed job's log and says who fixes it: the person
+          # deploying (in App Store Connect or Play Console) or the developer.
+          if [ "${IOS_RESULT}" = "failure" ] || [ "${ANDROID_RESULT}" = "failure" ]; then
+            MESSAGE+="🧭 <b>What now:</b> the game's Deploy tab in the console shows the error, ready to paste into an AI chat, and whether it's yours to fix: <a href='${CONSOLE_URL}/apps'>open the console</a>${NL}"
+          fi
           MESSAGE+="🧑🏻‍💻 <b>Published by:</b> ${ACTOR}"
 
           curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \

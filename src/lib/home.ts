@@ -53,6 +53,8 @@ export type AttentionItem = {
   detail: string;
   appId?: string;
   actions: HomeAction[];
+  /** A failed deploy run: the page reads its log and shows the error and who fixes it. */
+  failedRun?: { appId: string; runId: number; runUrl: string; game: string };
 };
 
 export type UpcomingItem = {
@@ -116,6 +118,78 @@ const deployTab = (appId: string, label = "Open Deploy"): HomeAction => ({
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+const AI_CHAT_HINT = "If it's unclear, paste it into an AI chat and ask what to do.";
+
+/**
+ * What to do about a rejection, and whose job it is. The three states mean different
+ * things: INVALID_BINARY is Apple's automatic check of the build file (only a new build
+ * fixes it, and Apple explains it by email, not in the Resolution Center),
+ * METADATA_REJECTED is the store listing (fixed in App Store Connect, no build), and
+ * REJECTED is a reviewer whose message says which of the two it is.
+ */
+function rejectionItem(
+  appId: string,
+  app: { ascId: string },
+  v: { version: string; state: string },
+  game: MonitorApp | undefined,
+): AttentionItem {
+  const name = game?.name ?? "A game";
+  const web = !!game?.repo;
+  const message: HomeAction = {
+    kind: "external",
+    label: "Read Apple's message",
+    href: `https://appstoreconnect.apple.com/apps/${app.ascId}/resolutioncenter`,
+  };
+  const base = { id: `rejected:${appId}`, severity: "error" as const, appId };
+
+  if (v.state === "INVALID_BINARY") {
+    return {
+      ...base,
+      title: `Apple refused the build of ${name} ${v.version}`,
+      detail: `For the developer: Apple's automatic checks found a problem inside the build file, so nothing changed in App Store Connect fixes it. Apple emailed the reason to the Apple account's owner (an email from App Store Connect with codes like ITMS-91053). Forward that email to the developer. ${
+        web
+          ? "Once the fix is in, the new build goes out from the Deploy tab, on the same submission."
+          : "This game is built outside the console, so the developer makes and uploads the new build."
+      } To understand the email, paste it into an AI chat.`,
+      actions: [
+        ...(web ? [deployTab(appId)] : []),
+        {
+          kind: "external",
+          label: "Open App Store Connect",
+          href: `https://appstoreconnect.apple.com/apps/${app.ascId}/distribution`,
+        },
+      ],
+    };
+  }
+  if (v.state === "METADATA_REJECTED") {
+    return {
+      ...base,
+      title: `Apple rejected the store listing of ${name} ${v.version}`,
+      detail: `Yours to fix, in App Store Connect: the build is fine, Apple objects to something in the listing (texts, screenshots, privacy details…). Read Apple's message, fix what it asks in App Store Connect or the game's Store tab, then reply to Apple on that same message. No new build needed. ${AI_CHAT_HINT}`,
+      actions: [
+        message,
+        {
+          kind: "link",
+          label: "Open the Store tab",
+          to: "/apps/$id",
+          params: { id: appId },
+          search: { tab: "store" },
+        },
+      ],
+    };
+  }
+  return {
+    ...base,
+    title: `Apple rejected ${name} ${v.version}`,
+    detail: `Read Apple's message. ${AI_CHAT_HINT} If Apple asks for something in App Store Connect (the review contact, a demo account, screenshots, texts, privacy details), it's yours: fix it there and reply on the same message. If Apple asks for a change inside the game, forward the message to the developer${
+      web
+        ? "; the new build then goes out from the Deploy tab, which shows how to answer on the same submission."
+        : ", who makes the new build: this game is built outside the console."
+    }`,
+    actions: [message, ...(web ? [deployTab(appId)] : [])],
+  };
+}
+
 /* ------------------------------------------------------------------------------------ */
 /* Needs attention                                                                       */
 /* ------------------------------------------------------------------------------------ */
@@ -131,22 +205,14 @@ export function attentionItems(input: HomeInput): AttentionItem[] {
     const v = latestVersion(app);
     if (!v) continue;
     if (REJECTED_STATES.includes(v.state) || app.unresolved) {
-      items.push({
-        id: `rejected:${appId}`,
-        severity: "error",
-        appId,
-        title: `Apple rejected ${name(appId)} ${v.version}`,
-        detail:
-          "Apple explains why in App Store Connect's Resolution Center. Once it's fixed, send a new build from the game's Deploy tab: it shows how to answer on the same submission.",
-        actions: [
-          deployTab(appId),
-          {
-            kind: "external",
-            label: "Read Apple's message",
-            href: `https://appstoreconnect.apple.com/apps/${app.ascId}/resolutioncenter`,
-          },
-        ],
-      });
+      items.push(
+        rejectionItem(
+          appId,
+          app,
+          v,
+          apps.find((a) => a.id === appId),
+        ),
+      );
     } else if (v.state === "PENDING_DEVELOPER_RELEASE") {
       items.push({
         id: `release:${appId}`,
@@ -168,11 +234,9 @@ export function attentionItems(input: HomeInput): AttentionItem[] {
       severity: "error",
       appId,
       title: `The last deploy of ${name(appId)} failed`,
-      detail: `"${run.title}", ${formatDay(run.created.slice(0, 10))}. The run's log says which step failed.`,
-      actions: [
-        { kind: "external", label: "Open the run", href: run.url },
-        deployTab(appId, "Deploy again"),
-      ],
+      detail: `"${run.title}", ${formatDay(run.created.slice(0, 10))}.`,
+      actions: [deployTab(appId)],
+      failedRun: { appId, runId: run.id, runUrl: run.url, game: name(appId) },
     });
   }
 

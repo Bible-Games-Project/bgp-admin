@@ -175,7 +175,10 @@ describe("App Store states", () => {
       { kind: "waiting_release", appId: "eden", version: "1.0.75" },
     ]);
     expect(appStoreEvents(withState("IN_REVIEW"), withState("REJECTED"))).toEqual([
-      { kind: "rejected", appId: "eden", version: "1.0.75" },
+      { kind: "rejected", appId: "eden", version: "1.0.75", state: "REJECTED" },
+    ]);
+    expect(appStoreEvents(withState("WAITING_FOR_REVIEW"), withState("INVALID_BINARY"))).toEqual([
+      { kind: "rejected", appId: "eden", version: "1.0.75", state: "INVALID_BINARY" },
     ]);
   });
 

@@ -2,7 +2,15 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Rocket, Loader2, ExternalLink, RefreshCw, GitBranch, TriangleAlert } from "lucide-react";
+import {
+  ChevronDown,
+  ExternalLink,
+  GitBranch,
+  Loader2,
+  RefreshCw,
+  Rocket,
+  TriangleAlert,
+} from "lucide-react";
 import {
   listRepoRuns,
   triggerDeploy,
@@ -12,6 +20,7 @@ import {
 import { cancelOpenReviewSubmission, getAppStoreVersionState } from "@/lib/appstore.functions";
 import { checkAndroidKeystoreSecrets, checkIosSecrets } from "@/lib/capacitor.functions";
 import { DEFAULT_RELEASE_NOTES } from "@/lib/release-notes";
+import { RunFailure } from "@/components/RunFailure";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -853,8 +862,12 @@ function DeployPanel({
   );
 }
 
-function RunsHistory({ appId }: { appId: string }) {
+const FAILED_CONCLUSIONS = ["failure", "timed_out", "startup_failure"];
+
+function RunsHistory({ appId, game }: { appId: string; game: string }) {
   const runsFn = useServerFn(listRepoRuns);
+  // Which failed runs show why they failed. The newest run starts open when it failed.
+  const [toggled, setToggled] = useState<Record<number, boolean>>({});
   const q = useQuery({
     queryKey: ["runs", appId, "deploy.yml"],
     queryFn: () => runsFn({ data: { appId, workflowFile: "deploy.yml" } }),
@@ -862,6 +875,8 @@ function RunsHistory({ appId }: { appId: string }) {
   });
 
   const runs = q.data?.runs ?? [];
+  const failed = (r: any) => r.status === "completed" && FAILED_CONCLUSIONS.includes(r.conclusion);
+  const isOpen = (r: any) => toggled[r.id] ?? (r.id === runs[0]?.id && failed(r));
 
   return (
     <section>
@@ -887,31 +902,60 @@ function RunsHistory({ appId }: { appId: string }) {
         {!q.isLoading && runs.length === 0 && (
           <div className="p-4 text-xs text-muted-foreground">No runs yet.</div>
         )}
-        {runs.map((r: any) => (
-          <a
-            key={r.id}
-            href={r.html_url}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-between px-4 py-3 hover:bg-accent/40 transition-colors group"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="text-xs text-muted-foreground font-mono w-12 shrink-0">
-                #{r.run_number}
-              </span>
-              <StatusDot status={r.status} conclusion={r.conclusion} />
-              <span className="text-xs text-muted-foreground font-mono truncate hidden sm:inline">
-                {r.workflow_name ?? r.event} · {r.head_branch} · {r.actor}
-              </span>
+        {runs.map((r: any) => {
+          const summary = (
+            <>
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="text-xs text-muted-foreground font-mono w-12 shrink-0">
+                  #{r.run_number}
+                </span>
+                <StatusDot status={r.status} conclusion={r.conclusion} />
+                <span className="text-xs text-muted-foreground font-mono truncate hidden sm:inline">
+                  {r.workflow_name ?? r.event} · {r.head_branch} · {r.actor}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <span className="text-xs text-muted-foreground font-mono">
+                  {formatTime(r.created_at)}
+                </span>
+                {failed(r) ? (
+                  <span className="flex items-center gap-1 text-xs text-foreground">
+                    Why it failed
+                    <ChevronDown
+                      className={`h-3.5 w-3.5 transition-transform ${isOpen(r) ? "rotate-180" : ""}`}
+                    />
+                  </span>
+                ) : (
+                  <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                )}
+              </div>
+            </>
+          );
+          const rowClass =
+            "flex w-full items-center justify-between px-4 py-3 text-left hover:bg-accent/40 transition-colors group";
+          // A failed run opens its explanation here; the others link to GitHub.
+          return failed(r) ? (
+            <div key={r.id}>
+              <button
+                type="button"
+                className={rowClass}
+                aria-expanded={isOpen(r)}
+                onClick={() => setToggled((t) => ({ ...t, [r.id]: !isOpen(r) }))}
+              >
+                {summary}
+              </button>
+              {isOpen(r) && (
+                <div className="px-4 pb-4">
+                  <RunFailure appId={appId} runId={r.id} runUrl={r.html_url} game={game} />
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <span className="text-xs text-muted-foreground font-mono">
-                {formatTime(r.created_at)}
-              </span>
-              <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-          </a>
-        ))}
+          ) : (
+            <a key={r.id} href={r.html_url} target="_blank" rel="noreferrer" className={rowClass}>
+              {summary}
+            </a>
+          );
+        })}
       </div>
     </section>
   );
@@ -923,6 +967,7 @@ export function AppDeployTab({
 }: {
   app: {
     id: string;
+    name: string;
     is_active: boolean;
     default_ref: string;
     marketing_version: string | null;
@@ -955,7 +1000,7 @@ export function AppDeployTab({
           and save the changes.
         </section>
       )}
-      <RunsHistory appId={app.id} />
+      <RunsHistory appId={app.id} game={app.name} />
     </>
   );
 }

@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { RunFailure } from "@/components/RunFailure";
 import { isCurrentUserAdmin } from "@/lib/deploy.functions";
 import { formatDay } from "@/lib/expenses";
 import {
@@ -349,13 +350,19 @@ function AttentionCard({
         <div className="min-w-0 flex-1 space-y-1">
           <div className="font-medium leading-snug">{item.title}</div>
           <p className="text-sm text-muted-foreground break-words">{item.detail}</p>
+          {item.failedRun && (
+            <div className="pt-2">
+              <RunFailure {...item.failedRun} />
+            </div>
+          )}
           {item.actions.length > 0 && (
             <div className="flex flex-wrap gap-2 pt-2">
               {item.actions.map((a, i) => (
                 <ActionButton
                   key={a.label}
                   action={a}
-                  primary={i === 0}
+                  // The failure's own Copy button is the main action when there is one.
+                  primary={i === 0 && !item.failedRun}
                   releasing={releasing}
                   onRelease={onRelease}
                 />

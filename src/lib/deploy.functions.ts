@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { requireWebGame } from "@/lib/app-kind";
+import { type FailedJob, explainFailure, failureExcerpt } from "@/lib/deploy-failure";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -202,6 +203,66 @@ export const listRepoRuns = createServerFn({ method: "POST" })
       })),
       error: null as string | null,
     };
+  });
+
+/**
+ * Why a deploy run failed: for each failed job, the step, the error lines from its log
+ * and who has to fix it (deploy-failure.ts). A job whose log can't be read falls back to
+ * the error annotations GitHub keeps on the run's summary page.
+ */
+export const getRunFailure = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z.object({ appId: z.string().uuid(), runId: z.number().int().positive() }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const base = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}`;
+    const headers = githubHeaders();
+
+    const jobsRes = await fetch(`${base}/actions/runs/${data.runId}/jobs?per_page=100`, {
+      headers,
+    });
+    if (!jobsRes.ok) {
+      throw new Error(
+        `GitHub didn't list the run's jobs (${jobsRes.status}). Try again in a minute.`,
+      );
+    }
+    const jobs: any[] = (await jobsRes.json()).jobs ?? [];
+    const failed = jobs.filter((j) => ["failure", "timed_out"].includes(j.conclusion));
+
+    const result: FailedJob[] = [];
+    // Two at most: a deploy has an iOS and an Android job.
+    for (const job of failed.slice(0, 2)) {
+      const step: string | null =
+        (job.steps ?? []).find((s: any) => s.conclusion === "failure")?.name ?? null;
+      let error = "";
+      // The log answers with a redirect to a signed download link on another host, which
+      // needs no token: it's fetched without one, so the token never leaves GitHub.
+      const logRes = await fetch(`${base}/actions/jobs/${job.id}/logs`, {
+        headers,
+        redirect: "manual",
+      });
+      const location = logRes.headers.get("location");
+      const log = location ? await fetch(location) : logRes;
+      if (log.ok) error = failureExcerpt(await log.text());
+      if (!error) {
+        const annRes = await fetch(`${base}/check-runs/${job.id}/annotations`, { headers });
+        const annotations: any[] = annRes.ok ? await annRes.json() : [];
+        error = annotations
+          .filter((a) => a.annotation_level === "failure")
+          .map((a) => [a.title, a.message].filter(Boolean).join(": "))
+          .join("\n");
+      }
+      result.push({
+        job: job.name,
+        step,
+        error,
+        verdict: explainFailure({ step, error, conclusion: job.conclusion }),
+      });
+    }
+    return { jobs: result };
   });
 
 export const triggerDeploy = createServerFn({ method: "POST" })

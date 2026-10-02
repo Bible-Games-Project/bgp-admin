@@ -65,7 +65,13 @@ export function appStoreMessage(e: AppStoreEvent, ctx: AlertContext): string {
     case "waiting_release":
       return `✅ Apple approved ${game}. It's waiting for you to release it: ${home}`;
     case "rejected":
-      return `❌ Apple rejected ${game}. Home says what to do next: ${home}`;
+      if (e.state === "INVALID_BINARY") {
+        return `❌ Apple refused the build of ${game}. Only a new build fixes it: a job for the developer, with the email Apple sent. Home has the details: ${home}`;
+      }
+      if (e.state === "METADATA_REJECTED") {
+        return `❌ Apple rejected the store listing of ${game}. Yours to fix in App Store Connect, no new build needed. Home says what to do: ${home}`;
+      }
+      return `❌ Apple rejected ${game}. Home says what to do next and whose job it is: ${home}`;
   }
 }
 

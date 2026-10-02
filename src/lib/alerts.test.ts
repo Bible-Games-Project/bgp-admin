@@ -73,6 +73,15 @@ describe("messages", () => {
     );
   });
 
+  test("a rejection says whose job the fix is", () => {
+    const rejected = (state: string) =>
+      appStoreMessage({ kind: "rejected", appId: "eden", version: "1.0.75", state }, ctx);
+    expect(rejected("INVALID_BINARY")).toContain("Apple refused the build");
+    expect(rejected("INVALID_BINARY")).toContain("a job for the developer");
+    expect(rejected("METADATA_REJECTED")).toContain("Yours to fix in App Store Connect");
+    expect(rejected("REJECTED")).toContain("whose job it is");
+  });
+
   test("a reminder says how long is left", () => {
     const text = upcomingMessage(
       {
