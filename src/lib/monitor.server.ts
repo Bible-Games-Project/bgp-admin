@@ -623,7 +623,6 @@ export async function runMonitor(options: { since?: Date } = {}): Promise<Monito
         apps: ctx.apps,
         checks: [...rows.values()],
         incomeProblems: [],
-        incomeRows: [],
         expenses,
       });
       for (const item of upcoming) {

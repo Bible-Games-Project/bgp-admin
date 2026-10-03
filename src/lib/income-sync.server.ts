@@ -1,15 +1,59 @@
-// Keeps the stores' sales reports in the database (income_reports) for the Revenue page,
-// and the downloads they and Google's install statistics hold (download_reports) for the
-// Downloads page. Runs every hour on the Worker (src/tasks/income-sync.ts) and whenever
+// Keeps the stores' sales reports in the database (income_reports) for the Revenue page
+// and Home, and the downloads they and Google's install statistics hold (download_reports)
+// for the Downloads page. Runs every hour on the Worker (src/tasks/income-sync.ts) and whenever
 // someone presses Refresh on the page. It writes with the service role: the hourly run
 // has no user.
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import type { Json } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
 import type { StoredDownloads } from "./downloads";
 import type { IncomeSource } from "./income";
-import { type ReportState, supersededReports } from "./income-sync";
+import {
+  type ReportState,
+  type StoredReport,
+  storedIncome,
+  supersededReports,
+} from "./income-sync";
 import { syncAppStore, syncGooglePlay, syncGooglePlayInstalls } from "./income.server";
+
+/**
+ * The income the job has stored, as the Revenue page and Home count it: every report
+ * once, what each store is missing (`syncProblems`: the reports the job can't read; on
+ * top of those, `problems` has the sales left out for want of an exchange rate), and
+ * when the job last read both stores (null: never).
+ */
+export async function readIncome(supabase: SupabaseClient<Database>) {
+  const [reports, sync] = await Promise.all([
+    supabase.from("income_reports").select("source, report, period, version, unconverted, rows"),
+    supabase.from("income_sync").select("source, checked_at, problem"),
+  ]);
+  if (reports.error) throw new Error(reports.error.message);
+  if (sync.error) throw new Error(sync.error.message);
+
+  const { rows, unconverted } = storedIncome(reports.data as unknown as StoredReport[]);
+  const syncProblems: { source: IncomeSource; message: string }[] = [];
+  for (const s of sync.data) {
+    if (s.problem) syncProblems.push({ source: s.source as IncomeSource, message: s.problem });
+  }
+  const problems = [...syncProblems];
+  for (const source of ["app_store", "google_play"] as IncomeSource[]) {
+    if (unconverted[source].length) {
+      problems.push({
+        source,
+        message: `Some sales in ${unconverted[source].join(", ")} are left out: no exchange rate to euros was found for that currency.`,
+      });
+    }
+  }
+  // The older of the two stores, so "updated" never claims more than both.
+  const checks = sync.data.map((s) => s.checked_at).sort();
+  return {
+    rows,
+    problems,
+    syncProblems,
+    checkedAt: checks.length === 2 ? checks[0] : null,
+  };
+}
 
 /**
  * Downloads the reports the database lacks. `remaining` is how many are still missing

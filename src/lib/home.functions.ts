@@ -2,19 +2,17 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { AscError, createAscApi } from "./asc.server";
-import { type Expense, expensePayments, totalEur } from "./expenses";
+import { readExpenses } from "./expenses.server";
 import {
   attentionItems,
-  gameStatuses,
+  gameHighlights,
   glance,
   lastChecked,
   needsAppleMembershipExpense,
+  profitGlance,
   upcomingItems,
 } from "./home";
-import { type IncomeSource, addMonths, monthKey } from "./income";
-import { type StoredReport, storedIncome } from "./income-sync";
-import { eurConverter } from "./income-reports";
-import { fetchEurRates } from "./income.server";
+import { readIncome } from "./income-sync.server";
 import { type AppStoreState, type CheckRow, latestVersion, toMonitorApp } from "./monitor";
 import { runMonitor } from "./monitor.server";
 
@@ -35,71 +33,46 @@ export const getHome = createServerFn({ method: "GET" })
     const { supabase } = context;
     await assertAdmin(supabase, context.userId);
     const now = new Date();
-    const current = monthKey(now);
-    const [checks, apps, sync, reports, expenses] = await Promise.all([
+    // Income and expenses are read as the Revenue page reads them, so the profit here is
+    // the one it shows for the same period.
+    const [checks, apps, income, expenses] = await Promise.all([
       supabase.from("monitor_checks").select("key, ran_at, state, problem"),
       supabase
         .from("apps")
         .select(
           "id, name, bundle_id, android_package_name, steam_app_id, github_owner, github_repo, is_active, icon_data_url",
         ),
-      supabase.from("income_sync").select("source, problem"),
-      // This month and the last one are all the page counts.
-      supabase
-        .from("income_reports")
-        .select("source, report, period, version, unconverted, rows")
-        .in("period", [current, addMonths(current, -1)]),
-      supabase
-        .from("expenses")
-        .select("id, name, amount, currency, frequency, starts_on, ends_on, app_id, notes"),
+      readIncome(supabase),
+      readExpenses(supabase),
     ]);
-    for (const res of [checks, apps, sync, reports, expenses]) {
+    for (const res of [checks, apps]) {
       if (res.error) throw new Error(res.error.message);
     }
 
     const active = apps.data!.filter((a) => a.is_active);
-    const expenseRows = (expenses.data as Expense[]).map((e) => ({
-      ...e,
-      amount: Number(e.amount),
-    }));
-    const today = now.toISOString().slice(0, 10);
-    const foreignStarts = expenseRows.filter((e) => e.currency !== "EUR").map((e) => e.starts_on);
-    const from = foreignStarts.reduce((min, d) => (d < min ? d : min), today);
-    const toEur = eurConverter(
-      foreignStarts.length ? await fetchEurRates(from, today) : { daily: {}, latest: {} },
-    );
-    const monthExpenses = expensePayments(expenseRows, today, toEur).filter(
-      (p) => p.date.slice(0, 7) === current,
-    );
-    const incomeRows = storedIncome(reports.data as unknown as StoredReport[]).rows;
-    const monthIncome = incomeRows
-      .filter((r) => r.period === current)
-      .reduce((sum, r) => sum + r.netEur, 0);
-    const monthCosts = totalEur(monthExpenses);
     const input = {
       now,
       apps: active.map(toMonitorApp),
       checks: checks.data as CheckRow[],
-      incomeProblems: sync
-        .data!.filter((s) => s.problem)
-        .map((s) => ({ source: s.source as IncomeSource, problem: s.problem! })),
-      incomeRows,
-      expenses: expenseRows,
+      incomeProblems: income.syncProblems.map((p) => ({ source: p.source, problem: p.message })),
+      expenses: expenses.expenses,
     };
     return {
       lastChecked: lastChecked(input.checks),
       attention: attentionItems(input),
       upcoming: upcomingItems(input).filter((u) => u.daysLeft >= 0),
       askForAppleMembership: needsAppleMembershipExpense(input.expenses, now),
+      profit: profitGlance({
+        now,
+        incomeRows: income.rows,
+        incomeProblems: income.problems,
+        incomeCheckedAt: income.checkedAt,
+        expenses: expenses.expenses,
+        payments: expenses.payments,
+      }),
       glance: glance(input),
-      profitability: {
-        income: monthIncome,
-        costs: monthCosts,
-        profit: monthIncome - monthCosts,
-        estimated: incomeRows.some((r) => r.period === current && r.estimated),
-        missingExchangeRate: monthExpenses.some((p) => p.eur == null),
-      },
-      games: gameStatuses(input),
+      games: gameHighlights(input),
+      gameCount: active.length,
       icons: Object.fromEntries(active.map((a) => [a.id, a.icon_data_url])) as Record<
         string,
         string | null

@@ -27,6 +27,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { Amount } from "@/components/Amount";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,19 +54,19 @@ import {
   type IncomeSource,
   type Preset,
   KIND_LABELS,
+  PRESET_LABELS,
   SOURCE_LABELS,
   addMonths,
   byApp,
   byProduct,
   chartBuckets,
   monthKey,
-  selectRows,
   totals,
 } from "@/lib/income";
 import { getIncome, refreshIncome } from "@/lib/income.functions";
 import { SYNC_EVERY_MINUTES } from "@/lib/income-sync";
 import { appStoreIds } from "@/lib/app-kind";
-import { addCosts, paymentsIn, totalEur } from "@/lib/expenses";
+import { addCosts, periodProfit } from "@/lib/expenses";
 import { listExpenses } from "@/lib/expenses.functions";
 
 const searchSchema = z.object({
@@ -78,13 +79,6 @@ export const Route = createFileRoute("/_authenticated/revenue")({
   validateSearch: (s) => searchSchema.parse(s),
   component: RevenuePage,
 });
-
-const PRESET_LABELS: Record<Preset, string> = {
-  month: "This month",
-  "12m": "Last 12 months",
-  year: "This year",
-  all: "All time",
-};
 
 const SOURCE_COLORS: Record<IncomeSource, string> = {
   app_store: "var(--primary)",
@@ -109,18 +103,6 @@ const monthLabel = (month: string, withYear = true) =>
     year: withYear ? "2-digit" : undefined,
     timeZone: "UTC",
   });
-
-const ESTIMATE_HINT =
-  "Estimated: Google Play closes a month around the 5th of the next one. Until then this is worked out from its sales.";
-
-function Amount({ value, estimated }: { value: number; estimated?: boolean }) {
-  return (
-    <span title={estimated ? ESTIMATE_HINT : undefined}>
-      {estimated && "≈ "}
-      {fmtEUR(value)}
-    </span>
-  );
-}
 
 function RevenuePage() {
   const search = Route.useSearch();
@@ -245,25 +227,27 @@ function RevenuePage() {
   const filtered = rows.filter(
     (r) => (!search.store || r.source === search.store) && (!search.app || r.appKey === search.app),
   );
-  const selected = selectRows(filtered, search.preset, now);
-
-  const period = totals(selected);
-  const thisMonth = totals(filtered.filter((r) => r.period === currentMonth));
-  const previousMonth = totals(filtered.filter((r) => r.period === lastMonth));
-  // Costs aren't tied to a store, so they only show with all stores. With a game picked,
-  // only the costs entered for that game count.
-  const showCosts = !search.store;
-  // Without the expenses, a profit would just repeat the income.
-  const costsKnown = showCosts && !expensesQ.isError;
-  const costPayments = paymentsIn(
+  // With a game picked, only the costs entered for that game count.
+  const {
+    rows: selected,
+    payments: costPayments,
+    income: period,
+    spent,
+    profit,
+  } = periodProfit(
+    filtered,
     (expensesQ.data?.payments ?? []).filter(
       (p) => !search.app || (p.appId && keyOfApp.get(p.appId) === search.app),
     ),
     search.preset,
     now,
   );
-  const spent = totalEur(costPayments);
-  const profit = period.netEur - spent;
+  const thisMonth = totals(filtered.filter((r) => r.period === currentMonth));
+  const previousMonth = totals(filtered.filter((r) => r.period === lastMonth));
+  // Costs aren't tied to a store, so they only show with all stores.
+  const showCosts = !search.store;
+  // Without the expenses, a profit would just repeat the income.
+  const costsKnown = showCosts && !expensesQ.isError;
   const chartCosts = costsKnown && costPayments.length > 0;
   const chart = chartCosts
     ? addCosts(

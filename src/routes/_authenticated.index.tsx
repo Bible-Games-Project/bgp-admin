@@ -8,17 +8,19 @@ import {
   Bug,
   CalendarClock,
   CheckCircle2,
+  ChevronRight,
   ExternalLink,
-  Euro,
   ImageIcon,
   Info,
   Loader2,
   RefreshCw,
   Rocket,
+  Scale,
   ShieldCheck,
   Star,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Amount, ESTIMATE_HINT } from "@/components/Amount";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,14 +29,17 @@ import { isCurrentUserAdmin } from "@/lib/deploy.functions";
 import { formatDay } from "@/lib/expenses";
 import {
   type AttentionItem,
-  type GameStatus,
+  type GameEvent,
+  type GameHighlight,
+  type Glance,
   type HomeAction,
+  type ProfitGlance,
   type Severity,
   type UpcomingItem,
-  appStoreStateLabel,
 } from "@/lib/home";
 import { getHome, releaseAppStoreVersion, runChecks } from "@/lib/home.functions";
-import { IN_REVIEW_STATES, MONITOR_EVERY_MINUTES, REJECTED_STATES } from "@/lib/monitor";
+import { PRESET_LABELS, SOURCE_LABELS } from "@/lib/income";
+import { MONITOR_EVERY_MINUTES } from "@/lib/monitor";
 
 export const Route = createFileRoute("/_authenticated/")({
   component: HomePage,
@@ -42,9 +47,6 @@ export const Route = createFileRoute("/_authenticated/")({
 
 // A Check now run stops at its request limit and hands over; a few runs cover every check.
 const MAX_CHECK_RUNS = 5;
-
-const fmtEUR = (n: number) =>
-  new Intl.NumberFormat("en-GB", { style: "currency", currency: "EUR" }).format(n);
 
 function HomePage() {
   const adminFn = useServerFn(isCurrentUserAdmin);
@@ -122,15 +124,6 @@ function HomePage() {
 
   const data = homeQ.data;
   const firstRun = !lastChecked && check.isPending;
-  const notableGames = (data?.games ?? []).filter(
-    (game) =>
-      (game.appStore && game.appStore.state !== "READY_FOR_SALE") ||
-      (game.deploy &&
-        (game.deploy.status !== "completed" || game.deploy.conclusion !== "success")) ||
-      (game.android && game.android.crashes + game.android.anrs > 0) ||
-      game.reviewsThisWeek > 0,
-  );
-
   return (
     <div className="p-6 md:p-8 max-w-5xl mx-auto w-full space-y-8">
       <div className="space-y-4">
@@ -138,7 +131,7 @@ function HomePage() {
           <span className="label-mono">overview</span>
           <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">Home</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            What needs you now, what's coming up, and how the games are doing.
+            What needs you now, what's coming up, and how the money and the games are doing.
           </p>
         </div>
         <CheckBar
@@ -205,57 +198,24 @@ function HomePage() {
           )}
 
           <section className="space-y-3">
-            <SectionTitle>At a glance</SectionTitle>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <SectionTitle>Profitability</SectionTitle>
+            <ProfitCard profit={data.profit} />
+          </section>
+
+          <section className="space-y-3">
+            <SectionTitle>Players · last 7 days</SectionTitle>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <GlanceCard
-                label="Profit this month"
-                icon={<Euro className="h-4 w-4" />}
-                value={fmtEUR(data.profitability.profit)}
-                hint={
-                  <>
-                    {data.profitability.estimated ? "Estimated · " : ""}
-                    Income {fmtEUR(data.profitability.income)} − costs{" "}
-                    {fmtEUR(data.profitability.costs)}
-                    {data.profitability.missingExchangeRate
-                      ? " · Some USD costs lack an exchange rate"
-                      : ""}
-                    {" · "}
-                    <Link
-                      to="/revenue"
-                      search={{ preset: "month", app: null, store: null }}
-                      className="underline underline-offset-2 hover:text-foreground"
-                    >
-                      Details
-                    </Link>
-                  </>
-                }
-              />
-              <GlanceCard
-                label="This month"
-                icon={<Euro className="h-4 w-4" />}
-                value={fmtEUR(data.glance.income.thisMonth)}
-                hint={
-                  <>
-                    Last month {fmtEUR(data.glance.income.lastMonth)} ·{" "}
-                    <Link
-                      to="/revenue"
-                      search={{ preset: "month", app: null, store: null }}
-                      className="underline underline-offset-2 hover:text-foreground"
-                    >
-                      Revenue
-                    </Link>
-                  </>
-                }
-              />
-              <GlanceCard
-                label="New reviews this week"
+                label="Player reviews"
                 icon={<Star className="h-4 w-4" />}
                 value={String(data.glance.reviews.week)}
                 hint={
                   <>
+                    Written in the stores
                     {data.glance.reviews.average != null &&
-                      `${data.glance.reviews.average.toFixed(1)}★ average · `}
-                    {data.glance.reviews.waiting} waiting for a reply ·{" "}
+                      ` · ${data.glance.reviews.average.toFixed(1)}★ average`}
+                    {" · "}
+                    {data.glance.reviews.waiting} awaiting a reply ·{" "}
                     <Link
                       to="/reviews"
                       className="underline underline-offset-2 hover:text-foreground"
@@ -265,58 +225,33 @@ function HomePage() {
                   </>
                 }
               />
-              <GlanceCard
-                label="Versions in App Review"
-                icon={<ShieldCheck className="h-4 w-4" />}
-                value={String(data.glance.inReview.length)}
-                hint={
-                  data.glance.inReview.length
-                    ? data.glance.inReview.map((r) => `${r.name} ${r.version}`).join(", ")
-                    : "Nothing waiting for Apple"
-                }
-              />
-              <GlanceCard
-                label="Google Play crashes"
-                icon={<Bug className="h-4 w-4" />}
-                value={
-                  data.glance.crashes
-                    ? String(data.glance.crashes.crashes + data.glance.crashes.anrs)
-                    : "—"
-                }
-                hint={
-                  !data.glance.crashes
-                    ? "Not checked yet"
-                    : data.glance.crashes.crashes + data.glance.crashes.anrs === 0
-                      ? "None in the last 7 days"
-                      : `Crashes and freezes in the last 7 days, in ${data.glance.crashes.games} game${data.glance.crashes.games === 1 ? "" : "s"}`
-                }
-              />
+              <CrashesCard android={data.glance.androidCrashes} />
             </div>
           </section>
 
           <section className="space-y-3">
-            <SectionTitle>Game highlights</SectionTitle>
-            {notableGames.length ? (
+            <div className="flex items-baseline justify-between gap-3">
+              <SectionTitle>Game activity</SectionTitle>
+              <Link
+                to="/apps"
+                className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              >
+                All {data.gameCount} games
+              </Link>
+            </div>
+            {data.games.length ? (
               <Card>
                 <CardContent className="p-0 divide-y divide-border">
-                  {notableGames.map((g) => (
+                  {data.games.map((g) => (
                     <GameRow key={g.id} game={g} icon={data.icons[g.id]} />
                   ))}
                 </CardContent>
               </Card>
             ) : (
-              <p className="text-sm text-muted-foreground">No notable updates across the games.</p>
+              <p className="text-sm text-muted-foreground">
+                No release under way, and no deploys or player reviews in the last 7 days.
+              </p>
             )}
-            <details className="group rounded-md border bg-card">
-              <summary className="cursor-pointer list-none px-4 py-3 text-sm text-muted-foreground hover:text-foreground">
-                Show all {data.games.length} games
-              </summary>
-              <div className="border-t divide-y divide-border">
-                {data.games.map((g) => (
-                  <GameRow key={g.id} game={g} icon={data.icons[g.id]} />
-                ))}
-              </div>
-            </details>
           </section>
         </>
       )}
@@ -561,26 +496,154 @@ function GameIcon({ src }: { src: string | null | undefined }) {
   );
 }
 
-function GameRow({ game, icon }: { game: GameStatus; icon: string | null | undefined }) {
-  const store = game.appStore;
-  const storeTone = !store
-    ? null
-    : REJECTED_STATES.includes(store.state)
-      ? "destructive"
-      : IN_REVIEW_STATES.includes(store.state) || store.state === "PENDING_DEVELOPER_RELEASE"
-        ? "warning"
-        : "muted";
-  const deploy = game.deploy;
-  const deployLabel = !deploy
-    ? null
-    : deploy.status !== "completed"
-      ? "deploying"
-      : deploy.conclusion === "success"
-        ? `deployed ${timeAgo(deploy.created)}`
-        : deploy.conclusion === "cancelled"
-          ? "last deploy cancelled"
-          : "last deploy failed";
-  const crashes = game.android ? game.android.crashes + game.android.anrs : null;
+/** Home's headline money number: Revenue's profit for the same period, and what may skew it. */
+function ProfitCard({ profit: p }: { profit: ProfitGlance }) {
+  const since = new Date(`${p.since}-01T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const verdict = p.unread
+    ? "The stores' sales haven't been read yet. Revenue reads them when it opens."
+    : p.income === 0 && p.spent === 0
+      ? "Nothing earned or spent in this period."
+      : p.profit < 0
+        ? "Losing money: the project spent more than the games earned."
+        : "Profitable: the games earned more than the project spent.";
+  const notes: React.ReactNode[] = [];
+  if (!p.unread && p.incomplete.length) {
+    notes.push(
+      <>
+        {p.incomplete.map((s) => SOURCE_LABELS[s]).join(" and ")} income may be incomplete: Revenue
+        says why.
+      </>,
+    );
+  }
+  if (p.noExpenses) {
+    notes.push(
+      <>
+        No expenses entered yet, so this is only the income.{" "}
+        <Link to="/expenses" className="underline underline-offset-2 hover:text-foreground">
+          Add them
+        </Link>
+      </>,
+    );
+  }
+  if (p.unconvertedCosts) {
+    notes.push("Some dollar costs count as 0 € until an exchange rate is found.");
+  }
+  if (!p.unread && p.estimated) {
+    notes.push(`≈ ${ESTIMATE_HINT}`);
+  }
+  return (
+    <Card>
+      <CardContent className="p-5 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs text-muted-foreground label-mono">
+            Profit · {PRESET_LABELS[p.preset].toLowerCase()}
+          </span>
+          <Scale className="h-4 w-4 text-muted-foreground shrink-0" />
+        </div>
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+          <div className="space-y-1 min-w-0">
+            <div
+              className={`text-3xl font-semibold tracking-tight ${
+                p.unread
+                  ? "text-muted-foreground"
+                  : p.profit < 0
+                    ? "text-destructive"
+                    : "text-success"
+              }`}
+            >
+              {p.unread ? "—" : <Amount value={p.profit} estimated={p.estimated} />}
+            </div>
+            <p className="text-sm">{verdict}</p>
+          </div>
+          {!p.unread && (
+            <dl className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5 text-sm sm:text-right shrink-0">
+              <dt className="text-muted-foreground">Earned after store fees</dt>
+              <dd className="text-right font-medium">
+                <Amount value={p.income} estimated={p.estimated} />
+              </dd>
+              <dt className="text-muted-foreground">Spent</dt>
+              <dd className="text-right font-medium">
+                <Amount value={p.spent} />
+              </dd>
+            </dl>
+          )}
+        </div>
+        {notes.length > 0 && (
+          <ul className="space-y-1 text-xs text-muted-foreground">
+            {notes.map((note, i) => (
+              <li key={i} className="flex gap-1.5">
+                <Info className="h-3.5 w-3.5 shrink-0 mt-px" />
+                <span>{note}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex items-center justify-between gap-3 flex-wrap text-xs text-muted-foreground">
+          <span>{since} to today, all games and stores</span>
+          <Link
+            to="/revenue"
+            search={{ preset: p.preset, app: null, store: null }}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Month by month in Revenue
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Crashes for each platform, so a quiet number never passes for all of them. Only Google
+ * Play's are read: Apple reports crashes only from players who share analytics with
+ * developers and only once five of them hit one, through an analytics report that an
+ * Admin API key has to request, so the console doesn't count them.
+ */
+function CrashesCard({ android }: { android: Glance["androidCrashes"] }) {
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs text-muted-foreground label-mono">Crashes</span>
+          <Bug className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <dl className="space-y-2 text-sm">
+          <div className="flex items-baseline justify-between gap-3">
+            <dt>Android</dt>
+            <dd className="text-right">
+              {!android ? (
+                <span className="text-muted-foreground">Not checked yet</span>
+              ) : android.crashes + android.anrs === 0 ? (
+                "None"
+              ) : (
+                <span className="font-medium">
+                  {plural(android.crashes, "crash", "crashes")}, {plural(android.anrs, "freeze")}
+                </span>
+              )}
+            </dd>
+          </div>
+          {android && android.games.length > 0 && (
+            <p className="text-xs text-muted-foreground -mt-1">In {android.games.join(", ")}</p>
+          )}
+          <div className="flex items-baseline justify-between gap-3">
+            <dt>iPhone and iPad</dt>
+            <dd className="text-right text-muted-foreground">Not tracked</dd>
+          </div>
+        </dl>
+        <p className="text-xs text-muted-foreground mt-3">
+          Apple only reports crashes from players who share analytics, once five or more of them
+          crash, so the console doesn't count iOS crashes.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function GameRow({ game, icon }: { game: GameHighlight; icon: string | null | undefined }) {
   return (
     <Link
       to="/apps/$id"
@@ -591,60 +654,52 @@ function GameRow({ game, icon }: { game: GameStatus; icon: string | null | undef
       <div className="min-w-0 flex-1">
         <div className="font-medium truncate">{game.name}</div>
         <div className="flex flex-wrap gap-1.5 mt-1">
-          {store && (
-            <Chip tone={storeTone!}>
-              App Store {store.version} · {appStoreStateLabel(store.state)}
-            </Chip>
-          )}
-          {deployLabel && (
-            <Chip
-              tone={
-                deploy!.status === "completed" && deploy!.conclusion !== "success"
-                  ? deploy!.conclusion === "cancelled"
-                    ? "muted"
-                    : "destructive"
-                  : "muted"
-              }
+          {game.events.map((e) => (
+            <Badge
+              key={e.kind}
+              variant="outline"
+              className="font-normal text-muted-foreground gap-1"
             >
-              {deployLabel}
-            </Chip>
-          )}
-          {crashes != null && (
-            <Chip tone={crashes > 0 ? "warning" : "muted"}>
-              Android:{" "}
-              {crashes === 0 ? "no crashes" : `${crashes} crash${crashes === 1 ? "" : "es"}`} this
-              week
-            </Chip>
-          )}
-          {game.reviewsThisWeek > 0 && (
-            <Chip tone="muted">
-              {game.reviewsThisWeek} new review{game.reviewsThisWeek === 1 ? "" : "s"}
-            </Chip>
-          )}
+              {EVENT_ICONS[e.kind]}
+              {eventLabel(e)}
+            </Badge>
+          ))}
         </div>
       </div>
+      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
     </Link>
   );
 }
 
-function Chip({
-  tone,
-  children,
-}: {
-  tone: "destructive" | "warning" | "muted";
-  children: React.ReactNode;
-}) {
-  const cls = {
-    destructive: "border-destructive/40 text-destructive",
-    warning: "border-warning/40 text-warning",
-    muted: "text-muted-foreground",
-  }[tone];
-  return (
-    <Badge variant="outline" className={`font-normal ${cls}`}>
-      {children}
-    </Badge>
-  );
+const EVENT_ICONS: Record<GameEvent["kind"], React.ReactNode> = {
+  apple_approval: <ShieldCheck className="h-3 w-3" />,
+  approved: <ShieldCheck className="h-3 w-3" />,
+  deploying: <Rocket className="h-3 w-3" />,
+  deployed: <Rocket className="h-3 w-3" />,
+  player_reviews: <Star className="h-3 w-3" />,
+};
+
+/** Apple's check of a version never says "review", so it can't be read as players' reviews. */
+function eventLabel(e: GameEvent): string {
+  switch (e.kind) {
+    case "apple_approval":
+      return e.state === "IN_REVIEW"
+        ? `App Store ${e.version}: Apple is checking it`
+        : `App Store ${e.version}: waiting for Apple's approval`;
+    case "approved":
+      return `App Store ${e.version}: approved, going live`;
+    case "deploying":
+      return `Deploying since ${timeAgo(e.since)}`;
+    case "deployed":
+      return `Deployed ${timeAgo(e.at)}`;
+    case "player_reviews":
+      return `${plural(e.count, "player review")}${
+        e.average != null ? ` · ${e.average.toFixed(1)}★` : ""
+      }`;
+  }
 }
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function timeAgo(iso: string) {
   const minutes = Math.floor((Date.now() - Date.parse(iso)) / 60_000);

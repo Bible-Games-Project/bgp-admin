@@ -1,16 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import type { Expense } from "./expenses";
+import { type Expense, type ExpensePayment, periodProfit } from "./expenses";
 import {
   type HomeInput,
   attentionItems,
   daysUntil,
-  gameStatuses,
+  gameHighlights,
   glance,
   needsAppleMembershipExpense,
+  profitGlance,
   upcomingItems,
 } from "./home";
 import type { IncomeRow } from "./income";
-import type { CheckRow, MonitorApp, ReviewDigest } from "./monitor";
+import { type CheckRow, type MonitorApp, type ReviewDigest, vitalsFrom } from "./monitor";
 
 const now = new Date("2026-09-30T10:00:00Z");
 
@@ -45,7 +46,6 @@ const input = (checks: CheckRow[], extra: Partial<HomeInput> = {}): HomeInput =>
   apps,
   checks,
   incomeProblems: [],
-  incomeRows: [],
   expenses: [],
   ...extra,
 });
@@ -367,9 +367,14 @@ describe("the Apple Developer Program reminder", () => {
   });
 });
 
-describe("glance and games", () => {
-  const income = (period: string, netEur: number, estimated = false): IncomeRow => ({
-    source: "app_store",
+describe("profit, players and games", () => {
+  const income = (
+    period: string,
+    netEur: number,
+    estimated = false,
+    source: IncomeRow["source"] = "app_store",
+  ): IncomeRow => ({
+    source,
     period,
     appKey: "com.biblegames.eden",
     appName: "Eden",
@@ -381,47 +386,170 @@ describe("glance and games", () => {
     netEur,
     estimated,
   });
+  const payment = (date: string, eur: number | null): ExpensePayment => ({
+    expenseId: "e",
+    appId: null,
+    date,
+    eur,
+  });
+  const apple: Expense = {
+    id: "e",
+    name: "Apple Developer Program",
+    amount: 99,
+    currency: "EUR",
+    frequency: "yearly",
+    starts_on: "2025-11-15",
+    ends_on: null,
+    app_id: null,
+    notes: null,
+  };
 
-  test("sums this month and last, and the week's reviews", () => {
-    const g = glance(
-      input(
-        [
-          row("reviews_app_store", {
-            apps: {
-              eden: {
-                known: [],
-                recent: [
-                  digest("a", { stars: 4 }),
-                  digest("b", { stars: 2, date: "2026-09-10T00:00:00Z" }),
-                ],
-              },
-            },
-          }),
-          row("app_store", {
-            apps: { eden: { ascId: "1", unresolved: false, versions: [version("IN_REVIEW")] } },
-          }),
-        ],
-        { incomeRows: [income("2026-09", 10), income("2026-09", 2.5), income("2026-08", 7)] },
-      ),
-    );
-    expect(g.income).toEqual({ thisMonth: 12.5, lastMonth: 7, estimated: false });
-    expect(g.reviews).toEqual({ week: 1, average: 4, waiting: 2 });
-    expect(g.inReview).toEqual([
-      { appId: "eden", name: "Bible Story Game", version: "1.0.75", state: "IN_REVIEW" },
+  test("profit is Revenue's last 12 months, to the cent", () => {
+    // now is 2026-09-30, so the 12 months run from Oct 2025 to today.
+    const incomeRows = [
+      income("2026-09", 40),
+      income("2026-09", 5, true, "google_play"),
+      income("2025-10", 10),
+      // Before the 12 months, and App Store whole-year history: Revenue leaves both out.
+      income("2025-09", 1000),
+      income("2025", 500),
+    ];
+    const payments = [payment("2025-11-15", 99), payment("2025-09-20", 30)];
+    const p = profitGlance({
+      now,
+      incomeRows,
+      incomeProblems: [],
+      incomeCheckedAt: "2026-09-30T09:00:00Z",
+      expenses: [apple],
+      payments,
+    });
+    const revenue = periodProfit(incomeRows, payments, "12m", now);
+    expect(p).toMatchObject({ preset: "12m", since: "2025-10", estimated: true });
+    expect([p.income, p.spent, p.profit]).toEqual([
+      revenue.income.netEur,
+      revenue.spent,
+      revenue.profit,
     ]);
-    expect(g.crashes).toBeNull();
+    expect([p.income, p.spent, p.profit]).toEqual([55, 99, -44]);
   });
 
-  test("one line per game, in name order", () => {
-    const games = gameStatuses(
+  test("profit says what may skew it", () => {
+    const p = profitGlance({
+      now,
+      incomeRows: [],
+      incomeProblems: [{ source: "google_play" }, { source: "google_play" }],
+      incomeCheckedAt: null,
+      expenses: [],
+      payments: [payment("2026-09-01", null)],
+    });
+    expect(p).toMatchObject({
+      incomplete: ["google_play"],
+      noExpenses: true,
+      unconvertedCosts: true,
+      unread: true,
+      estimated: false,
+    });
+  });
+
+  test("player reviews of the week, and Android crashes by game", () => {
+    const g = glance(
       input([
-        row("app_store", {
-          apps: { eden: { ascId: "1", unresolved: false, versions: [version("READY_FOR_SALE")] } },
+        row("reviews_app_store", {
+          apps: {
+            eden: {
+              known: [],
+              recent: [
+                digest("a", { stars: 4 }),
+                digest("b", { stars: 2, date: "2026-09-10T00:00:00Z" }),
+              ],
+            },
+          },
+        }),
+        row("play_vitals", {
+          apps: {
+            tls: { ...vitalsFrom({}, null), crashes: 2, anrs: 1, users: 1 },
+            eden: vitalsFrom({}, null),
+          },
         }),
       ]),
     );
-    expect(games.map((g) => g.name)).toEqual(["Bible Story Game", "The Lost Sheep"]);
-    expect(games[0].appStore).toEqual({ version: "1.0.75", state: "READY_FOR_SALE" });
-    expect(games[1].appStore).toBeNull();
+    expect(g.reviews).toEqual({ week: 1, average: 4, waiting: 2 });
+    expect(g.androidCrashes).toEqual({ crashes: 2, anrs: 1, games: ["The Lost Sheep"] });
+    expect(glance(input([])).androidCrashes).toBeNull();
+  });
+
+  test("games: only what is under way or happened this week, never a problem twice", () => {
+    const run = (status: string, conclusion: string | null, created: string) => ({
+      id: 1,
+      status,
+      conclusion,
+      created,
+      url: "",
+      title: "",
+    });
+    const more: MonitorApp[] = [
+      ...apps,
+      { id: "quiet", name: "A Quiet Game", ios: "q", android: null, steam: null, repo: null },
+      { id: "nope", name: "Rejected Game", ios: "r", android: null, steam: null, repo: null },
+    ];
+    const games = gameHighlights(
+      input(
+        [
+          row("app_store", {
+            apps: {
+              eden: { ascId: "1", unresolved: false, versions: [version("READY_FOR_SALE")] },
+              tls: { ascId: "2", unresolved: false, versions: [version("WAITING_FOR_REVIEW")] },
+              quiet: {
+                ascId: "3",
+                unresolved: false,
+                versions: [version("PREPARE_FOR_SUBMISSION")],
+              },
+              // In review again, but the submission was rejected: Needs attention has it.
+              nope: { ascId: "4", unresolved: true, versions: [version("IN_REVIEW")] },
+            },
+          }),
+          row("deploys", {
+            apps: {
+              eden: run("completed", "success", "2026-09-28T10:00:00Z"),
+              // A failure is a Needs attention item, an old success is old news.
+              tls: run("completed", "failure", "2026-09-29T10:00:00Z"),
+              quiet: run("completed", "success", "2026-09-01T10:00:00Z"),
+            },
+          }),
+          row("reviews_google_play", {
+            apps: { eden: { known: [], recent: [digest("x", { stars: 5 })] } },
+          }),
+        ],
+        { apps: more },
+      ),
+    );
+    expect(games.map((g) => [g.id, g.events.map((e) => e.kind)])).toEqual([
+      // Something under way comes first.
+      ["tls", ["apple_approval"]],
+      ["eden", ["deployed", "player_reviews"]],
+    ]);
+    expect(games[0].events[0]).toEqual({
+      kind: "apple_approval",
+      version: "1.0.75",
+      state: "WAITING_FOR_REVIEW",
+    });
+    expect(games[1].events[1]).toEqual({ kind: "player_reviews", count: 1, average: 5 });
+  });
+
+  test("a deploy still running counts for a day, then it's stale", () => {
+    const deploys = (created: string) =>
+      gameHighlights(
+        input([
+          row("deploys", {
+            apps: {
+              eden: { id: 1, status: "in_progress", conclusion: null, created, url: "", title: "" },
+            },
+          }),
+        ]),
+      );
+    expect(deploys("2026-09-30T09:00:00Z")[0].events).toEqual([
+      { kind: "deploying", since: "2026-09-30T09:00:00Z" },
+    ]);
+    expect(deploys("2026-09-27T09:00:00Z")).toEqual([]);
   });
 });

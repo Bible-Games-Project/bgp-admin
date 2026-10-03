@@ -54,6 +54,13 @@ export function mergeRows(rows: IncomeRow[]): IncomeRow[] {
 
 export type Preset = "month" | "12m" | "year" | "all";
 
+export const PRESET_LABELS: Record<Preset, string> = {
+  month: "This month",
+  "12m": "Last 12 months",
+  year: "This year",
+  all: "All time",
+};
+
 export function monthKey(date: Date): string {
   return date.toISOString().slice(0, 7);
 }

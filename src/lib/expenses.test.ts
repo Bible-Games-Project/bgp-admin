@@ -10,6 +10,7 @@ import {
   nextPaymentDate,
   paymentDates,
   paymentsIn,
+  periodProfit,
   priceLabel,
   totalEur,
 } from "./expenses";
@@ -171,5 +172,50 @@ describe("Revenue chart", () => {
       ["2025", 0, 0],
       ["2026", 99, -39],
     ]);
+  });
+});
+
+describe("periodProfit", () => {
+  const now = new Date("2026-09-30T10:00:00Z");
+  const row = (period: string, netEur: number) => ({
+    source: "app_store" as const,
+    period,
+    appKey: "a",
+    appName: "A",
+    productId: "p",
+    productName: "P",
+    kind: "paid_app" as const,
+    units: 1,
+    refunds: 0,
+    netEur,
+    estimated: false,
+  });
+  const paid = (date: string, eur: number | null) => ({ expenseId: "e", appId: null, date, eur });
+
+  test("picks the preset's months for income and payments alike", () => {
+    const p = periodProfit(
+      [row("2026-09", 30), row("2026-08", 20), row("2025", 100)],
+      [paid("2026-09-01", 12), paid("2026-08-01", null), paid("2025-06-01", 99)],
+      "month",
+      now,
+    );
+    expect(p.rows.map((r) => r.period)).toEqual(["2026-09"]);
+    expect(p.payments.map((x) => x.date)).toEqual(["2026-09-01"]);
+    expect(p.income.netEur).toBe(30);
+    expect(p.spent).toBe(12);
+    expect(p.profit).toBe(18);
+  });
+
+  test("all time counts Apple's whole years instead of their months", () => {
+    const p = periodProfit(
+      [row("2025", 100), row("2025-12", 40), row("2026-01", 5)],
+      [paid("2025-06-01", 99), paid("2026-01-01", null)],
+      "all",
+      now,
+    );
+    expect(p.income.netEur).toBe(105);
+    // A payment without an exchange rate counts as 0 €, as on the Revenue page.
+    expect(p.spent).toBe(99);
+    expect(p.profit).toBe(6);
   });
 });

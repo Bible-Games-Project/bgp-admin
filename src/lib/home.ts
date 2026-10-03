@@ -3,8 +3,24 @@
 // income itself and the expenses. Pure, so every rule can be tested; home.functions.ts
 // reads the database and the page renders what this returns.
 
-import { type Expense, formatDay, isRunning, nextPaymentDate, priceLabel } from "./expenses";
-import { type IncomeRow, type IncomeSource, SOURCE_LABELS, addMonths, monthKey } from "./income";
+import { IN_FLIGHT_STATES } from "./asc-states";
+import {
+  type Expense,
+  type ExpensePayment,
+  formatDay,
+  isRunning,
+  nextPaymentDate,
+  periodProfit,
+  priceLabel,
+} from "./expenses";
+import {
+  type IncomeRow,
+  type IncomeSource,
+  type Preset,
+  SOURCE_LABELS,
+  monthKey,
+  presetMonths,
+} from "./income";
 import {
   type AndroidTargetState,
   type AppStoreState,
@@ -17,7 +33,6 @@ import {
   type ReviewsState,
   type SigningState,
   type VitalsState,
-  type WorkflowRun,
   CHECKS,
   CHECK_KEYS,
   IN_REVIEW_STATES,
@@ -73,7 +88,6 @@ export type HomeInput = {
   apps: MonitorApp[];
   checks: CheckRow[];
   incomeProblems: { source: IncomeSource; problem: string }[];
-  incomeRows: IncomeRow[];
   expenses: Expense[];
 };
 
@@ -117,6 +131,9 @@ const deployTab = (appId: string, label = "Open Deploy"): HomeAction => ({
 });
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+const average = (values: number[]) =>
+  values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
 
 const AI_CHAT_HINT = "If it's unclear, paste it into an AI chat and ask what to do.";
 
@@ -492,63 +509,94 @@ export function needsAppleMembershipExpense(expenses: Expense[], now: Date): boo
 }
 
 /* ------------------------------------------------------------------------------------ */
-/* At a glance                                                                           */
+/* Profit                                                                                */
+/* ------------------------------------------------------------------------------------ */
+
+/**
+ * The period Home's profit covers: Revenue's default, where its link lands. Twelve months
+ * hold every yearly fee once and smooth out the months a big payment falls in.
+ */
+export const PROFIT_PRESET: Preset = "12m";
+
+export type ProfitGlance = {
+  preset: Preset;
+  /** The first month counted, YYYY-MM; the period runs to today. */
+  since: string;
+  income: number;
+  spent: number;
+  profit: number;
+  /** Counts Google Play months it hasn't closed yet, worked out from its sales. */
+  estimated: boolean;
+  /** Stores whose income may be short: reports the job can't read, or unconverted sales. */
+  incomplete: IncomeSource[];
+  /** No expense entered at all, so the profit is just the income. */
+  noExpenses: boolean;
+  /** Dollar payments counted as 0 € for want of an exchange rate. */
+  unconvertedCosts: boolean;
+  /** The income job hasn't read both stores yet. */
+  unread: boolean;
+};
+
+/** Revenue's numbers for PROFIT_PRESET with every app and store, and what may skew them. */
+export function profitGlance(input: {
+  now: Date;
+  incomeRows: IncomeRow[];
+  incomeProblems: { source: IncomeSource }[];
+  incomeCheckedAt: string | null;
+  expenses: Expense[];
+  payments: ExpensePayment[];
+}): ProfitGlance {
+  const p = periodProfit(input.incomeRows, input.payments, PROFIT_PRESET, input.now);
+  return {
+    preset: PROFIT_PRESET,
+    since: presetMonths(PROFIT_PRESET, input.now)?.[0] ?? monthKey(input.now),
+    income: p.income.netEur,
+    spent: p.spent,
+    profit: p.profit,
+    estimated: p.income.estimated,
+    incomplete: [...new Set(input.incomeProblems.map((x) => x.source))],
+    noExpenses: input.expenses.length === 0,
+    unconvertedCosts: p.payments.some((x) => x.eur == null),
+    unread: !input.incomeCheckedAt,
+  };
+}
+
+/* ------------------------------------------------------------------------------------ */
+/* Players this week                                                                     */
 /* ------------------------------------------------------------------------------------ */
 
 export type Glance = {
-  income: { thisMonth: number; lastMonth: number; estimated: boolean };
+  /** What players wrote in the stores: the last 7 days, and every recent one unanswered. */
   reviews: { week: number; average: number | null; waiting: number };
-  inReview: { appId: string; name: string; version: string; state: string }[];
-  crashes: { crashes: number; anrs: number; games: number } | null;
+  /**
+   * Google Play's crash and freeze reports of the last 7 days; null until checked. Only
+   * Android: Apple's crash counts aren't read (see the Crashes card on Home).
+   */
+  androidCrashes: { crashes: number; anrs: number; games: string[] } | null;
 };
 
 export function glance(input: HomeInput): Glance {
   const { now, apps, checks } = input;
-  const current = monthKey(now);
-  const previous = addMonths(current, -1);
-  const sum = (period: string) =>
-    input.incomeRows.filter((r) => r.period === period).reduce((s, r) => s + r.netEur, 0);
-
   const reviews = storedReviews(checks);
   const week = reviews.filter((r) => Date.parse(r.date) >= now.getTime() - 7 * DAY);
   const stars = week.map((r) => r.stars).filter((s): s is number => s != null);
 
-  const appStore = stateOf<AppStoreState>(checks, "app_store");
-  const inReview = Object.entries(appStore?.apps ?? {}).flatMap(([appId, app]) => {
-    const v = latestVersion(app);
-    return v && IN_REVIEW_STATES.includes(v.state)
-      ? [
-          {
-            appId,
-            name: apps.find((a) => a.id === appId)?.name ?? "",
-            version: v.version,
-            state: v.state,
-          },
-        ]
-      : [];
-  });
-
   const vitals = stateOf<VitalsState>(checks, "play_vitals");
-  const v = Object.values(vitals?.apps ?? {});
+  const v = Object.entries(vitals?.apps ?? {});
   return {
-    income: {
-      thisMonth: sum(current),
-      lastMonth: sum(previous),
-      estimated: input.incomeRows.some(
-        (r) => (r.period === current || r.period === previous) && r.estimated,
-      ),
-    },
     reviews: {
       week: week.length,
-      average: stars.length ? stars.reduce((a, b) => a + b, 0) / stars.length : null,
+      average: average(stars),
       waiting: reviews.filter((r) => r.waiting).length,
     },
-    inReview,
-    crashes: vitals
+    androidCrashes: vitals
       ? {
-          crashes: v.reduce((s, x) => s + x.crashes, 0),
-          anrs: v.reduce((s, x) => s + x.anrs, 0),
-          games: v.filter((x) => x.crashes + x.anrs > 0).length,
+          crashes: v.reduce((s, [, x]) => s + x.crashes, 0),
+          anrs: v.reduce((s, [, x]) => s + x.anrs, 0),
+          games: v
+            .filter(([, x]) => x.crashes + x.anrs > 0)
+            .map(([appId]) => apps.find((a) => a.id === appId)?.name ?? "A game")
+            .sort((a, b) => a.localeCompare(b)),
         }
       : null,
   };
@@ -558,60 +606,71 @@ export function glance(input: HomeInput): Glance {
 /* Games                                                                                 */
 /* ------------------------------------------------------------------------------------ */
 
-export type GameStatus = {
-  id: string;
-  name: string;
-  appStore: { version: string; state: string } | null;
-  deploy: WorkflowRun | null;
-  android: { crashes: number; anrs: number } | null;
-  reviewsThisWeek: number;
-};
+/**
+ * What happened to a game in the last 7 days, or is under way. Problems aren't here:
+ * a rejection, a version waiting to be released, a failed deploy and a crashing game are
+ * Needs attention items already.
+ */
+export type GameEvent =
+  /** A version Apple is checking before it can go on the App Store. */
+  | { kind: "apple_approval"; version: string; state: string }
+  /** Approved; Apple is putting it on the App Store. */
+  | { kind: "approved"; version: string }
+  | { kind: "deploying"; since: string }
+  | { kind: "deployed"; at: string }
+  /** Reviews players wrote in the stores. */
+  | { kind: "player_reviews"; count: number; average: number | null };
 
-/** One line per game with what the checks know about it. */
-export function gameStatuses(input: HomeInput): GameStatus[] {
+export type GameHighlight = { id: string; name: string; events: GameEvent[] };
+
+// Approved, and neither live yet nor waiting for the developer (an attention item).
+const ON_THE_WAY_STATES = IN_FLIGHT_STATES.filter(
+  (s) => !IN_REVIEW_STATES.includes(s) && s !== "PENDING_DEVELOPER_RELEASE",
+);
+
+/** The games something happened to this week, those with something under way first. */
+export function gameHighlights(input: HomeInput): GameHighlight[] {
   const { now, apps, checks } = input;
   const appStore = stateOf<AppStoreState>(checks, "app_store");
   const deploys = stateOf<DeploysState>(checks, "deploys");
-  const vitals = stateOf<VitalsState>(checks, "play_vitals");
-  const reviews = storedReviews(checks).filter(
-    (r) => Date.parse(r.date) >= now.getTime() - 7 * DAY,
-  );
-  return apps
-    .map((a) => {
-      const v = latestVersion(appStore?.apps[a.id]);
-      const vit = vitals?.apps[a.id];
-      return {
-        id: a.id,
-        name: a.name,
-        appStore: v ? { version: v.version, state: v.state } : null,
-        deploy: deploys?.apps[a.id] ?? null,
-        android: vit ? { crashes: vit.crashes, anrs: vit.anrs } : null,
-        reviewsThisWeek: reviews.filter((r) => r.appId === a.id).length,
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
+  const weekAgo = now.getTime() - 7 * DAY;
+  const reviews = storedReviews(checks).filter((r) => Date.parse(r.date) >= weekAgo);
 
-/** Plain words for an App Store version state. */
-export function appStoreStateLabel(state: string): string {
-  const labels: Record<string, string> = {
-    PREPARE_FOR_SUBMISSION: "being prepared",
-    WAITING_FOR_REVIEW: "waiting for review",
-    IN_REVIEW: "in review",
-    PENDING_DEVELOPER_RELEASE: "approved, not released",
-    PENDING_APPLE_RELEASE: "approved",
-    PROCESSING_FOR_DISTRIBUTION: "approved",
-    ACCEPTED: "approved",
-    READY_FOR_SALE: "live",
-    READY_FOR_DISTRIBUTION: "live",
-    REJECTED: "rejected",
-    METADATA_REJECTED: "rejected",
-    INVALID_BINARY: "rejected",
-    DEVELOPER_REJECTED: "withdrawn",
-    DEVELOPER_REMOVED_FROM_SALE: "removed from sale",
-    REMOVED_FROM_SALE: "removed from sale",
-  };
-  return labels[state] ?? state.toLowerCase().replace(/_/g, " ");
+  const highlights = apps.map((a): GameHighlight => {
+    const events: GameEvent[] = [];
+    const store = appStore?.apps[a.id];
+    const v = latestVersion(store);
+    // A submission with unresolved issues is a rejection, whatever the version says.
+    if (v && !store!.unresolved) {
+      if (IN_REVIEW_STATES.includes(v.state)) {
+        events.push({ kind: "apple_approval", version: v.version, state: v.state });
+      } else if (ON_THE_WAY_STATES.includes(v.state)) {
+        events.push({ kind: "approved", version: v.version });
+      }
+    }
+    const run = deploys?.apps[a.id];
+    // GitHub cancels a run still queued after a day, so an older one isn't really running.
+    if (run && run.status !== "completed" && Date.parse(run.created) >= now.getTime() - DAY) {
+      events.push({ kind: "deploying", since: run.created });
+    } else if (run?.conclusion === "success" && Date.parse(run.created) >= weekAgo) {
+      events.push({ kind: "deployed", at: run.created });
+    }
+    const own = reviews.filter((r) => r.appId === a.id);
+    if (own.length) {
+      events.push({
+        kind: "player_reviews",
+        count: own.length,
+        average: average(own.map((r) => r.stars).filter((s): s is number => s != null)),
+      });
+    }
+    return { id: a.id, name: a.name, events };
+  });
+
+  const underWay = (g: GameHighlight) =>
+    g.events.some((e) => e.kind !== "player_reviews" && e.kind !== "deployed");
+  return highlights
+    .filter((g) => g.events.length)
+    .sort((a, b) => Number(underWay(b)) - Number(underWay(a)) || a.name.localeCompare(b.name));
 }
 
 /** When the checks last ran, for the page header; null when they never have. */

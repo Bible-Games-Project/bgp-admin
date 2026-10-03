@@ -1,7 +1,14 @@
-// Shared by the Expenses and Revenue pages and the server functions behind them.
+// Shared by the Expenses and Revenue pages, Home, and the server functions behind them.
 // Pure: no server-only imports, so the pages can work out payments on the client.
 
-import { type ChartBucket, type Preset, presetMonths } from "./income";
+import {
+  type ChartBucket,
+  type IncomeRow,
+  type Preset,
+  presetMonths,
+  selectRows,
+  totals,
+} from "./income";
 import type { EurConverter } from "./income-reports";
 
 export type ExpenseFrequency = "once" | "monthly" | "yearly";
@@ -143,6 +150,24 @@ export function paymentsIn(payments: ExpensePayment[], preset: Preset, now: Date
 
 export function totalEur(payments: ExpensePayment[]) {
   return payments.reduce((total, p) => total + (p.eur ?? 0), 0);
+}
+
+/**
+ * What a Revenue preset earned, spent and kept: the Revenue page's cards and Home's
+ * profit both come from here, so the two can't disagree. `rows` and `payments` hold
+ * everything; the preset picks its months.
+ */
+export function periodProfit(
+  rows: IncomeRow[],
+  payments: ExpensePayment[],
+  preset: Preset,
+  now: Date,
+) {
+  const selected = selectRows(rows, preset, now);
+  const paid = paymentsIn(payments, preset, now);
+  const income = totals(selected);
+  const spent = totalEur(paid);
+  return { rows: selected, payments: paid, income, spent, profit: income.netEur - spent };
 }
 
 export type CostBucket = ChartBucket & { expenses: number; profit: number };
