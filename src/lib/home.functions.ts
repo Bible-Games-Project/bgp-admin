@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { AscError, createAscApi } from "./asc.server";
-import type { Expense } from "./expenses";
+import { type Expense, expensePayments, totalEur } from "./expenses";
 import {
   attentionItems,
   gameStatuses,
@@ -13,6 +13,8 @@ import {
 } from "./home";
 import { type IncomeSource, addMonths, monthKey } from "./income";
 import { type StoredReport, storedIncome } from "./income-sync";
+import { eurConverter } from "./income-reports";
+import { fetchEurRates } from "./income.server";
 import { type AppStoreState, type CheckRow, latestVersion, toMonitorApp } from "./monitor";
 import { runMonitor } from "./monitor.server";
 
@@ -56,6 +58,24 @@ export const getHome = createServerFn({ method: "GET" })
     }
 
     const active = apps.data!.filter((a) => a.is_active);
+    const expenseRows = (expenses.data as Expense[]).map((e) => ({
+      ...e,
+      amount: Number(e.amount),
+    }));
+    const today = now.toISOString().slice(0, 10);
+    const foreignStarts = expenseRows.filter((e) => e.currency !== "EUR").map((e) => e.starts_on);
+    const from = foreignStarts.reduce((min, d) => (d < min ? d : min), today);
+    const toEur = eurConverter(
+      foreignStarts.length ? await fetchEurRates(from, today) : { daily: {}, latest: {} },
+    );
+    const monthExpenses = expensePayments(expenseRows, today, toEur).filter(
+      (p) => p.date.slice(0, 7) === current,
+    );
+    const incomeRows = storedIncome(reports.data as unknown as StoredReport[]).rows;
+    const monthIncome = incomeRows
+      .filter((r) => r.period === current)
+      .reduce((sum, r) => sum + r.netEur, 0);
+    const monthCosts = totalEur(monthExpenses);
     const input = {
       now,
       apps: active.map(toMonitorApp),
@@ -63,8 +83,8 @@ export const getHome = createServerFn({ method: "GET" })
       incomeProblems: sync
         .data!.filter((s) => s.problem)
         .map((s) => ({ source: s.source as IncomeSource, problem: s.problem! })),
-      incomeRows: storedIncome(reports.data as unknown as StoredReport[]).rows,
-      expenses: expenses.data as Expense[],
+      incomeRows,
+      expenses: expenseRows,
     };
     return {
       lastChecked: lastChecked(input.checks),
@@ -72,6 +92,13 @@ export const getHome = createServerFn({ method: "GET" })
       upcoming: upcomingItems(input).filter((u) => u.daysLeft >= 0),
       askForAppleMembership: needsAppleMembershipExpense(input.expenses, now),
       glance: glance(input),
+      profitability: {
+        income: monthIncome,
+        costs: monthCosts,
+        profit: monthIncome - monthCosts,
+        estimated: incomeRows.some((r) => r.period === current && r.estimated),
+        missingExchangeRate: monthExpenses.some((p) => p.eur == null),
+      },
       games: gameStatuses(input),
       icons: Object.fromEntries(active.map((a) => [a.id, a.icon_data_url])) as Record<
         string,

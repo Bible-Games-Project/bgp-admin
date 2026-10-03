@@ -122,6 +122,14 @@ function HomePage() {
 
   const data = homeQ.data;
   const firstRun = !lastChecked && check.isPending;
+  const notableGames = (data?.games ?? []).filter(
+    (game) =>
+      (game.appStore && game.appStore.state !== "READY_FOR_SALE") ||
+      (game.deploy &&
+        (game.deploy.status !== "completed" || game.deploy.conclusion !== "success")) ||
+      (game.android && game.android.crashes + game.android.anrs > 0) ||
+      game.reviewsThisWeek > 0,
+  );
 
   return (
     <div className="p-6 md:p-8 max-w-5xl mx-auto w-full space-y-8">
@@ -198,7 +206,30 @@ function HomePage() {
 
           <section className="space-y-3">
             <SectionTitle>At a glance</SectionTitle>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <GlanceCard
+                label="Profit this month"
+                icon={<Euro className="h-4 w-4" />}
+                value={fmtEUR(data.profitability.profit)}
+                hint={
+                  <>
+                    {data.profitability.estimated ? "Estimated · " : ""}
+                    Income {fmtEUR(data.profitability.income)} − costs{" "}
+                    {fmtEUR(data.profitability.costs)}
+                    {data.profitability.missingExchangeRate
+                      ? " · Some USD costs lack an exchange rate"
+                      : ""}
+                    {" · "}
+                    <Link
+                      to="/revenue"
+                      search={{ preset: "month", app: null, store: null }}
+                      className="underline underline-offset-2 hover:text-foreground"
+                    >
+                      Details
+                    </Link>
+                  </>
+                }
+              />
               <GlanceCard
                 label="This month"
                 icon={<Euro className="h-4 w-4" />}
@@ -217,7 +248,7 @@ function HomePage() {
                 }
               />
               <GlanceCard
-                label="Reviews this week"
+                label="New reviews this week"
                 icon={<Star className="h-4 w-4" />}
                 value={String(data.glance.reviews.week)}
                 hint={
@@ -235,7 +266,7 @@ function HomePage() {
                 }
               />
               <GlanceCard
-                label="In App Review"
+                label="Versions in App Review"
                 icon={<ShieldCheck className="h-4 w-4" />}
                 value={String(data.glance.inReview.length)}
                 hint={
@@ -245,7 +276,7 @@ function HomePage() {
                 }
               />
               <GlanceCard
-                label="Android crashes"
+                label="Google Play crashes"
                 icon={<Bug className="h-4 w-4" />}
                 value={
                   data.glance.crashes
@@ -264,14 +295,28 @@ function HomePage() {
           </section>
 
           <section className="space-y-3">
-            <SectionTitle>Games</SectionTitle>
-            <Card>
-              <CardContent className="p-0 divide-y divide-border">
+            <SectionTitle>Game highlights</SectionTitle>
+            {notableGames.length ? (
+              <Card>
+                <CardContent className="p-0 divide-y divide-border">
+                  {notableGames.map((g) => (
+                    <GameRow key={g.id} game={g} icon={data.icons[g.id]} />
+                  ))}
+                </CardContent>
+              </Card>
+            ) : (
+              <p className="text-sm text-muted-foreground">No notable updates across the games.</p>
+            )}
+            <details className="group rounded-md border bg-card">
+              <summary className="cursor-pointer list-none px-4 py-3 text-sm text-muted-foreground hover:text-foreground">
+                Show all {data.games.length} games
+              </summary>
+              <div className="border-t divide-y divide-border">
                 {data.games.map((g) => (
                   <GameRow key={g.id} game={g} icon={data.icons[g.id]} />
                 ))}
-              </CardContent>
-            </Card>
+              </div>
+            </details>
           </section>
         </>
       )}
