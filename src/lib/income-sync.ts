@@ -59,9 +59,33 @@ export type AppStoreRequest = {
   date: string;
 };
 
+// Apple publishes reports "generally by 8 am Pacific Time": 16:00 UTC in winter, plus
+// an hour to spare.
+const APPLE_READY_HOUR_UTC = 17;
+
+/**
+ * Whether Apple has finished a report: a day's the next day, a month's five days after
+ * it ends, a year's six days after. Asked earlier, Apple answers with what it has so far
+ * (a day without the Americas) or says there were no sales, and a report is stored once,
+ * so those sales would never count: September 2026, read on October 1, stayed empty.
+ */
+export function appStoreReportReady(
+  request: Pick<AppStoreRequest, "frequency" | "date">,
+  now: Date,
+) {
+  const [y, m = 1, d = 1] = request.date.split("-").map(Number);
+  const readyAt = {
+    DAILY: Date.UTC(y, m - 1, d + 1, APPLE_READY_HOUR_UTC),
+    MONTHLY: Date.UTC(y, m, 5, APPLE_READY_HOUR_UTC),
+    YEARLY: Date.UTC(y + 1, 0, 6, APPLE_READY_HOUR_UTC),
+  }[request.frequency];
+  return now.getTime() >= readyAt;
+}
+
 /**
  * The closed months Apple still offers (the last twelve) and the past years, newest
- * first, that aren't stored yet. Once stored, a month stays after Apple drops it.
+ * first, that Apple has finished and aren't stored yet. Once stored, a month stays after
+ * Apple drops it.
  */
 export function appStoreClosedRequests(stored: ReportState[], now: Date): AppStoreRequest[] {
   const has = storedChecker(stored);
@@ -80,12 +104,12 @@ export function appStoreClosedRequests(stored: ReportState[], now: Date): AppSto
       requests.push({ report, period: String(year), frequency: "YEARLY", date: String(year) });
     }
   }
-  return requests;
+  return requests.filter((r) => appStoreReportReady(r, now));
 }
 
 /**
- * The days of the given months, newest first, that aren't stored yet. Apple publishes a
- * day's report the next morning, so the days run up to yesterday.
+ * The days of the given months, newest first, that Apple has finished and aren't stored
+ * yet: up to yesterday from the afternoon (UTC), up to the day before until then.
  */
 export function appStoreDayRequests(
   stored: ReportState[],
@@ -93,13 +117,12 @@ export function appStoreDayRequests(
   now: Date,
 ): AppStoreRequest[] {
   const has = storedChecker(stored);
-  const today = now.toISOString().slice(0, 10);
   const requests: AppStoreRequest[] = [];
   for (const month of months) {
     const [y, m] = month.split("-").map(Number);
     for (let d = new Date(Date.UTC(y, m - 1, 1)); monthKey(d) === month; ) {
       const day = d.toISOString().slice(0, 10);
-      if (day >= today) break;
+      if (!appStoreReportReady({ frequency: "DAILY", date: day }, now)) break;
       const report = `day:${day}`;
       if (!has("app_store", report)) {
         requests.push({ report, period: month, frequency: "DAILY", date: day });

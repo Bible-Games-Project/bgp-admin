@@ -5,6 +5,7 @@ import {
   type StoredReport,
   appStoreClosedRequests,
   appStoreDayRequests,
+  appStoreReportReady,
   playRequests,
   storedIncome,
   supersededReports,
@@ -38,8 +39,11 @@ const row = (period: string, netEur: number, extra: Partial<IncomeRow> = {}): In
 });
 
 describe("App Store requests", () => {
+  // Apple has finished August by now (the 5th).
+  const later = new Date("2026-09-10T10:00:00Z");
+
   test("asks for the last twelve closed months and the past years, newest first", () => {
-    const requests = appStoreClosedRequests([], now);
+    const requests = appStoreClosedRequests([], later);
     expect(requests.map((r) => r.report)).toEqual([
       "month:2026-08",
       "month:2026-07",
@@ -69,25 +73,63 @@ describe("App Store requests", () => {
       state("year:2025", "2025"),
       state("month:2026-07", "2026-07", { unconverted: ["COP"] }),
     ];
-    const reports = appStoreClosedRequests(stored, now).map((r) => r.report);
+    const reports = appStoreClosedRequests(stored, later).map((r) => r.report);
     expect(reports).not.toContain("month:2026-08");
     expect(reports).not.toContain("year:2025");
     expect(reports).toContain("month:2026-07");
   });
 
-  test("reads the days up to yesterday, newest first, skipping stored ones", () => {
+  test("reads the days Apple has finished, newest first, skipping stored ones", () => {
     const stored = [state("day:2026-09-01", "2026-09")];
-    expect(appStoreDayRequests(stored, ["2026-09"], now)).toEqual([
+    expect(appStoreDayRequests(stored, ["2026-09"], new Date("2026-09-04T18:00:00Z"))).toEqual([
       { report: "day:2026-09-03", period: "2026-09", frequency: "DAILY", date: "2026-09-03" },
       { report: "day:2026-09-02", period: "2026-09", frequency: "DAILY", date: "2026-09-02" },
+    ]);
+    // In the morning (UTC) Apple doesn't have yesterday's Americas yet.
+    expect(appStoreDayRequests(stored, ["2026-09"], now).map((r) => r.report)).toEqual([
+      "day:2026-09-02",
     ]);
   });
 
   test("reads every day of a month Apple has not closed yet", () => {
     const days = appStoreDayRequests([], ["2026-09", "2026-08"], now);
-    expect(days).toHaveLength(3 + 31);
+    expect(days).toHaveLength(2 + 31);
     expect(days.at(-1)?.report).toBe("day:2026-08-01");
     expect(days.every((d) => d.period === d.date.slice(0, 7))).toBe(true);
+  });
+});
+
+describe("when Apple has finished a report", () => {
+  const ready = (frequency: "DAILY" | "MONTHLY" | "YEARLY", date: string, at: string) =>
+    appStoreReportReady({ frequency, date }, new Date(at));
+
+  test("a day, the next afternoon (UTC), once the Americas are in", () => {
+    // October 1 was read at 09:07 the next day and missed a sale in the US.
+    expect(ready("DAILY", "2026-10-01", "2026-10-02T09:07:00Z")).toBe(false);
+    expect(ready("DAILY", "2026-10-01", "2026-10-02T17:00:00Z")).toBe(true);
+    expect(ready("DAILY", "2026-09-30", "2026-10-01T16:59:00Z")).toBe(false);
+    expect(ready("DAILY", "2026-12-31", "2027-01-01T17:00:00Z")).toBe(true);
+  });
+
+  test("a month, five days after it ends", () => {
+    // September was read at 00:07 on October 1 and came back empty.
+    expect(ready("MONTHLY", "2026-09", "2026-10-01T00:07:00Z")).toBe(false);
+    expect(ready("MONTHLY", "2026-09", "2026-10-05T16:59:00Z")).toBe(false);
+    expect(ready("MONTHLY", "2026-09", "2026-10-05T17:00:00Z")).toBe(true);
+    expect(ready("MONTHLY", "2026-12", "2027-01-05T17:00:00Z")).toBe(true);
+  });
+
+  test("a year, six days after it ends", () => {
+    expect(ready("YEARLY", "2026", "2027-01-01T12:00:00Z")).toBe(false);
+    expect(ready("YEARLY", "2026", "2027-01-06T17:00:00Z")).toBe(true);
+  });
+
+  test("last month and last year wait until Apple has finished them", () => {
+    const reports = (at: string) => appStoreClosedRequests([], new Date(at)).map((r) => r.report);
+    expect(reports("2026-10-01T00:07:00Z")[0]).toBe("month:2026-08");
+    expect(reports("2026-10-06T00:07:00Z")[0]).toBe("month:2026-09");
+    expect(reports("2027-01-02T00:07:00Z")).not.toContain("year:2026");
+    expect(reports("2027-01-07T00:07:00Z")).toContain("year:2026");
   });
 });
 

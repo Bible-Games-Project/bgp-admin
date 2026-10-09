@@ -29,6 +29,7 @@ import {
   REPORTS_PER_RUN,
   appStoreClosedRequests,
   appStoreDayRequests,
+  appStoreReportReady,
   playRequests,
   takeFiles,
 } from "./income-sync";
@@ -286,8 +287,9 @@ function describeAppStoreProblem(err: unknown, keyId?: string): string {
 
 /**
  * Closed months and past years first, then day by day the current month and a last
- * month Apple has not published yet (the first days of a month). A report Apple does not
- * have yet is simply tried again on the next run.
+ * month Apple has not published yet (the first days of a month). Only reports Apple has
+ * finished are asked for (appStoreReportReady); one it still doesn't have is simply tried
+ * again on the next run.
  */
 export async function syncAppStore(stored: ReportState[], now = new Date()): Promise<SourceSync> {
   let api: AppStoreReports | null = null;
@@ -306,8 +308,12 @@ export async function syncAppStore(stored: ReportState[], now = new Date()): Pro
     const current = monthKey(now);
     const lastMonth = addMonths(current, -1);
     const lastMonthAt = closedNow.findIndex((r) => r.report === `month:${lastMonth}`);
+    // Until Apple finishes last month (the 5th), its days stand in for it.
     const lastMonthPending =
-      lastMonthAt >= 0 && closedReports[lastMonthAt].status === "unavailable";
+      lastMonthAt >= 0
+        ? closedReports[lastMonthAt].status === "unavailable"
+        : !appStoreReportReady({ frequency: "MONTHLY", date: lastMonth }, now) &&
+          !stored.some((r) => r.source === "app_store" && r.report === `month:${lastMonth}`);
     const days = appStoreDayRequests(
       stored,
       [current, ...(lastMonthPending ? [lastMonth] : [])],
