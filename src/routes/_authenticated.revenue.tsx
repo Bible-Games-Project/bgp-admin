@@ -43,6 +43,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -249,13 +250,15 @@ function RevenuePage() {
   // Without the expenses, a profit would just repeat the income.
   const costsKnown = showCosts && !expensesQ.isError;
   const chartCosts = costsKnown && costPayments.length > 0;
-  const chart = chartCosts
-    ? addCosts(
-        chartBuckets(selected, search.preset, now),
-        costPayments,
-        search.preset === "all",
-      ).map((b) => ({ ...b, expensesDown: -b.expenses }))
-    : chartBuckets(selected, search.preset, now);
+  const yearly = search.preset === "all";
+  // Each month (each year for all time): the chart's bars and the Month by month table.
+  const buckets = addCosts(
+    chartBuckets(selected, search.preset, now),
+    costsKnown ? costPayments : [],
+    yearly,
+  );
+  const chart = buckets.map((b) => ({ ...b, expensesDown: -b.expenses }));
+  const expenseNames = new Map((expensesQ.data?.expenses ?? []).map((e) => [e.id, e.name]));
   const apps = byApp(selected);
   const products = byProduct(selected);
   const sources: IncomeSource[] = search.store ? [search.store] : ["app_store", "google_play"];
@@ -405,14 +408,14 @@ function RevenuePage() {
           loading={showCosts && costsLoading}
         />
         <StatCard
-          label="This month"
+          label="Earned this month"
           value={<Amount value={thisMonth.netEur} estimated={thisMonth.estimated} />}
           hint={`So far in ${monthLabel(currentMonth, false)}`}
           icon={<TrendingUp className="h-4 w-4" />}
           loading={loading}
         />
         <StatCard
-          label="Last month"
+          label="Earned last month"
           value={<Amount value={previousMonth.netEur} estimated={previousMonth.estimated} />}
           hint={monthLabel(lastMonth, false)}
           icon={<CalendarDays className="h-4 w-4" />}
@@ -509,6 +512,112 @@ function RevenuePage() {
               </ComposedChart>
             </ResponsiveContainer>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-sm font-medium">
+            {yearly ? "Year by year" : "Month by month"}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            What the games earned after store fees, what the project paid, and what was left. Steam
+            sales aren't counted yet.{" "}
+            {!showCosts ? (
+              <AllStoresHint onClick={() => setSearch({ store: null })} />
+            ) : search.app ? (
+              "Only this game's own costs count."
+            ) : null}
+          </p>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{yearly ? "Year" : "Month"}</TableHead>
+                <TableHead className="text-right">Earned</TableHead>
+                <TableHead className="text-right">Spent</TableHead>
+                <TableHead className="text-right">Left over</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {costsLoading ? (
+                <EmptyRow cols={4} loading />
+              ) : (
+                [...buckets].reverse().map((b) => (
+                  <TableRow key={b.bucket}>
+                    <TableCell className="text-sm font-medium whitespace-nowrap">
+                      {yearly ? (
+                        b.bucket
+                      ) : (
+                        <>
+                          {/* A phone fits the four columns only with "Sep 26". */}
+                          <span className="sm:hidden">{monthLabel(b.bucket)}</span>
+                          <span className="hidden sm:inline">
+                            {monthLabel(b.bucket, false)} {b.bucket.slice(0, 4)}
+                          </span>
+                        </>
+                      )}
+                      {b.bucket === (yearly ? currentMonth.slice(0, 4) : currentMonth) && (
+                        <div className="text-[11px] font-normal text-muted-foreground">so far</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-sm whitespace-nowrap">
+                      <Amount value={b.app_store + b.google_play} estimated={b.estimated} />
+                    </TableCell>
+                    <TableCell className="text-right text-sm whitespace-nowrap">
+                      {costsKnown ? fmtEUR(b.expenses) : "—"}
+                      {costsKnown && b.paid.length > 0 && (
+                        <div className="hidden sm:block text-[11px] text-muted-foreground whitespace-normal ml-auto max-w-[260px]">
+                          {b.paid.flatMap((id) => expenseNames.get(id) ?? []).join(" · ")}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-sm font-medium whitespace-nowrap">
+                      {costsKnown ? (
+                        <span
+                          className={
+                            b.profit < 0 ? "text-destructive" : b.profit > 0 ? "text-success" : ""
+                          }
+                        >
+                          <Amount value={b.profit} estimated={b.estimated} />
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+            {!costsLoading && buckets.length > 1 && (
+              <TableFooter>
+                <TableRow>
+                  <TableCell className="text-sm">
+                    Total
+                    <div className="text-[11px] font-normal text-muted-foreground">
+                      {PRESET_LABELS[search.preset]}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right text-sm whitespace-nowrap">
+                    <Amount value={period.netEur} estimated={period.estimated} />
+                  </TableCell>
+                  <TableCell className="text-right text-sm whitespace-nowrap">
+                    {costsKnown ? fmtEUR(spent) : "—"}
+                  </TableCell>
+                  <TableCell className="text-right text-sm whitespace-nowrap">
+                    {costsKnown ? (
+                      <span className={profit < 0 ? "text-destructive" : "text-success"}>
+                        <Amount value={profit} estimated={period.estimated} />
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                </TableRow>
+              </TableFooter>
+            )}
+          </Table>
         </CardContent>
       </Card>
 

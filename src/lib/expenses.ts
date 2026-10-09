@@ -170,7 +170,12 @@ export function periodProfit(
   return { rows: selected, payments: paid, income, spent, profit: income.netEur - spent };
 }
 
-export type CostBucket = ChartBucket & { expenses: number; profit: number };
+export type CostBucket = ChartBucket & {
+  expenses: number;
+  profit: number;
+  /** The expenses paid in it, each once, the costliest first. */
+  paid: string[];
+};
 
 /**
  * Adds what was paid in each bucket of the Revenue chart, and income minus that. Per
@@ -184,7 +189,7 @@ export function addCosts(
 ): CostBucket[] {
   const bucketOf = (date: string) => (yearly ? date.slice(0, 4) : date.slice(0, 7));
   const byBucket = new Map<string, CostBucket>(
-    buckets.map((b) => [b.bucket, { ...b, expenses: 0, profit: 0 }]),
+    buckets.map((b) => [b.bucket, { ...b, expenses: 0, profit: 0, paid: [] }]),
   );
   if (yearly && payments.length) {
     const years = [...byBucket.keys(), ...payments.map((p) => bucketOf(p.date))].map(Number);
@@ -198,15 +203,26 @@ export function addCosts(
           estimated: false,
           expenses: 0,
           profit: 0,
+          paid: [],
         });
       }
     }
   }
+  const paidIn = new Map<string, Map<string, number>>();
   for (const p of payments) {
-    const b = byBucket.get(bucketOf(p.date));
-    if (b) b.expenses += p.eur ?? 0;
+    const bucket = bucketOf(p.date);
+    const b = byBucket.get(bucket);
+    if (!b) continue;
+    b.expenses += p.eur ?? 0;
+    const paid = paidIn.get(bucket) ?? new Map<string, number>();
+    paid.set(p.expenseId, (paid.get(p.expenseId) ?? 0) + (p.eur ?? 0));
+    paidIn.set(bucket, paid);
   }
   return [...byBucket.values()]
     .sort((a, b) => a.bucket.localeCompare(b.bucket))
-    .map((b) => ({ ...b, profit: b.app_store + b.google_play - b.expenses }));
+    .map((b) => ({
+      ...b,
+      profit: b.app_store + b.google_play - b.expenses,
+      paid: [...(paidIn.get(b.bucket) ?? [])].sort((x, y) => y[1] - x[1]).map(([id]) => id),
+    }));
 }

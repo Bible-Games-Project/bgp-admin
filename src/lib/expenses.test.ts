@@ -157,8 +157,30 @@ describe("Revenue chart", () => {
         estimated: false,
         expenses: 116,
         profit: -116,
+        paid: ["e"],
       },
     ]);
+  });
+
+  test("addCosts names each month's expenses once, the costliest first", () => {
+    const paidBy = (expenseId: string, date: string, eur: number) => ({
+      ...payment(date, eur),
+      expenseId,
+    });
+    const buckets = addCosts(
+      chartBuckets([], "12m", now),
+      [
+        paidBy("claude", "2026-08-01", 23),
+        paidBy("apple", "2026-08-02", 99),
+        paidBy("claude", "2026-09-01", 23),
+        paidBy("lovable", "2026-09-01", 25),
+        paidBy("claude", "2026-09-15", 23),
+      ],
+      false,
+    );
+    expect(buckets.find((b) => b.bucket === "2026-08")?.paid).toEqual(["apple", "claude"]);
+    expect(buckets.find((b) => b.bucket === "2026-09")?.paid).toEqual(["claude", "lovable"]);
+    expect(buckets.find((b) => b.bucket === "2026-07")?.paid).toEqual([]);
   });
 
   test("per year, years with costs before the first sale get a bucket", () => {
