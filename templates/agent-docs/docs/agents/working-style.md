@@ -58,30 +58,21 @@ preview and confirmed it.
 
 ### Live preview panel (Artifacts)
 
-When available, keep a Lovable-style live preview next to the chat instead of
-only a text link:
+When this session can publish Artifacts (Claude Code on the web; the local
+terminal CLI cannot), keep a Lovable-style live preview next to the chat:
 
-- Publish an HTML Artifact that is a full-screen `<iframe>` pointing at this
-  repo's Cloudflare Pages URL, with the commit SHA as a cache-busting query
-  param: `src="https://bgp-<repo>.pages.dev?v=<short-sha>"`. Do not embed
-  `index.html` via `srcdoc` — these are Vite apps; the repo's `index.html`
-  only references unbuilt module scripts (e.g. `/src/main.tsx`), which no
-  browser can execute without Vite's build step, so a raw copy of it always
-  renders blank. Pointing at the deployed URL serves the real, built app.
-- Above the iframe, add a small bar with three buttons — Ordenador, Tablet,
-  Móvil — that set the iframe's width to 100% / ~820px / ~390px.
-- No extra text, headers or explanations around it — just the bar and the
-  preview, filling the panel.
-- On every push, once step 4 confirms the Actions run is green, republish the
-  Artifact to the same file path with the new commit SHA in the query
-  string, so the panel shows the new build instead of a cached old one.
-- This still takes as long as the real build + deploy (commonly a couple of
-  minutes) — say so if the maintainer expects it instantly; there is no way
-  to shortcut that and still show the real app.
-- If Artifacts are not available in this session (e.g. the local terminal
-  CLI), skip this silently and fall back to the preview URL as a link.
-- The panel only frames the Cloudflare URL. Never publish your own build as
-  an Artifact in place of pushing to `main`.
+- An Artifact cannot embed another site, so it cannot frame the Cloudflare
+  URL. Publish the built game itself: build with relative paths into a
+  scratch folder (`npx vite build --base ./ --outDir <scratch dir>`, never a
+  change to `vite.config.*`), put the built page in the Artifact with its CSS
+  and fonts inlined, and publish the JS and `assets/` as the Artifact's files.
+- Republish to the same file path after every change, so the panel keeps
+  the same link.
+- This comes on top of pushing to `main`, never instead of it. The
+  Cloudflare URL is the real preview and the build bgp-admin publishes; the
+  Artifact is only the maintainer's side view. Say when both are updated.
+- If Artifacts are not available in this session, skip this silently and
+  give the preview URL as a link.
 
 ## Communication
 
