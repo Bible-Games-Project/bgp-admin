@@ -22,7 +22,7 @@ Settings → Claude open, and every 10 seconds otherwise. The answer is one of t
 
 - **A chat message (a turn).** For each one, the server:
   1. Makes sure it has a deploy key for the game's repo. If it doesn't, it creates one, and the console adds
-     it on GitHub (`/api/agent/repo-key`, with `GITHUB_PAT`).
+     it on GitHub (`/api/agent/repo-key`, with `GITHUB_PAT`). See "How it pushes" below.
   2. Clones the repo, or resets it to exactly what GitHub has. It runs `bun install` inside the container
      when `package.json` or the lockfile changed.
   3. Runs `claude -p` in a container: Opus 5.5 at medium effort unless Settings → Claude says
@@ -80,6 +80,21 @@ The secrets go in `/etc/bgp-agent.env` (root, 600), once:
 AGENT_RUNNER_TOKEN=…   # the same value as the GitHub secret AGENT_RUNNER_TOKEN of bgp-admin
 CONSOLE_URL=https://bgp-admin-preview.biblegamesproject.workers.dev
 ```
+
+### How it pushes to the game repos
+
+Two ways; the first is the default.
+
+- **A deploy key per repo.** The server creates the key, the console adds it to the repo, and the key can
+  only write to that one repo. GitHub only allows this when the organization accepts deploy keys:
+  **Bible-Games-Project → Settings → Member privileges → Deploy keys → Enabled**. It was off on
+  2026-11-02. While it's off, the first message to a game fails at once, before Claude runs, and the chat
+  says where to turn it on.
+- **A token** (`GIT_PUSH_TOKEN` in the env file): the server clones and pushes over HTTPS with it and
+  makes no deploy keys. Use a fine-grained token from an account in the organization, with access to the
+  game repos and **Contents: Read and write** only. git gets it through an askpass script, so it never
+  appears in a URL, in `.git/config` or on a command line, and it never reaches the container. Its reach
+  is wider than a deploy key's: every repo it was given.
 
 Optional settings: `AGENT_NAME` (how Settings → Claude names it, the hostname by default), `AGENT_MEMORY`
 (`1200m`), `AGENT_CPUS` (`2`), `TURN_MINUTES` (`30`) and `MAX_TURNS` (`200`).

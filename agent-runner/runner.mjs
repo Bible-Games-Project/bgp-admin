@@ -49,10 +49,18 @@ const CONFIG = {
   cpus: env.AGENT_CPUS ?? "2",
   turnMinutes: Number(env.TURN_MINUTES ?? 30),
   maxTurns: Number(env.MAX_TURNS ?? 200),
-  // Where game repos are cloned from, {owner} and {name} filled in. Tests point it at
-  // local bare repos (file://), which need no deploy key.
-  repoUrl: env.REPO_URL ?? "git@github.com:{owner}/{name}.git",
+  // A GitHub token to clone and push with over HTTPS, instead of a deploy key per repo: for
+  // an organization that doesn't allow deploy keys. A fine-grained token with Contents read
+  // and write on the game repos is enough. It never reaches the container.
+  pushToken: env.GIT_PUSH_TOKEN ?? "",
 };
+// Where game repos are cloned from, {owner} and {name} filled in. Tests point it at local
+// bare repos (file://), which need no deploy key.
+CONFIG.repoUrl =
+  env.REPO_URL ??
+  (CONFIG.pushToken
+    ? "https://github.com/{owner}/{name}.git"
+    : "git@github.com:{owner}/{name}.git");
 const ACCOUNT = join(CONFIG.state, "claude.json");
 const CURRENT = join(CONFIG.state, "current.json");
 const LOGS = join(CONFIG.state, "logs");
@@ -138,9 +146,12 @@ async function api(path, body, timeoutMs = 30_000) {
   const text = await response.text();
   const data = lib.parseLine(text);
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       `the console answered ${response.status} to ${path}: ${data?.error ?? text.slice(0, 200)}`,
     );
+    error.status = response.status;
+    error.said = data?.error ?? null;
+    throw error;
   }
   return data ?? {};
 }
@@ -279,6 +290,8 @@ function tokenFile(name, token) {
 // --- The game's repo -----------------------------------------------------------------------
 
 const repoSlug = (repo) => `${repo.owner}__${repo.name}`.toLowerCase();
+const repoUrlOf = (repo) =>
+  CONFIG.repoUrl.replace("{owner}", repo.owner).replace("{name}", repo.name);
 const keyBody = (publicKey) =>
   String(publicKey ?? "")
     .trim()
@@ -286,8 +299,23 @@ const keyBody = (publicKey) =>
     .slice(0, 2)
     .join(" ");
 
+// git asks this for the token, so it's never in a URL, a config file or a command line.
+const ASKPASS = join(CONFIG.state, "askpass.sh");
+
 function sshEnv(keyFile) {
   if (CONFIG.repoUrl.startsWith("file:")) return {};
+  if (CONFIG.pushToken) {
+    if (!existsSync(ASKPASS)) {
+      writeFileSync(
+        ASKPASS,
+        '#!/bin/sh\ncase "$1" in Username*) echo x-access-token ;; *) echo "$GIT_PUSH_TOKEN" ;; esac\n',
+        {
+          mode: 0o700,
+        },
+      );
+    }
+    return { GIT_ASKPASS: ASKPASS, GIT_PUSH_TOKEN: CONFIG.pushToken };
+  }
   const hosts = existsSync(KNOWN_HOSTS)
     ? `-o StrictHostKeyChecking=yes -o UserKnownHostsFile=${KNOWN_HOSTS}`
     : "-o StrictHostKeyChecking=accept-new";
@@ -296,7 +324,7 @@ function sshEnv(keyFile) {
 
 // One deploy key per repo, made here; the console adds it to the repo on GitHub.
 async function ensureDeployKey(job, keyFile) {
-  if (CONFIG.repoUrl.startsWith("file:")) return;
+  if (CONFIG.repoUrl.startsWith("file:") || CONFIG.pushToken) return;
   if (!existsSync(keyFile)) {
     await run("ssh-keygen", [
       "-q",
@@ -313,7 +341,13 @@ async function ensureDeployKey(job, keyFile) {
   const publicKey = readFileSync(`${keyFile}.pub`, "utf8").trim();
   if (keyBody(job.deployKey) === keyBody(publicKey)) return;
   log(`registering the deploy key of ${job.repo.owner}/${job.repo.name}`);
-  await api("repo-key", { repo: `${job.repo.owner}/${job.repo.name}`, publicKey });
+  try {
+    await api("repo-key", { repo: `${job.repo.owner}/${job.repo.name}`, publicKey });
+  } catch (error) {
+    // The console explains what's wrong (e.g. deploy keys off in the organization).
+    if (error.status >= 400 && error.status < 500 && error.said) throw new Said(error.said);
+    throw error;
+  }
 }
 
 function authorEnv(job) {
@@ -341,9 +375,10 @@ async function prepareRepo(job, reporter) {
   const gitEnv = sshEnv(keyFile);
   if (!existsSync(join(repoDir, ".git"))) {
     reporter.step("Downloading the game's code");
-    const url = CONFIG.repoUrl.replace("{owner}", job.repo.owner).replace("{name}", job.repo.name);
-    await run("git", ["clone", "--quiet", url, repoDir], { extraEnv: gitEnv });
+    await run("git", ["clone", "--quiet", repoUrlOf(job.repo), repoDir], { extraEnv: gitEnv });
   }
+  // The way in may have changed since the clone (a deploy key, or a token over HTTPS).
+  await git(repoDir, ["remote", "set-url", "origin", repoUrlOf(job.repo)]);
   await git(repoDir, ["fetch", "--quiet", "--prune", "origin"], { extraEnv: gitEnv });
   const remote = await git(
     repoDir,
@@ -915,7 +950,8 @@ async function main() {
       continue;
     }
     // Only the changes are logged: a working server polls in silence.
-    if (!connected) log(`connected to the console${accountSummary() ? "" : " (no Claude account linked yet)"}`);
+    if (!connected)
+      log(`connected to the console${accountSummary() ? "" : " (no Claude account linked yet)"}`);
     connected = true;
     if (work.unlink) {
       rmSync(ACCOUNT, { force: true });

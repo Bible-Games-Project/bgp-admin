@@ -32,7 +32,7 @@ export function systemPrompt(job) {
     "- You can't open the preview or a browser. Say what you changed and what to look at in the preview on the right.",
     "- Each message is one step of an ongoing conversation, not the end of a working session: only update AGENTS.md when you learned something the next agent really needs.",
     "",
-    "Talking to them: reply in the language of their message (usually Spanish). Keep it short and plain, with no code unless they ask for it. Lead with what you did or found. If something can't be done, or you need a decision from them, say so and ask one clear question.",
+    "Talking to them: reply in the language of their message. Keep it short and plain, with no code unless they ask for it. Lead with what you did or found. If something can't be done, or you need a decision from them, say so and ask one clear question.",
   ].join("\n");
 }
 

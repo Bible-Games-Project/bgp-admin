@@ -418,9 +418,16 @@ async function registerRepoKey(body: Record<string, unknown>) {
     body: JSON.stringify({ title: KEY_TITLE, key: publicKey, read_only: false }),
   });
   if (!added.ok) {
-    throw new Error(
-      `GitHub didn't add the deploy key (${added.status}): ${(await added.text()).slice(0, 200)}`,
-    );
+    const said = (await added.text()).slice(0, 500);
+    // An organization setting, off by default on new organizations: the build server can't
+    // push until an owner turns it on (or gives it a token instead; agent-runner/README.md).
+    if (/deploy keys are disabled/i.test(said)) {
+      throw new AgentApiError(
+        `GitHub doesn't allow deploy keys in ${owner}, so the build server can't save Claude's changes. An owner of the organization has to turn them on: GitHub → ${owner} → Settings → Member privileges → Deploy keys → Enabled.`,
+        409,
+      );
+    }
+    throw new Error(`GitHub didn't add the deploy key (${added.status}): ${said.slice(0, 200)}`);
   }
   const { id } = (await added.json()) as { id: number };
   await db()
