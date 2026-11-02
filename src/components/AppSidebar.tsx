@@ -9,6 +9,7 @@ import {
   Star,
   House,
   Download,
+  Bot,
 } from "lucide-react";
 import {
   Sidebar,
@@ -32,6 +33,7 @@ const items = [
   { title: "Downloads", url: "/downloads", icon: Download },
   { title: "Expenses", url: "/expenses", icon: Receipt },
   { title: "Reviews", url: "/reviews", icon: Star },
+  { title: "Claude", url: "/settings/claude", icon: Bot },
   { title: "Security", url: "/settings/security", icon: ShieldCheck },
 ];
 

@@ -1,4 +1,4 @@
-.PHONY: help run dev install clean format lint check supabase-start supabase-stop supabase-reset sync-ios sync-android
+.PHONY: help run dev install clean format lint check supabase-start supabase-stop supabase-reset sync-ios sync-android agent-deploy
 
 # Default target
 .DEFAULT_GOAL := help
@@ -45,6 +45,9 @@ format: ## Format code with Prettier
 lint: ## Lint code with ESLint
 	@echo "🔍 Linting code..."
 	bun run lint
+
+agent-deploy: ## Install the Build chat's build server on its machine (agent-runner/README.md)
+	./agent-runner/deploy.sh
 
 check: lint ## Run all checks (lint)
 	@echo "✅ All checks passed"

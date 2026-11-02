@@ -1,0 +1,23 @@
+[Unit]
+Description=bgp-agent: the build server behind the BGP console's Build chat
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+User=bgp-agent
+Group=bgp-agent
+EnvironmentFile=/etc/bgp-agent.env
+# Node, git and ssh wherever the machine has them (the home server has Node in /usr/local/bin)
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/opt/bgp-agent
+ExecStart=/usr/bin/env node /opt/bgp-agent/runner.mjs
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

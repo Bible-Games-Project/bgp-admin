@@ -13,7 +13,8 @@ const START_SLOP = 12;
 /**
  * Scroll container with touch pull-to-refresh. When the content is scrolled
  * to the top and the user drags down past the threshold, `onRefresh` runs and
- * the spinner stays visible until it resolves. Mouse/desktop is unaffected.
+ * the spinner stays visible until it resolves. Mouse/desktop is unaffected, and so
+ * is anything inside an element marked `data-no-pull-refresh`.
  */
 export function PullToRefresh({
   onRefresh,
@@ -59,6 +60,9 @@ export function PullToRefresh({
 
     const onTouchStart = (e: TouchEvent) => {
       if (refreshingRef.current || scroller.scrollTop > 0) return;
+      // A page with scrollers of its own (the Build chat) opts out: dragging down there
+      // scrolls them back up instead of refreshing.
+      if ((e.target as Element | null)?.closest?.("[data-no-pull-refresh]")) return;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       pull = 0;

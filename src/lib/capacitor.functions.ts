@@ -680,7 +680,7 @@ export function buildDeployWorkflowYaml({
 // previews there, and pointing this workflow at a Pages project nobody created means a
 // failed run on every single push. Stored as a setup-step row rather than a column on
 // `apps` so turning it off needs no database migration.
-const PREVIEW_DISABLED_STEP = "preview_disabled";
+export const PREVIEW_DISABLED_STEP = "preview_disabled";
 
 async function isPreviewDisabled(supabase: any, appId: string) {
   const { data } = await supabase

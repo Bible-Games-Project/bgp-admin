@@ -29,6 +29,254 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_chats: {
+        Row: {
+          app_id: string
+          archived_at: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          session_id: string | null
+        }
+        Insert: {
+          app_id: string
+          archived_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          session_id?: string | null
+        }
+        Update: {
+          app_id?: string
+          archived_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          session_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_chats_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "apps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_events: {
+        Row: {
+          app_id: string
+          body: Json
+          created_at: string
+          id: number
+          kind: string
+          turn_id: string
+        }
+        Insert: {
+          app_id: string
+          body: Json
+          created_at?: string
+          id?: number
+          kind: string
+          turn_id: string
+        }
+        Update: {
+          app_id?: string
+          body?: Json
+          created_at?: string
+          id?: number
+          kind?: string
+          turn_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_events_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "apps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_events_turn_id_fkey"
+            columns: ["turn_id"]
+            isOneToOne: false
+            referencedRelation: "agent_turns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_logins: {
+        Row: {
+          code: string | null
+          created_at: string
+          created_by: string | null
+          created_by_email: string | null
+          error: string | null
+          id: string
+          mode: string
+          status: string
+          token: string | null
+          updated_at: string
+          url: string | null
+        }
+        Insert: {
+          code?: string | null
+          created_at?: string
+          created_by?: string | null
+          created_by_email?: string | null
+          error?: string | null
+          id?: string
+          mode?: string
+          status?: string
+          token?: string | null
+          updated_at?: string
+          url?: string | null
+        }
+        Update: {
+          code?: string | null
+          created_at?: string
+          created_by?: string | null
+          created_by_email?: string | null
+          error?: string | null
+          id?: string
+          mode?: string
+          status?: string
+          token?: string | null
+          updated_at?: string
+          url?: string | null
+        }
+        Relationships: []
+      }
+      agent_repo_keys: {
+        Row: {
+          github_key_id: number | null
+          public_key: string
+          registered_at: string
+          repo: string
+        }
+        Insert: {
+          github_key_id?: number | null
+          public_key: string
+          registered_at?: string
+          repo: string
+        }
+        Update: {
+          github_key_id?: number | null
+          public_key?: string
+          registered_at?: string
+          repo?: string
+        }
+        Relationships: []
+      }
+      agent_runner: {
+        Row: {
+          account: Json | null
+          busy: boolean
+          host: string | null
+          id: string
+          last_seen_at: string | null
+          unlink_requested_at: string | null
+          usage: Json | null
+          version: string | null
+          watched_until: string | null
+        }
+        Insert: {
+          account?: Json | null
+          busy?: boolean
+          host?: string | null
+          id?: string
+          last_seen_at?: string | null
+          unlink_requested_at?: string | null
+          usage?: Json | null
+          version?: string | null
+          watched_until?: string | null
+        }
+        Update: {
+          account?: Json | null
+          busy?: boolean
+          host?: string | null
+          id?: string
+          last_seen_at?: string | null
+          unlink_requested_at?: string | null
+          usage?: Json | null
+          version?: string | null
+          watched_until?: string | null
+        }
+        Relationships: []
+      }
+      agent_turns: {
+        Row: {
+          app_id: string
+          cancel_requested_at: string | null
+          chat_id: string
+          commits: number
+          created_at: string
+          created_by: string | null
+          created_by_email: string | null
+          error: string | null
+          finished_at: string | null
+          id: string
+          prompt: string
+          pushed_sha: string | null
+          reply: string | null
+          started_at: string | null
+          status: string
+          usage: Json | null
+        }
+        Insert: {
+          app_id: string
+          cancel_requested_at?: string | null
+          chat_id: string
+          commits?: number
+          created_at?: string
+          created_by?: string | null
+          created_by_email?: string | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          prompt: string
+          pushed_sha?: string | null
+          reply?: string | null
+          started_at?: string | null
+          status?: string
+          usage?: Json | null
+        }
+        Update: {
+          app_id?: string
+          cancel_requested_at?: string | null
+          chat_id?: string
+          commits?: number
+          created_at?: string
+          created_by?: string | null
+          created_by_email?: string | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          prompt?: string
+          pushed_sha?: string | null
+          reply?: string | null
+          started_at?: string | null
+          status?: string
+          usage?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_turns_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "apps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_turns_chat_id_fkey"
+            columns: ["chat_id"]
+            isOneToOne: false
+            referencedRelation: "agent_chats"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       app_setup_steps: {
         Row: {
           app_id: string

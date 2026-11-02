@@ -21,9 +21,12 @@ import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedExpensesRouteImport } from './routes/_authenticated.expenses'
 import { Route as AuthenticatedDownloadsRouteImport } from './routes/_authenticated.downloads'
 import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authenticated.apps.index'
+import { Route as ApiAgentSplatRouteImport } from './routes/api.agent.$'
 import { Route as AuthenticatedSettingsSecurityRouteImport } from './routes/_authenticated.settings.security'
+import { Route as AuthenticatedSettingsClaudeRouteImport } from './routes/_authenticated.settings.claude'
 import { Route as AuthenticatedAppsSetupRouteImport } from './routes/_authenticated.apps.setup'
 import { Route as AuthenticatedAppsIdRouteImport } from './routes/_authenticated.apps.$id'
+import { Route as AuthenticatedAppsIdBuildRouteImport } from './routes/_authenticated.apps.$id_.build'
 
 const SetupMfaRoute = SetupMfaRouteImport.update({
   id: '/setup-mfa',
@@ -84,10 +87,21 @@ const AuthenticatedAppsIndexRoute = AuthenticatedAppsIndexRouteImport.update({
   path: '/apps/',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const ApiAgentSplatRoute = ApiAgentSplatRouteImport.update({
+  id: '/api/agent/$',
+  path: '/api/agent/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedSettingsSecurityRoute =
   AuthenticatedSettingsSecurityRouteImport.update({
     id: '/settings/security',
     path: '/settings/security',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedSettingsClaudeRoute =
+  AuthenticatedSettingsClaudeRouteImport.update({
+    id: '/settings/claude',
+    path: '/settings/claude',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedAppsSetupRoute = AuthenticatedAppsSetupRouteImport.update({
@@ -100,6 +114,12 @@ const AuthenticatedAppsIdRoute = AuthenticatedAppsIdRouteImport.update({
   path: '/apps/$id',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedAppsIdBuildRoute =
+  AuthenticatedAppsIdBuildRouteImport.update({
+    id: '/apps/$id_/build',
+    path: '/apps/$id/build',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -114,8 +134,11 @@ export interface FileRoutesByFullPath {
   '/reviews': typeof AuthenticatedReviewsRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/apps/setup': typeof AuthenticatedAppsSetupRoute
+  '/settings/claude': typeof AuthenticatedSettingsClaudeRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
+  '/api/agent/$': typeof ApiAgentSplatRoute
   '/apps/': typeof AuthenticatedAppsIndexRoute
+  '/apps/$id/build': typeof AuthenticatedAppsIdBuildRoute
 }
 export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
@@ -130,8 +153,11 @@ export interface FileRoutesByTo {
   '/': typeof AuthenticatedIndexRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/apps/setup': typeof AuthenticatedAppsSetupRoute
+  '/settings/claude': typeof AuthenticatedSettingsClaudeRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
+  '/api/agent/$': typeof ApiAgentSplatRoute
   '/apps': typeof AuthenticatedAppsIndexRoute
+  '/apps/$id/build': typeof AuthenticatedAppsIdBuildRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -148,8 +174,11 @@ export interface FileRoutesById {
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/apps/$id': typeof AuthenticatedAppsIdRoute
   '/_authenticated/apps/setup': typeof AuthenticatedAppsSetupRoute
+  '/_authenticated/settings/claude': typeof AuthenticatedSettingsClaudeRoute
   '/_authenticated/settings/security': typeof AuthenticatedSettingsSecurityRoute
+  '/api/agent/$': typeof ApiAgentSplatRoute
   '/_authenticated/apps/': typeof AuthenticatedAppsIndexRoute
+  '/_authenticated/apps/$id_/build': typeof AuthenticatedAppsIdBuildRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -166,8 +195,11 @@ export interface FileRouteTypes {
     | '/reviews'
     | '/apps/$id'
     | '/apps/setup'
+    | '/settings/claude'
     | '/settings/security'
+    | '/api/agent/$'
     | '/apps/'
+    | '/apps/$id/build'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/dashboard'
@@ -182,8 +214,11 @@ export interface FileRouteTypes {
     | '/'
     | '/apps/$id'
     | '/apps/setup'
+    | '/settings/claude'
     | '/settings/security'
+    | '/api/agent/$'
     | '/apps'
+    | '/apps/$id/build'
   id:
     | '__root__'
     | '/_authenticated'
@@ -199,8 +234,11 @@ export interface FileRouteTypes {
     | '/_authenticated/'
     | '/_authenticated/apps/$id'
     | '/_authenticated/apps/setup'
+    | '/_authenticated/settings/claude'
     | '/_authenticated/settings/security'
+    | '/api/agent/$'
     | '/_authenticated/apps/'
+    | '/_authenticated/apps/$id_/build'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -210,6 +248,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   MfaChallengeRoute: typeof MfaChallengeRoute
   SetupMfaRoute: typeof SetupMfaRoute
+  ApiAgentSplatRoute: typeof ApiAgentSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -298,11 +337,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppsIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/api/agent/$': {
+      id: '/api/agent/$'
+      path: '/api/agent/$'
+      fullPath: '/api/agent/$'
+      preLoaderRoute: typeof ApiAgentSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/settings/security': {
       id: '/_authenticated/settings/security'
       path: '/settings/security'
       fullPath: '/settings/security'
       preLoaderRoute: typeof AuthenticatedSettingsSecurityRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings/claude': {
+      id: '/_authenticated/settings/claude'
+      path: '/settings/claude'
+      fullPath: '/settings/claude'
+      preLoaderRoute: typeof AuthenticatedSettingsClaudeRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/apps/setup': {
@@ -319,6 +372,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppsIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/apps/$id_/build': {
+      id: '/_authenticated/apps/$id_/build'
+      path: '/apps/$id/build'
+      fullPath: '/apps/$id/build'
+      preLoaderRoute: typeof AuthenticatedAppsIdBuildRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
@@ -330,8 +390,10 @@ interface AuthenticatedRouteChildren {
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
   AuthenticatedAppsSetupRoute: typeof AuthenticatedAppsSetupRoute
+  AuthenticatedSettingsClaudeRoute: typeof AuthenticatedSettingsClaudeRoute
   AuthenticatedSettingsSecurityRoute: typeof AuthenticatedSettingsSecurityRoute
   AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute
+  AuthenticatedAppsIdBuildRoute: typeof AuthenticatedAppsIdBuildRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -342,8 +404,10 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
   AuthenticatedAppsSetupRoute: AuthenticatedAppsSetupRoute,
+  AuthenticatedSettingsClaudeRoute: AuthenticatedSettingsClaudeRoute,
   AuthenticatedSettingsSecurityRoute: AuthenticatedSettingsSecurityRoute,
   AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,
+  AuthenticatedAppsIdBuildRoute: AuthenticatedAppsIdBuildRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
@@ -357,6 +421,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   MfaChallengeRoute: MfaChallengeRoute,
   SetupMfaRoute: SetupMfaRoute,
+  ApiAgentSplatRoute: ApiAgentSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

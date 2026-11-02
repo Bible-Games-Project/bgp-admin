@@ -1,12 +1,21 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, ExternalLink, Star, DollarSign, Download } from "lucide-react";
+import {
+  ArrowLeft,
+  Trash2,
+  ExternalLink,
+  Star,
+  DollarSign,
+  Download,
+  Sparkles,
+} from "lucide-react";
 import { getApp, updateApp, deleteApp } from "@/lib/apps.functions";
 import { checkPreviewDeployWorkflow } from "@/lib/capacitor.functions";
 import { Button } from "@/components/ui/button";
 import { AppForm, parseSteamAppId, type AppFormValues } from "@/components/AppForm";
 import { appStoreIds, isOnAnyStore, isWebGame, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
+import { isSelfRepo } from "@/lib/self-repo";
 import { AppAssetUpload } from "@/components/AppAssetUpload";
 import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
 import { AppSetupTab } from "@/components/AppSetupTab";
@@ -111,6 +120,8 @@ function AppDetailPage() {
   const revenueKey = storeIds.ios ?? storeIds.android;
   // Testers needs the game on a store; a link to it for one that isn't opens General.
   const hasTesters = Boolean(storeIds.ios || storeIds.android);
+  // The console itself is built with Claude Code, not from its own chat.
+  const buildable = !external && !isSelfRepo(app.github_owner, app.github_repo);
   const activeTab: Tab =
     tab && (!external || EXTERNAL_TABS.includes(tab)) && (tab !== "testers" || hasTesters)
       ? tab
@@ -256,9 +267,16 @@ function AppDetailPage() {
       </div>
 
       {/* The Reviews, Revenue and Downloads pages cover every game; these open them on
-          this one. */}
-      {(isOnAnyStore(storeIds) || revenueKey) && (
+          this one. The Build chat changes the game itself, with Claude. */}
+      {(isOnAnyStore(storeIds) || revenueKey || buildable) && (
         <div className="flex flex-wrap gap-2 -mt-2 mb-6">
+          {buildable && (
+            <Button asChild size="sm" className="gap-2">
+              <Link to="/apps/$id/build" params={{ id }}>
+                <Sparkles className="h-4 w-4" /> Build with Claude
+              </Link>
+            </Button>
+          )}
           {isOnAnyStore(storeIds) && (
             <Button asChild size="sm" variant="outline" className="gap-2">
               <Link to="/reviews" search={{ app: id }}>

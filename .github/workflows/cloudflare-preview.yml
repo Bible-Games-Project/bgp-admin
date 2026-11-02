@@ -67,6 +67,9 @@ jobs:
           # Finance role (the deploy key above can't read sales), APP_STORE_VENDOR_NUMBER
           # names the seller account, and GOOGLE_PLAY_REPORTS_BUCKET is the Cloud Storage
           # bucket Play Console keeps the financial reports in. These four are repo secrets.
+          # AGENT_RUNNER_TOKEN is what the Build chat's build server (agent-runner/, on a
+          # machine of our own) authenticates with on /api/agent/*; the same value lives in
+          # that machine's /etc/bgp-agent.env.
           secrets: |
             GITHUB_PAT
             APP_STORE_CONNECT_API_KEY_ID
@@ -80,6 +83,7 @@ jobs:
             TELEGRAM_BOT_TOKEN
             TELEGRAM_CHAT_ID
             SUPABASE_SERVICE_ROLE_KEY
+            AGENT_RUNNER_TOKEN
         env:
           GITHUB_PAT: ${{ secrets.GH_PAT }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -93,3 +97,4 @@ jobs:
           APP_STORE_VENDOR_NUMBER: ${{ secrets.APP_STORE_VENDOR_NUMBER }}
           GOOGLE_PLAY_REPORTS_BUCKET: ${{ secrets.GOOGLE_PLAY_REPORTS_BUCKET }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AGENT_RUNNER_TOKEN: ${{ secrets.AGENT_RUNNER_TOKEN }}
