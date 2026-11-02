@@ -97,7 +97,12 @@ function StepsGroup({ events, live }: { events: AgentEvent[]; live: boolean }) {
                       ) : (
                         <CircleDashed className="h-3 w-3 mt-0.5 shrink-0" />
                       )}
-                      <span className={t.status === "completed" ? "line-through" : ""}>
+                      <span
+                        className={cn(
+                          t.status === "completed" && "line-through",
+                          t.status === "in_progress" && "text-foreground font-medium",
+                        )}
+                      >
                         {t.content}
                       </span>
                     </li>

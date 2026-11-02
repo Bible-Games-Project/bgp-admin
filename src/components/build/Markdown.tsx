@@ -2,10 +2,10 @@ import { Fragment, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 // Claude's replies are Markdown. This renders the little of it a chat reply uses
-// (paragraphs, lists, headings, code, bold, links) as React elements: nothing it says
+// (paragraphs, lists, headings, code, bold, italics, links) as React elements: nothing it says
 // ever becomes HTML, so a reply can't inject anything into the console.
 
-const INLINE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))/g;
+const INLINE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\s][^*\n]*\*|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))/g;
 
 function inline(text: string): ReactNode[] {
   return text.split(INLINE).map((part, i) => {
@@ -18,6 +18,9 @@ function inline(text: string): ReactNode[] {
     }
     if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
       return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
     }
     const link = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(part);
     if (link) {
