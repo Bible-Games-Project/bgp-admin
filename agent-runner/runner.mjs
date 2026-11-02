@@ -899,6 +899,7 @@ async function main() {
   mkdirSync(CONFIG.state, { recursive: true, mode: 0o700 });
   log(`build server ${VERSION} (${CONFIG.sandbox}) asking ${CONFIG.console} for work`);
   await recover();
+  let connected = false;
   for (;;) {
     if (codeStamp() !== STARTED_WITH) {
       log("new code: restarting");
@@ -909,9 +910,13 @@ async function main() {
       work = await api("poll", { host: CONFIG.name, version: VERSION, account: accountSummary() });
     } catch (error) {
       log(error.message);
+      connected = false;
       await sleep(20);
       continue;
     }
+    // Only the changes are logged: a working server polls in silence.
+    if (!connected) log(`connected to the console${accountSummary() ? "" : " (no Claude account linked yet)"}`);
+    connected = true;
     if (work.unlink) {
       rmSync(ACCOUNT, { force: true });
       log("Claude account unlinked");
