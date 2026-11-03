@@ -247,6 +247,22 @@ export function protectedPaths(files) {
 /** For changes Claude left uncommitted when it finished. */
 export const LEFTOVER_COMMIT_MESSAGE = "Apply changes requested in the Build chat";
 
+// --- Memory -----------------------------------------------------------------------------
+
+/** A Docker memory size ("1200m", "2g") in megabytes. */
+export function megabytes(size) {
+  const match = /^(\d+(?:\.\d+)?)\s*([kmg]?)b?$/i.exec(String(size).trim());
+  if (!match) return null;
+  const scale = { k: 1 / 1024, "": 1 / 1024 / 1024, m: 1, g: 1024 }[match[2].toLowerCase()];
+  return Math.round(Number(match[1]) * scale);
+}
+
+/** What the machine can still hand out without swapping (MemAvailable in /proc/meminfo), in megabytes. */
+export function availableMegabytes(meminfo) {
+  const kb = /^MemAvailable:\s+(\d+)\s*kB/m.exec(String(meminfo))?.[1];
+  return kb ? Math.floor(Number(kb) / 1024) : null;
+}
+
 // --- Linking an account: `claude setup-token` in a pseudo-terminal ---------------------
 
 // What a terminal shows, without colour or cursor codes (the CLI writes spaces by moving

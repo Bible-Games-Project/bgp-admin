@@ -14,6 +14,11 @@ WorkingDirectory=/opt/bgp-agent
 ExecStart=/usr/bin/env node /opt/bgp-agent/runner.mjs
 Restart=always
 RestartSec=15
+# The service itself only waits and runs git, so it never needs much. If the machine runs
+# out of memory, the kernel stops it before the machine's other services. Claude's
+# containers have the same priority (runner.mjs) and their own limit (AGENT_MEMORY).
+MemoryMax=512M
+OOMScoreAdjust=1000
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

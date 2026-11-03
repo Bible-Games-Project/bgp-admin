@@ -30,6 +30,8 @@ fi
 # restarts itself with it when the turn ends (runner.mjs checks after each turn and poll).
 busy=0
 [ -f /var/lib/bgp-agent/current.json ] && busy=1
+# Same for someone linking a Claude account in Settings → Claude
+[ -n "$(docker ps -q --filter name='^bgp-agent-login$')" ] && busy=1
 
 # The sessions' network with no way out, and the proxy that only lets them reach the Claude
 # API and npm. The proxy is only replaced when it changed: replacing it would cut the
@@ -40,7 +42,7 @@ egress="$(sha256sum /opt/bgp-agent/egress.mjs | cut -d' ' -f1)"
 running="$(docker inspect -f '{{index .Config.Labels "egress"}}' bgp-agent-egress 2>/dev/null || true)"
 if [ "$running" != "$egress" ] && [ "$busy" = 0 ]; then
   docker rm -f bgp-agent-egress >/dev/null 2>&1 || true
-  docker run -d --name bgp-agent-egress --restart unless-stopped --memory 128m --pids-limit 64 \
+  docker run -d --name bgp-agent-egress --restart unless-stopped --memory 128m --oom-score-adj 1000 --pids-limit 64 \
     --cap-drop ALL --security-opt no-new-privileges --user node --label "egress=$egress" \
     bgp-agent:latest node /opt/bgp-agent/egress.mjs >/dev/null
   docker network connect bgp-agent-internal bgp-agent-egress
@@ -52,7 +54,7 @@ if [ ! -f /etc/bgp-agent.env ]; then
   echo "/etc/bgp-agent.env is missing: the service won't start until it's there (README.md)"
 elif [ "$busy" = 1 ]; then
   systemctl enable --quiet bgp-agent
-  echo "A turn is in progress: bgp-agent restarts itself with the new code when it ends"
+  echo "A turn or a sign-in is in progress: bgp-agent restarts itself with the new code when it ends"
 else
   systemctl enable --quiet bgp-agent
   systemctl restart bgp-agent

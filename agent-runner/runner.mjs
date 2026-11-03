@@ -61,6 +61,9 @@ CONFIG.repoUrl =
   (CONFIG.pushToken
     ? "https://github.com/{owner}/{name}.git"
     : "git@github.com:{owner}/{name}.git");
+// A turn only starts when the machine has this much memory free (all a turn may use, by
+// default), so it can't be what leaves the machine's other services short.
+CONFIG.minFreeMb = Number(env.AGENT_MIN_FREE_MB ?? lib.megabytes(CONFIG.memory) ?? 1200);
 const ACCOUNT = join(CONFIG.state, "claude.json");
 const CURRENT = join(CONFIG.state, "current.json");
 const LOGS = join(CONFIG.state, "logs");
@@ -237,6 +240,9 @@ function dockerArgs({
     CONFIG.memory,
     "--memory-swap",
     CONFIG.memory,
+    // If the machine still runs out of memory, the kernel kills Claude before anything else
+    "--oom-score-adj",
+    "1000",
     "--cpus",
     CONFIG.cpus,
     "--pids-limit",
@@ -676,6 +682,13 @@ async function settle(job, repo, outcome, reporter) {
   return { status, reply: outcome.reply ?? null, error, commits, pushedSha };
 }
 
+// null where there's no /proc (a laptop trying the runner out)
+function freeMegabytes() {
+  return existsSync("/proc/meminfo")
+    ? lib.availableMegabytes(readFileSync("/proc/meminfo", "utf8"))
+    : null;
+}
+
 async function doTurn(job) {
   log(
     `turn ${job.id}: ${job.repo.owner}/${job.repo.name} (${job.model}, ${job.effort ?? "default effort"})`,
@@ -686,6 +699,15 @@ async function doTurn(job) {
   try {
     if (CONFIG.sandbox === "docker" && !loadAccount()?.token) {
       throw new Said("No Claude account is linked. Link one in Settings → Claude.");
+    }
+    const free = freeMegabytes();
+    if (free !== null && free < CONFIG.minFreeMb) {
+      log(
+        `turn ${job.id}: only ${free} MB of memory free (it needs ${CONFIG.minFreeMb}), not starting`,
+      );
+      throw new Said(
+        "The build server is short of memory right now, so Claude didn't start. Send the message again in a few minutes.",
+      );
     }
     const repo = await prepareRepo(job, reporter);
     let outcome = { ok: false, why: "Stopped." };
@@ -792,7 +814,7 @@ async function linkAccount(login) {
   const { uid, gid } = userInfo();
   const command = [
     "stty cols 1000 rows 50; exec docker run --rm -it",
-    `--name ${LOGIN_CONTAINER} --memory 512m --cap-drop ALL --security-opt no-new-privileges --user ${uid}:${gid}`,
+    `--name ${LOGIN_CONTAINER} --memory 512m --memory-swap 512m --oom-score-adj 1000 --cap-drop ALL --security-opt no-new-privileges --user ${uid}:${gid}`,
     `--tmpfs /home/agent:rw,size=64m,uid=${uid},gid=${gid},mode=0700 -e HOME=/home/agent -e TERM=xterm`,
     `${CONFIG.image} claude setup-token`,
   ].join(" ");

@@ -58,8 +58,14 @@ about pushing, deploy polling and Artifacts. Everything else in the game's AGENT
   and puts `.git/config` back after each session.
 - **It can't change the native boundary.** Commits that touch `capacitor.config.*`, `ios/`, `android/` or
   the deploy and preview workflows aren't pushed, and the chat says why (`protectedPaths` in `lib.mjs`).
-- **One turn at a time**, 30 minutes at most, with 1.2 GB of memory (`AGENT_MEMORY`). The home server has
-  3.8 GB and also runs cpl-agent and other services.
+- **One turn at a time**, 30 minutes at most, with 1.2 GB of memory (`AGENT_MEMORY`) and no swap.
+- **It gives way to the machine's other services.** The home server has 3.8 GB and also runs cpl-agent,
+  the GitHub Actions runners and other services that must not stop. So:
+  - a turn only starts when the machine has as much memory free as the turn may use (`AGENT_MIN_FREE_MB`,
+    1200 by default). If it doesn't, the chat says to try again in a few minutes;
+  - a turn that needs more than its 1.2 GB is stopped on its own, and the chat says it ran out of memory;
+  - if the machine runs out of memory anyway (because of something else), the kernel kills Claude's container and
+    this service first (`--oom-score-adj 1000`, `OOMScoreAdjust=1000`). The service is capped at 512 MB.
 
 ## Install or update
 

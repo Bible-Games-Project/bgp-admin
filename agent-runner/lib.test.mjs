@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
+  availableMegabytes,
   claudeArgs,
   eventsFrom,
   isClaudeToken,
   loginError,
   loginToken,
   loginUrl,
+  megabytes,
   parseLine,
   plainText,
   protectedPaths,
@@ -31,7 +33,7 @@ const job = {
 
 describe("eventsFrom", () => {
   test("turns a real session into steps and text", () => {
-    const events = stream.flatMap(eventsFrom);
+    const events = stream.flatMap((message) => eventsFrom(message));
     expect(
       events.map((e) => (e.kind === "step" ? e.body.label : `text: ${e.body.text.slice(0, 20)}`)),
     ).toEqual([
@@ -223,6 +225,17 @@ describe("setup-token output", () => {
     expect(isClaudeToken(token)).toBe(true);
     expect(isClaudeToken("sk-ant-oat01-short")).toBe(false);
   });
+});
+
+test("memory sizes and what the machine has free", () => {
+  expect(megabytes("1200m")).toBe(1200);
+  expect(megabytes("2g")).toBe(2048);
+  expect(megabytes("512M")).toBe(512);
+  expect(megabytes("lots")).toBeNull();
+  const meminfo =
+    "MemTotal:        4003124 kB\nMemFree:          115712 kB\nMemAvailable:    1884160 kB\n";
+  expect(availableMegabytes(meminfo)).toBe(1840);
+  expect(availableMegabytes("MemTotal: 1 kB")).toBeNull();
 });
 
 test("egress only to the Claude API and npm, over TLS", () => {
