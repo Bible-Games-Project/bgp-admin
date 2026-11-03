@@ -126,10 +126,18 @@ export function stepLabel(name, input = {}, root = "/work") {
 }
 
 /**
- * The chat events in one stream-json line: what Claude said ('text') and each tool it
- * used ('step'). Thinking, tool results and the CLI's own notices aren't shown.
+ * The chat events in one stream-json line: what Claude said ('text'), each tool it used
+ * ('step') and when it summarizes the conversation to keep it short (a 'step' too).
+ * Thinking, tool results and the CLI's other notices aren't shown.
  */
 export function eventsFrom(message, root = "/work") {
+  if (message?.type === "system" && message.subtype === "status" && message.status === "compacting")
+    return [
+      {
+        kind: "step",
+        body: { tool: "compact", label: "Summarized the conversation so far, to keep it short" },
+      },
+    ];
   if (message?.type !== "assistant") return [];
   const events = [];
   for (const block of message.message?.content ?? []) {

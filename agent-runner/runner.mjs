@@ -49,6 +49,10 @@ const CONFIG = {
   cpus: env.AGENT_CPUS ?? "2",
   turnMinutes: Number(env.TURN_MINUTES ?? 30),
   maxTurns: Number(env.MAX_TURNS ?? 200),
+  // How long a chat's conversation gets before Claude Code summarizes it (auto-compact).
+  // The CLI's own choice for Opus 5.5 is about a million tokens, and every step of every
+  // turn reads the whole conversation again. "auto" leaves it to the CLI.
+  compactWindow: env.AGENT_COMPACT_WINDOW ?? "200k",
   // A GitHub token to clone and push with over HTTPS, instead of a deploy key per repo: for
   // an organization that doesn't allow deploy keys. A fine-grained token with Contents read
   // and write on the game repos is enough. It never reaches the container.
@@ -366,6 +370,16 @@ function authorEnv(job) {
   };
 }
 
+// What the CLI gets besides the token: who the commits are from, and when to summarize.
+function claudeEnv(job) {
+  return {
+    ...authorEnv(job),
+    ...(CONFIG.compactWindow === "auto"
+      ? {}
+      : { CLAUDE_CODE_AUTO_COMPACT_WINDOW: CONFIG.compactWindow }),
+  };
+}
+
 // The repo exactly as it is on GitHub, plus node_modules: whatever a previous turn left
 // that never reached GitHub is gone.
 async function prepareRepo(job, reporter) {
@@ -528,7 +542,7 @@ async function runClaude(job, repo, reporter, { prompt, sessionId }) {
         name: TURN_CONTAINER,
         ...repo,
         envFile: secrets,
-        extraEnv: authorEnv(job),
+        extraEnv: claudeEnv(job),
         command: ["claude", ...args],
       }),
       { env: cleanEnv(), stdio: ["ignore", "pipe", "pipe"] },
@@ -536,7 +550,7 @@ async function runClaude(job, repo, reporter, { prompt, sessionId }) {
   } else {
     child = spawn("claude", args, {
       cwd: repo.repoDir,
-      env: { ...cleanEnv(), ...authorEnv(job) },
+      env: { ...cleanEnv(), ...claudeEnv(job) },
       stdio: ["ignore", "pipe", "pipe"],
     });
   }

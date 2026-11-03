@@ -227,6 +227,29 @@ describe("setup-token output", () => {
   });
 });
 
+test("summarizing the conversation shows as one step", () => {
+  // What Claude Code 2.1.316 prints around a compaction (stream-json)
+  const lines = [
+    { type: "system", subtype: "status", status: "compacting", session_id: "s" },
+    { type: "system", subtype: "status", status: null, compact_result: "success" },
+    {
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "auto", pre_tokens: 181000, post_tokens: 12102 },
+    },
+    {
+      type: "user",
+      message: { role: "user", content: "This session is being continued from a previous …" },
+    },
+  ];
+  expect(lines.flatMap((line) => eventsFrom(line))).toEqual([
+    {
+      kind: "step",
+      body: { tool: "compact", label: "Summarized the conversation so far, to keep it short" },
+    },
+  ]);
+});
+
 test("memory sizes and what the machine has free", () => {
   expect(megabytes("1200m")).toBe(1200);
   expect(megabytes("2g")).toBe(2048);

@@ -103,7 +103,16 @@ Two ways; the first is the default.
   is wider than a deploy key's: every repo it was given.
 
 Optional settings: `AGENT_NAME` (how Settings → Claude names it, the hostname by default), `AGENT_MEMORY`
-(`1200m`), `AGENT_CPUS` (`2`), `TURN_MINUTES` (`30`) and `MAX_TURNS` (`200`).
+(`1200m`), `AGENT_MIN_FREE_MB` (`1200`), `AGENT_CPUS` (`2`), `TURN_MINUTES` (`30`), `MAX_TURNS` (`200`) and
+`AGENT_COMPACT_WINDOW` (`200k`, see below).
+
+### Long chats
+
+Each game's chat is one Claude session, and every step of every turn reads that whole conversation again.
+When it gets long, Claude Code summarizes it and carries on from the summary (auto-compact); the chat
+shows that as a step. The CLI would wait until about a million tokens with Opus 5.5, so the server asks
+for a summary near 200k instead (`AGENT_COMPACT_WINDOW`: from `100k` to `1M`, or `auto` to leave it to
+the CLI). New chat, on the Build page, starts from nothing.
 
 `AGENT_RUNNER_TOKEN` reaches the console as a Worker secret through `cloudflare-preview.yml`. To change it,
 set the GitHub secret, push to main (or re-run that workflow), and put the same value in the env file.
