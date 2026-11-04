@@ -116,6 +116,29 @@ export function claudeArgs({ prompt, model, effort, sessionId, maxTurns, job }) 
   ];
 }
 
+/**
+ * One tiny call: a word from a small model, no tools, a one-line system prompt in place of
+ * Claude Code's own. Claude answers it with the account's limits (a rate_limit_event), which
+ * is what it's for: checking a token, and reading the usage when a page asks.
+ */
+export function pingArgs(model) {
+  return [
+    "-p",
+    "Reply with the word OK.",
+    "--model",
+    model,
+    "--max-turns",
+    "1",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--tools",
+    "",
+    "--system-prompt",
+    "Reply with the word OK and nothing else.",
+  ];
+}
+
 // --- Reading the CLI's stream-json output ---------------------------------------------
 
 /** One line of stream-json, or null. */

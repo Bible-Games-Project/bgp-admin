@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import * as lib from "./lib.mjs";
 
-const VERSION = "2";
+const VERSION = "3";
 const env = process.env;
 const CONFIG = {
   console: (env.CONSOLE_URL ?? "https://bgp-admin-preview.biblegamesproject.workers.dev").replace(
@@ -850,43 +850,64 @@ async function doTurn(job) {
 
 // --- Linking an account ----------------------------------------------------------------------
 
+/**
+ * One tiny Claude call with the token (lib.pingArgs): whether Claude accepts it, and the
+ * account's usage as it reports it. Checks a token before it's kept, and reads the usage
+ * when a page asks for a fresh one (doUsageRefresh).
+ */
+async function claudePing(token) {
+  const args = lib.pingArgs(CHECK_MODEL);
+  let ran;
+  if (CONFIG.sandbox === "docker") {
+    const secrets = tokenFile("bgp-agent-check", token);
+    try {
+      await run("docker", ["rm", "-f", "bgp-agent-check"], { allowFail: true });
+      ran = await run(
+        "docker",
+        dockerArgs({ name: "bgp-agent-check", envFile: secrets, command: ["claude", ...args] }),
+        { allowFail: true, timeoutMs: 120_000 },
+      );
+    } finally {
+      rmSync(secrets, { force: true });
+    }
+  } else {
+    // Without the sandbox, the machine's own login.
+    ran = await run("claude", args, { allowFail: true, timeoutMs: 120_000 });
+  }
+  const lines = ran.stdout.split("\n").map(lib.parseLine).filter(Boolean);
+  const outcome = lib.readResult({
+    result: lines.findLast((l) => l.type === "result"),
+    code: ran.code,
+    stderr: ran.stderr,
+  });
+  const info = lines.findLast((l) => l.type === "rate_limit_event")?.rate_limit_info;
+  return { ...outcome, usage: lib.usageFrom(info) };
+}
+
 // A token is only kept once Claude has answered with it.
-async function checkToken(token) {
-  const secrets = tokenFile("bgp-agent-check", token);
+const checkToken = claudePing;
+
+/**
+ * A page asked for a fresh reading of the account's usage (the one the console has is
+ * from the last message, hours old by now): one tiny call, and the answer goes to the
+ * console (/api/agent/usage).
+ */
+async function doUsageRefresh() {
+  const token = loadAccount()?.token;
+  if (CONFIG.sandbox === "docker" && !token) return;
+  log("reading the account's usage");
   try {
-    await run("docker", ["rm", "-f", "bgp-agent-check"], { allowFail: true });
-    const { code, stdout, stderr } = await run(
-      "docker",
-      dockerArgs({
-        name: "bgp-agent-check",
-        envFile: secrets,
-        command: [
-          "claude",
-          "-p",
-          "Reply with the word OK.",
-          "--model",
-          CHECK_MODEL,
-          "--max-turns",
-          "1",
-          "--output-format",
-          "stream-json",
-          "--verbose",
-          "--tools",
-          "",
-        ],
-      }),
-      { allowFail: true, timeoutMs: 120_000 },
+    const ping = await claudePing(token);
+    if (ping.rejected) markRejected();
+    await api("usage", { usage: ping.usage, error: ping.ok ? undefined : ping.why });
+    log(
+      ping.usage
+        ? `usage: ${ping.usage.weekly?.percent ?? "?"}% of the week, ${ping.usage.fiveHour?.percent ?? "?"}% of the 5 hours`
+        : `the usage wasn't reported: ${ping.why}`,
     );
-    const lines = stdout.split("\n").map(lib.parseLine).filter(Boolean);
-    const outcome = lib.readResult({
-      result: lines.findLast((l) => l.type === "result"),
-      code,
-      stderr,
-    });
-    const info = lines.findLast((l) => l.type === "rate_limit_event")?.rate_limit_info;
-    return { ...outcome, usage: lib.usageFrom(info) };
-  } finally {
-    rmSync(secrets, { force: true });
+  } catch (error) {
+    log(`reading the usage: ${error.message}`);
+    await api("usage", { error: error.message }).catch(() => {});
   }
 }
 
@@ -1083,6 +1104,7 @@ async function main() {
       log("Claude account unlinked");
     } else if (work.login) await doLogin(work.login);
     else if (work.turn) await doTurn(work.turn);
+    else if (work.refreshUsage) await doUsageRefresh();
     else await sleep(work.pollSeconds ?? 10);
   }
 }

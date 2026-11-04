@@ -16,6 +16,7 @@ import {
   safeFileName,
   sameSecret,
   turnWeeklySpend,
+  usageIsStale,
   weeklyBudgetFrom,
 } from "./agent";
 
@@ -137,6 +138,15 @@ describe("the weekly share", () => {
       budgetExhaustedMessage({ percent: 10, spent: 10.2, resetsAt: window, exhausted: true }),
     ).toContain("10% of it");
   });
+});
+
+test("usageIsStale after a quarter of an hour, or with no time", () => {
+  const at = new Date("2026-11-04T08:00:00Z");
+  const usage = (iso: string) => ({ weekly: { percent: 1, resetsAt: null }, at: iso });
+  expect(usageIsStale(usage("2026-11-04T07:50:00Z"), at)).toBe(false);
+  expect(usageIsStale(usage("2026-11-04T07:40:00Z"), at)).toBe(true);
+  expect(usageIsStale({ weekly: { percent: 1, resetsAt: null } }, at)).toBe(true);
+  expect(usageIsStale(null, at)).toBe(true);
 });
 
 describe("attachments", () => {

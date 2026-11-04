@@ -122,7 +122,7 @@ async function poll(body: Record<string, unknown>) {
       account,
     })
     .eq("id", "main")
-    .select("watched_until, unlink_requested_at")
+    .select("watched_until, unlink_requested_at, usage_requested_at")
     .single();
   if (error) throw new Error(error.message);
 
@@ -207,9 +207,27 @@ async function poll(body: Record<string, unknown>) {
     if (job) return { turn: job };
   }
 
+  // A page asked for a fresh reading of the account's usage (last, after any message).
+  if (runner.usage_requested_at) {
+    await db().from("agent_runner").update({ usage_requested_at: null }).eq("id", "main");
+    if (account && !account.rejectedAt) return { refreshUsage: true };
+  }
+
   const watched = runner.watched_until && Date.parse(runner.watched_until) > now.getTime();
   const waiting = (logins ?? []).some((l: any) => !expired.includes(l));
   return { pollSeconds: watched || waiting ? POLL_FAST_SECONDS : POLL_IDLE_SECONDS };
+}
+
+/** The account's usage as the tiny call the server made for a page just reported it. */
+async function usageReport(body: Record<string, unknown>) {
+  const usage = body.usage && typeof body.usage === "object" ? body.usage : null;
+  if (!usage && typeof body.error === "string")
+    console.warn(`[agent] usage refresh: ${body.error.slice(0, 300)}`);
+  await db()
+    .from("agent_runner")
+    .update({ last_seen_at: iso(new Date()), busy: false, ...(usage ? { usage } : {}) })
+    .eq("id", "main");
+  return { ok: true };
 }
 
 /** Marks a queued turn as running and describes it for the server. Null if it can't run. */
@@ -527,6 +545,7 @@ const ROUTES: Record<string, (body: Record<string, unknown>) => Promise<unknown>
   finish: finishTurn,
   login: loginProgress,
   "repo-key": registerRepoKey,
+  usage: usageReport,
 };
 
 export async function handleRunnerRequest(path: string, request: Request) {

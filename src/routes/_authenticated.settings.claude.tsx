@@ -18,6 +18,7 @@ import {
   cancelClaudeLogin,
   getClaudeSettings,
   pasteClaudeToken,
+  refreshClaudeUsage,
   saveAgentSettings,
   startClaudeLogin,
   submitClaudeLoginCode,
@@ -56,9 +57,11 @@ function ClaudeSettingsPage() {
   const q = useQuery({
     queryKey: ["claude-settings"],
     queryFn: () => getFn(),
-    // Every couple of seconds while signing in, so each step shows up at once.
+    // Every couple of seconds while signing in, or while the build server reads the usage,
+    // so each step shows up at once.
     refetchInterval: (query) =>
-      query.state.data?.login && ACTIVE_LOGIN.includes(query.state.data.login.status)
+      (query.state.data?.login && ACTIVE_LOGIN.includes(query.state.data.login.status)) ||
+      query.state.data?.usageRefreshPending
         ? 2000
         : 10_000,
   });
@@ -151,6 +154,12 @@ function AccountCard({ data }: { data: SettingsData }) {
     onSuccess: refresh,
     onError: (e: Error) => toast.error(e.message),
   });
+  const refreshUsageFn = useServerFn(refreshClaudeUsage);
+  const refreshUsage = useMutation({
+    mutationFn: () => refreshUsageFn(),
+    onSuccess: refresh,
+    onError: (e: Error) => toast.error(e.message),
+  });
   const unlink = useMutation({
     mutationFn: () => unlinkFn(),
     onSuccess: () => {
@@ -198,7 +207,11 @@ function AccountCard({ data }: { data: SettingsData }) {
                   </span>
                 </p>
               )}
-              <UsageSummary usage={data.usage} />
+              <UsageSummary
+                usage={data.usage}
+                refreshing={data.usageRefreshPending || refreshUsage.isPending}
+                onRefresh={() => refreshUsage.mutate()}
+              />
               <div className="flex flex-wrap gap-2 pt-1">
                 <Button size="sm" onClick={() => start.mutate()} disabled={start.isPending}>
                   {account.rejectedAt ? "Link it again" : "Switch account"}

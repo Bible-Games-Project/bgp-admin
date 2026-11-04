@@ -232,6 +232,7 @@ export type Database = {
           last_seen_at: string | null
           unlink_requested_at: string | null
           usage: Json | null
+          usage_requested_at: string | null
           version: string | null
           watched_until: string | null
         }
@@ -243,6 +244,7 @@ export type Database = {
           last_seen_at?: string | null
           unlink_requested_at?: string | null
           usage?: Json | null
+          usage_requested_at?: string | null
           version?: string | null
           watched_until?: string | null
         }
@@ -254,6 +256,7 @@ export type Database = {
           last_seen_at?: string | null
           unlink_requested_at?: string | null
           usage?: Json | null
+          usage_requested_at?: string | null
           version?: string | null
           watched_until?: string | null
         }

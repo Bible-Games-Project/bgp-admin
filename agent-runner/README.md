@@ -40,6 +40,12 @@ Settings → Claude open, and every 10 seconds otherwise. The answer is one of t
   the server checks the token with a one-word Claude call. The token lives only here, in
   `/var/lib/bgp-agent/claude.json` (600). The console only sees its last four characters.
 - **Unlink**: it deletes that file.
+- **Read the account's usage** (`refreshUsage`). The console only learns the account's limits from
+  Claude, so between messages the usage it shows gets old. When a page asks (the one it has is older
+  than 15 minutes, or someone pressed Refresh in Settings → Claude), the server makes one tiny call
+  (a word from Haiku, no tools, a one-line system prompt), which Claude answers with the current
+  limits, and reports them (`/api/agent/usage`). The token's scope (`user:inference`) doesn't allow
+  the usage endpoint Claude Code's `/usage` uses, so this is the way.
 
 Claude's instructions for this environment are in `lib.mjs` (`systemPrompt`). In short, they say:
 commit, don't push, run `bun run build` before finishing, and skip the steps in the game's AGENTS.md

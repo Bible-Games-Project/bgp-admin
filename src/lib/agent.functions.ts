@@ -35,6 +35,7 @@ import {
   type BuildAttachment,
   type PreviewDeployState,
   type TurnStatus,
+  usageIsStale,
 } from "@/lib/agent";
 
 async function assertAdmin(supabase: any, userId: string) {
@@ -53,7 +54,9 @@ const nowIso = () => new Date().toISOString();
 async function readRunner(supabase: any) {
   const { data, error } = await supabase
     .from("agent_runner")
-    .select("last_seen_at, host, version, busy, account, usage, unlink_requested_at")
+    .select(
+      "last_seen_at, host, version, busy, account, usage, unlink_requested_at, usage_requested_at",
+    )
     .eq("id", "main")
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -62,7 +65,28 @@ async function readRunner(supabase: any) {
     account: accountFrom(data?.account),
     usage: (data?.usage ?? null) as AgentUsage | null,
     unlinkPending: Boolean(data?.unlink_requested_at),
+    /** The build server has been asked for a fresh reading of the usage. */
+    usageRefreshPending: Boolean(data?.usage_requested_at),
   };
+}
+
+/**
+ * Asks the build server for a fresh reading of the account's usage: with a page open,
+ * whenever the one it has is older than USAGE_STALE_MINUTES; from the Refresh button, now.
+ * The server answers with a tiny Claude call (agent-runner/, doUsageRefresh).
+ */
+async function requestUsageRefresh(
+  state: Awaited<ReturnType<typeof readRunner>>,
+  { force = false } = {},
+) {
+  if (!state.account || state.account.rejectedAt || state.usageRefreshPending) return false;
+  if (!force && !usageIsStale(state.usage)) return false;
+  await admin()
+    .from("agent_runner")
+    .update({ usage_requested_at: nowIso() })
+    .eq("id", "main")
+    .is("usage_requested_at", null);
+  return true;
 }
 
 async function readSettings(supabase: any) {
@@ -102,9 +126,13 @@ export const getClaudeSettings = createServerFn({ method: "GET" })
         .limit(1),
     ]);
     const login = logins?.[0];
-    const budget = await weeklyBudgetNow(settings.weeklyBudgetPercent, runner.usage);
+    const [budget, refreshing] = await Promise.all([
+      weeklyBudgetNow(settings.weeklyBudgetPercent, runner.usage),
+      requestUsageRefresh(runner),
+    ]);
     return {
       ...runner,
+      usageRefreshPending: runner.usageRefreshPending || refreshing,
       settings,
       budget,
       login: login
@@ -229,6 +257,22 @@ export const unlinkClaudeAccount = createServerFn({ method: "POST" })
       .update({ unlink_requested_at: nowIso() })
       .eq("id", "main");
     if (error) throw new Error(error.message);
+    await keepRunnerWatching();
+    return { ok: true };
+  });
+
+/** The Refresh button: a fresh reading of the account's usage, whatever its age. */
+export const refreshClaudeUsage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const state = await readRunner(context.supabase);
+    if (!state.account) throw new Error("No Claude account is linked, so there's nothing to read.");
+    if (state.account.rejectedAt)
+      throw new Error("Claude no longer accepts the linked account. Link it again first.");
+    if (!state.runner.online)
+      throw new Error("The build server is offline; it reads the usage when it's back.");
+    await requestUsageRefresh(state, { force: true });
     await keepRunnerWatching();
     return { ok: true };
   });
@@ -369,6 +413,7 @@ export const getBuildChat = createServerFn({ method: "GET" })
     }
 
     const budget = await weeklyBudgetNow(settings.weeklyBudgetPercent, runner.usage);
+    if (!blocked) await requestUsageRefresh(runner);
     return {
       app: {
         id: app.id as string,

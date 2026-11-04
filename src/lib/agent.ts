@@ -93,7 +93,20 @@ export const RUNNER_OFFLINE_AFTER_SECONDS = 150;
 export const LOGIN_EXPIRES_MINUTES = 12;
 
 export type AgentUsageWindow = { percent: number; resetsAt: string | null };
+/** `at`: when Claude reported it. */
 export type AgentUsage = { fiveHour?: AgentUsageWindow; weekly?: AgentUsageWindow; at?: string };
+
+/**
+ * The account's usage only comes from Claude: at every call of a Build chat message,
+ * and, since it can be hours between messages, from a tiny call the build server makes
+ * when a page asks for a fresh reading older than this.
+ */
+export const USAGE_STALE_MINUTES = 15;
+
+export function usageIsStale(usage: AgentUsage | null | undefined, now = new Date()) {
+  const at = usage?.at ? Date.parse(usage.at) : NaN;
+  return !Number.isFinite(at) || now.getTime() - at > USAGE_STALE_MINUTES * 60_000;
+}
 
 // --- The weekly share ---------------------------------------------------------------------
 //

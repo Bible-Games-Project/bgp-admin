@@ -12,6 +12,7 @@ import {
   megabytes,
   overBudget,
   parseLine,
+  pingArgs,
   plainText,
   promptWithAttachments,
   protectedPaths,
@@ -182,6 +183,16 @@ describe("claudeArgs", () => {
       claudeArgs({ prompt: "x", model: "m", sessionId: null, maxTurns: 1, job }),
     ).not.toContain("--resume");
   });
+});
+
+test("pingArgs is one word from a small model with nothing else", () => {
+  const args = pingArgs("claude-haiku-5-5");
+  expect(args[args.indexOf("--model") + 1]).toBe("claude-haiku-5-5");
+  expect(args[args.indexOf("--max-turns") + 1]).toBe("1");
+  expect(args[args.indexOf("--tools") + 1]).toBe("");
+  expect(args).toContain("--system-prompt");
+  expect(args).toContain("stream-json");
+  expect(args).not.toContain("--dangerously-skip-permissions");
 });
 
 test("systemPrompt says how this environment differs", () => {
