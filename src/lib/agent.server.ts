@@ -207,10 +207,13 @@ async function poll(body: Record<string, unknown>) {
     if (job) return { turn: job };
   }
 
-  // A page asked for a fresh reading of the account's usage (last, after any message).
+  // A page asked for a fresh reading of the account's usage (last, after any message). The
+  // request stays until the reading arrives (usageReport), so the page doesn't ask again
+  // meanwhile; one the server never answered is dropped after a while.
   if (runner.usage_requested_at) {
+    const stale = now.getTime() - Date.parse(runner.usage_requested_at) > 10 * 60_000;
+    if (!stale && account && !account.rejectedAt) return { refreshUsage: true };
     await db().from("agent_runner").update({ usage_requested_at: null }).eq("id", "main");
-    if (account && !account.rejectedAt) return { refreshUsage: true };
   }
 
   const watched = runner.watched_until && Date.parse(runner.watched_until) > now.getTime();
@@ -225,7 +228,12 @@ async function usageReport(body: Record<string, unknown>) {
     console.warn(`[agent] usage refresh: ${body.error.slice(0, 300)}`);
   await db()
     .from("agent_runner")
-    .update({ last_seen_at: iso(new Date()), busy: false, ...(usage ? { usage } : {}) })
+    .update({
+      last_seen_at: iso(new Date()),
+      busy: false,
+      usage_requested_at: null,
+      ...(usage ? { usage } : {}),
+    })
     .eq("id", "main");
   return { ok: true };
 }

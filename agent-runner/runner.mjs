@@ -900,11 +900,11 @@ async function doUsageRefresh() {
     const ping = await claudePing(token);
     if (ping.rejected) markRejected();
     await api("usage", { usage: ping.usage, error: ping.ok ? undefined : ping.why });
-    log(
-      ping.usage
-        ? `usage: ${ping.usage.weekly?.percent ?? "?"}% of the week, ${ping.usage.fiveHour?.percent ?? "?"}% of the 5 hours`
-        : `the usage wasn't reported: ${ping.why}`,
-    );
+    const windows = [
+      ping.usage?.weekly && `${ping.usage.weekly.percent}% of the week`,
+      ping.usage?.fiveHour && `${ping.usage.fiveHour.percent}% of the 5 hours`,
+    ].filter(Boolean);
+    log(windows.length ? `usage: ${windows.join(", ")}` : `the usage wasn't reported: ${ping.why}`);
   } catch (error) {
     log(`reading the usage: ${error.message}`);
     await api("usage", { error: error.message }).catch(() => {});
