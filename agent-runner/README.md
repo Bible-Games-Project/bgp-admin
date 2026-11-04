@@ -45,6 +45,27 @@ Claude's instructions for this environment are in `lib.mjs` (`systemPrompt`). In
 commit, don't push, run `bun run build` before finishing, and skip the steps in the game's AGENTS.md
 about pushing, deploy polling and Artifacts. Everything else in the game's AGENTS.md applies.
 
+### Attached files
+
+A message can carry files (photos, PDFs, text files; up to 8, 20 MB each). The console keeps them in
+Storage (bucket `agent-attachments`) and hands the turn a signed link to each. Before Claude starts,
+the server fetches them into `/var/lib/bgp-agent/attachments/<chat id>/`, which Claude's container
+sees as `/attachments` (read-only), and the message ends with the list of them. Claude Code's Read
+tool shows it images and PDFs. Files from earlier messages of the same chat stay in the folder; a
+chat's folder untouched for two months is dropped.
+
+### The weekly share
+
+Settings → Claude says how much of the Claude account's weekly limit the Build chat may use (10% by
+default; 0 for no limit). Claude reports the account's usage at every call it makes, so each turn
+knows the usage when it started and when it ended, and the difference is what the turn used. The
+console adds those up over the current week (`weekly_spent` on `agent_turns`), refuses new messages
+once the share is used, and tells the server the share and what is used so far with each turn
+(`job.budget`). If the share runs out during a turn, the server stops Claude after the call that
+crossed it, like Stop: the commits it had made are pushed, the rest waits until the limit resets. The
+reports come in whole percents, and anything else using the account during a turn counts, so the
+share is approximate by a percent or two.
+
 ## What Claude can and can't do
 
 - **It can only reach the Claude API and the npm registry.** The container sits on a Docker network with

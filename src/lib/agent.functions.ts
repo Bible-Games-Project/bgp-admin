@@ -9,21 +9,30 @@ import { githubHeaders } from "@/lib/github.functions";
 import { failureExcerpt } from "@/lib/deploy-failure";
 import { isWebGame, NOT_A_WEB_GAME_MESSAGE } from "@/lib/app-kind";
 import { isSelfRepo } from "@/lib/self-repo";
-import { keepRunnerWatching } from "@/lib/agent.server";
+import { keepRunnerWatching, weeklyBudgetNow } from "@/lib/agent.server";
 import {
   AGENT_EFFORTS,
   AGENT_EFFORT_SETTING,
   AGENT_MODELS,
   AGENT_MODEL_SETTING,
+  AGENT_SETTING_KEYS,
+  AGENT_WEEKLY_BUDGET_SETTING,
+  ATTACHMENTS_BUCKET,
+  ATTACHMENTS_PER_MESSAGE,
   MAX_PROMPT_CHARS,
   accountFrom,
   agentSettingsFrom,
+  attachmentProblem,
+  attachmentType,
+  budgetExhaustedMessage,
   isActiveTurn,
   isClaudeToken,
   previewDeployState,
   runnerView,
+  safeFileName,
   type AgentEvent,
   type AgentUsage,
+  type BuildAttachment,
   type PreviewDeployState,
   type TurnStatus,
 } from "@/lib/agent";
@@ -60,7 +69,7 @@ async function readSettings(supabase: any) {
   const { data } = await supabase
     .from("app_settings")
     .select("key, value")
-    .in("key", [AGENT_MODEL_SETTING, AGENT_EFFORT_SETTING]);
+    .in("key", AGENT_SETTING_KEYS);
   return agentSettingsFrom(data ?? []);
 }
 
@@ -93,9 +102,11 @@ export const getClaudeSettings = createServerFn({ method: "GET" })
         .limit(1),
     ]);
     const login = logins?.[0];
+    const budget = await weeklyBudgetNow(settings.weeklyBudgetPercent, runner.usage);
     return {
       ...runner,
       settings,
+      budget,
       login: login
         ? ({
             id: login.id,
@@ -229,6 +240,10 @@ export const saveAgentSettings = createServerFn({ method: "POST" })
       .object({
         model: z.enum(AGENT_MODELS.map((m) => m.id) as [string, ...string[]]),
         effort: z.enum(AGENT_EFFORTS.map((e) => e.id) as [string, ...string[]]),
+        weeklyBudgetPercent: z
+          .number({ invalid_type_error: "Write a number from 0 to 100." })
+          .min(0, "The share can't be negative.")
+          .max(100, "The share can't be over 100%."),
       })
       .parse(input),
   )
@@ -239,6 +254,11 @@ export const saveAgentSettings = createServerFn({ method: "POST" })
       .upsert([
         { key: AGENT_MODEL_SETTING, value: data.model, updated_at: nowIso() },
         { key: AGENT_EFFORT_SETTING, value: data.effort, updated_at: nowIso() },
+        {
+          key: AGENT_WEEKLY_BUDGET_SETTING,
+          value: Math.round(data.weeklyBudgetPercent * 10) / 10,
+          updated_at: nowIso(),
+        },
       ]);
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -260,6 +280,7 @@ export type BuildTurn = {
   commits: number;
   pushedSha: string | null;
   events: AgentEvent[];
+  attachments: BuildAttachment[];
 };
 
 async function loadBuildApp(supabase: any, appId: string) {
@@ -312,11 +333,12 @@ export const getBuildChat = createServerFn({ method: "GET" })
       const { data: rows, error } = await supabase
         .from("agent_turns")
         .select(
-          "id, prompt, status, created_at, started_at, finished_at, created_by_email, cancel_requested_at, reply, error, commits, pushed_sha, agent_events(id, kind, body, created_at)",
+          "id, prompt, status, created_at, started_at, finished_at, created_by_email, cancel_requested_at, reply, error, commits, pushed_sha, agent_events(id, kind, body, created_at), agent_attachments(id, name, content_type, size, thumbnail, created_at)",
         )
         .eq("chat_id", chat.id)
         .order("created_at", { ascending: false })
         .order("id", { referencedTable: "agent_events", ascending: true })
+        .order("created_at", { referencedTable: "agent_attachments", ascending: true })
         .limit(TURNS_SHOWN);
       if (error) throw new Error(error.message);
       turns = (rows ?? []).reverse().map((t: any) => ({
@@ -333,6 +355,7 @@ export const getBuildChat = createServerFn({ method: "GET" })
         commits: t.commits,
         pushedSha: t.pushed_sha,
         events: t.agent_events ?? [],
+        attachments: (t.agent_attachments ?? []).map(attachmentView),
       }));
     }
 
@@ -345,6 +368,7 @@ export const getBuildChat = createServerFn({ method: "GET" })
         waitingFor = ahead.apps?.name ?? "another game";
     }
 
+    const budget = await weeklyBudgetNow(settings.weeklyBudgetPercent, runner.usage);
     return {
       app: {
         id: app.id as string,
@@ -358,9 +382,128 @@ export const getBuildChat = createServerFn({ method: "GET" })
       turns,
       waitingFor,
       settings,
+      budget,
       ...runner,
     };
   });
+
+// --- Attachments ---------------------------------------------------------------------------
+
+type AttachmentRow = {
+  id: string;
+  name: string;
+  content_type: string;
+  size: number;
+  thumbnail?: string | null;
+};
+
+const attachmentView = (row: AttachmentRow): BuildAttachment => ({
+  id: row.id,
+  name: row.name,
+  contentType: row.content_type,
+  size: row.size,
+  thumbnail: row.thumbnail ?? null,
+});
+
+/**
+ * A file to send with the next message: kept in Storage from now, tied to the message when
+ * it's sent (sendBuildMessage). The form carries appId, file and, for an image, a small
+ * thumbnail made in the browser for the chat to show.
+ */
+export const uploadBuildAttachment = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => {
+    if (!(input instanceof FormData)) throw new Error("Expected a form with the file.");
+    const appId = z.string().uuid().parse(input.get("appId"));
+    const file = input.get("file");
+    if (!(file instanceof File)) throw new Error("No file was sent.");
+    const thumbnail = input.get("thumbnail");
+    return {
+      appId,
+      file,
+      thumbnail:
+        typeof thumbnail === "string" &&
+        thumbnail.length <= 60_000 &&
+        /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(thumbnail)
+          ? thumbnail
+          : null,
+    };
+  })
+  .handler(async ({ data, context }): Promise<BuildAttachment> => {
+    const { supabase } = context;
+    await assertAdmin(supabase, context.userId);
+    const { app, blocked } = await loadBuildApp(supabase, data.appId);
+    if (blocked) throw new Error(blocked);
+    const problem = attachmentProblem(data.file);
+    if (problem) throw new Error(problem);
+    const contentType = attachmentType(data.file.name)!;
+    const name = safeFileName(data.file.name);
+    const id = crypto.randomUUID();
+    const storagePath = `${app.id}/${id}/${name}`;
+    const { error: uploadError } = await admin()
+      .storage.from(ATTACHMENTS_BUCKET)
+      .upload(storagePath, await data.file.arrayBuffer(), { contentType, upsert: false });
+    if (uploadError) throw new Error(`The file couldn't be kept: ${uploadError.message}`);
+    const row = {
+      id,
+      app_id: app.id,
+      name,
+      content_type: contentType,
+      size: data.file.size,
+      storage_path: storagePath,
+      thumbnail: data.thumbnail,
+      created_by: context.userId,
+    };
+    const { error } = await admin().from("agent_attachments").insert(row);
+    if (error) {
+      await admin().storage.from(ATTACHMENTS_BUCKET).remove([storagePath]);
+      throw new Error(error.message);
+    }
+    return attachmentView(row);
+  });
+
+/** A link to open an attached file, good for ten minutes. */
+export const getBuildAttachmentUrl = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { data: row, error } = await context.supabase
+      .from("agent_attachments")
+      .select("storage_path")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!row) throw new Error("That file is gone.");
+    const { data: signed, error: signError } = await admin()
+      .storage.from(ATTACHMENTS_BUCKET)
+      .createSignedUrl(row.storage_path, 600);
+    if (signError) throw new Error(signError.message);
+    return { url: signed.signedUrl as string };
+  });
+
+/** Files uploaded for a message that was never sent are dropped after a day. */
+async function dropStaleAttachments(appId: string) {
+  const { data } = await admin()
+    .from("agent_attachments")
+    .select("id, storage_path")
+    .eq("app_id", appId)
+    .is("turn_id", null)
+    .lt("created_at", new Date(Date.now() - 24 * 3600_000).toISOString())
+    .limit(50);
+  const stale = (data ?? []) as { id: string; storage_path: string }[];
+  if (!stale.length) return;
+  await admin()
+    .storage.from(ATTACHMENTS_BUCKET)
+    .remove(stale.map((a) => a.storage_path));
+  await admin()
+    .from("agent_attachments")
+    .delete()
+    .in(
+      "id",
+      stale.map((a) => a.id),
+    );
+}
 
 /** Sends a message to Claude. It waits in the build server's queue until its turn. */
 export const sendBuildMessage = createServerFn({ method: "POST" })
@@ -377,6 +520,10 @@ export const sendBuildMessage = createServerFn({ method: "POST" })
             MAX_PROMPT_CHARS,
             `Keep it under ${MAX_PROMPT_CHARS.toLocaleString("en")} characters.`,
           ),
+        attachmentIds: z
+          .array(z.string().uuid())
+          .max(ATTACHMENTS_PER_MESSAGE, `At most ${ATTACHMENTS_PER_MESSAGE} files per message.`)
+          .optional(),
       })
       .parse(input),
   )
@@ -385,13 +532,30 @@ export const sendBuildMessage = createServerFn({ method: "POST" })
     await assertAdmin(supabase, context.userId);
     const { app, blocked } = await loadBuildApp(supabase, data.appId);
     if (blocked) throw new Error(blocked);
-    const { account } = await readRunner(supabase);
+    const [{ account, usage }, settings] = await Promise.all([
+      readRunner(supabase),
+      readSettings(supabase),
+    ]);
     if (!account)
       throw new Error("No Claude account is linked yet. Link one in Settings → Claude.");
     if (account.rejectedAt)
       throw new Error(
         "Claude no longer accepts the linked account. Link it again in Settings → Claude.",
       );
+    const budget = await weeklyBudgetNow(settings.weeklyBudgetPercent, usage);
+    if (budget.exhausted) throw new Error(budgetExhaustedMessage(budget));
+
+    const attachmentIds = [...new Set(data.attachmentIds ?? [])];
+    if (attachmentIds.length) {
+      const { data: found } = await admin()
+        .from("agent_attachments")
+        .select("id")
+        .in("id", attachmentIds)
+        .eq("app_id", app.id)
+        .is("turn_id", null);
+      if ((found ?? []).length !== attachmentIds.length)
+        throw new Error("One of the attached files is gone. Remove it and attach it again.");
+    }
 
     let { data: chat } = await admin()
       .from("agent_chats")
@@ -440,7 +604,15 @@ export const sendBuildMessage = createServerFn({ method: "POST" })
       .select("id")
       .single();
     if (error) throw new Error(error.message);
-    await keepRunnerWatching();
+    if (attachmentIds.length) {
+      const { error: linkError } = await admin()
+        .from("agent_attachments")
+        .update({ turn_id: turn.id })
+        .in("id", attachmentIds)
+        .is("turn_id", null);
+      if (linkError) throw new Error(linkError.message);
+    }
+    await Promise.all([keepRunnerWatching(), dropStaleAttachments(app.id).catch(() => {})]);
     return { turnId: turn.id as string };
   });
 

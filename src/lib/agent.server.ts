@@ -6,17 +6,23 @@ import { githubHeaders, PREVIEW_WORKFLOW_PATH } from "@/lib/github.functions";
 import { PREVIEW_DISABLED_STEP } from "@/lib/capacitor.functions";
 import { isSelfRepo } from "@/lib/self-repo";
 import {
+  ATTACHMENTS_BUCKET,
   LOGIN_EXPIRES_MINUTES,
   POLL_FAST_SECONDS,
   POLL_IDLE_SECONDS,
   WATCH_SECONDS,
   accountFrom,
   agentSettingsFrom,
-  AGENT_EFFORT_SETTING,
-  AGENT_MODEL_SETTING,
+  AGENT_SETTING_KEYS,
+  budgetExhaustedMessage,
   cleanEvent,
+  currentWeeklyWindow,
   isDeployKey,
   sameSecret,
+  turnWeeklySpend,
+  weeklyBudgetFrom,
+  type AgentUsage,
+  type WeeklyBudget,
 } from "@/lib/agent";
 
 // The tables are typed, but the nested selects below read more easily untyped.
@@ -41,6 +47,29 @@ export function checkRunnerToken(request: Request) {
 
 const iso = (date: Date) => date.toISOString();
 const str = (value: unknown, max = 500) => (typeof value === "string" ? value.slice(0, max) : null);
+
+/**
+ * What the Build chat has used of the account's weekly limit in the current window, against
+ * the share Settings → Claude allows it. `usage` is the account's usage as the build server
+ * last reported it (agent_runner.usage): it says which window we are in.
+ */
+export async function weeklyBudgetNow(
+  percent: number,
+  usage: AgentUsage | null,
+  now = new Date(),
+): Promise<WeeklyBudget> {
+  const resetsAt = currentWeeklyWindow(usage, now);
+  let spends: (number | null)[] = [];
+  if (resetsAt) {
+    const { data, error } = await db()
+      .from("agent_turns")
+      .select("weekly_spent")
+      .eq("weekly_resets_at", resetsAt);
+    if (error) throw new Error(error.message);
+    spends = ((data ?? []) as { weekly_spent: number | null }[]).map((t) => t.weekly_spent);
+  }
+  return weeklyBudgetFrom(percent, usage, spends, now);
+}
 
 /** Someone is looking: the server asks for work every couple of seconds for a while. */
 export async function keepRunnerWatching() {
@@ -201,31 +230,36 @@ async function claimTurn(turn: any, now: Date) {
       .eq("id", turn.id);
     return null;
   };
-  const [{ data: app }, { data: chat }, { data: settingRows }] = await Promise.all([
-    db()
-      .from("apps")
-      .select("id, github_owner, github_repo, default_ref")
-      .eq("id", turn.app_id)
-      .maybeSingle(),
-    db().from("agent_chats").select("session_id").eq("id", turn.chat_id).maybeSingle(),
-    db()
-      .from("app_settings")
-      .select("key, value")
-      .in("key", [AGENT_MODEL_SETTING, AGENT_EFFORT_SETTING]),
-  ]);
+  const [{ data: app }, { data: chat }, { data: settingRows }, { data: runner }] =
+    await Promise.all([
+      db()
+        .from("apps")
+        .select("id, github_owner, github_repo, default_ref")
+        .eq("id", turn.app_id)
+        .maybeSingle(),
+      db().from("agent_chats").select("session_id").eq("id", turn.chat_id).maybeSingle(),
+      db().from("app_settings").select("key, value").in("key", AGENT_SETTING_KEYS),
+      db().from("agent_runner").select("usage").eq("id", "main").maybeSingle(),
+    ]);
   if (!app?.github_owner || !app?.github_repo)
     return fail("This game has no GitHub repo any more.");
   if (isSelfRepo(app.github_owner, app.github_repo))
     return fail("The console isn't built from its own chat.");
 
+  const settings = agentSettingsFrom(settingRows ?? []);
+  // Queued before the share ran out (another game's message used the rest): not started.
+  const budget = await weeklyBudgetNow(settings.weeklyBudgetPercent, runner?.usage ?? null, now);
+  if (budget.exhausted) return fail(budgetExhaustedMessage(budget));
+
   const repo = `${app.github_owner}/${app.github_repo}`.toLowerCase();
-  const [{ data: key }, previewUrl] = await Promise.all([
+  const [{ data: key }, previewUrl, attachments] = await Promise.all([
     db().from("agent_repo_keys").select("public_key").eq("repo", repo).maybeSingle(),
     previewUrlFor(app).catch(() => null),
+    attachmentsOf(turn.id),
   ]);
-  const settings = agentSettingsFrom(settingRows ?? []);
   return {
     id: turn.id,
+    chatId: turn.chat_id,
     prompt: turn.prompt,
     sessionId: chat?.session_id ?? null,
     repo: { owner: app.github_owner, name: app.github_repo },
@@ -235,7 +269,45 @@ async function claimTurn(turn: any, now: Date) {
     author: { email: turn.created_by_email },
     model: settings.model,
     effort: settings.effort,
+    attachments,
+    budget,
   };
+}
+
+/**
+ * The files sent with a message, each with a link the build server can fetch it from for
+ * the next hour (the server fetches them right away, before Claude starts).
+ */
+type AttachmentRow = {
+  id: string;
+  name: string;
+  content_type: string;
+  size: number;
+  storage_path: string;
+};
+
+async function attachmentsOf(turnId: string) {
+  const { data } = await db()
+    .from("agent_attachments")
+    .select("id, name, content_type, size, storage_path")
+    .eq("turn_id", turnId)
+    .order("created_at", { ascending: true });
+  const rows = (data ?? []) as AttachmentRow[];
+  if (!rows.length) return [];
+  const { data: signed, error } = await db()
+    .storage.from(ATTACHMENTS_BUCKET)
+    .createSignedUrls(
+      rows.map((r) => r.storage_path),
+      3600,
+    );
+  if (error) console.error("[agent] signing attachments:", error.message);
+  return rows.map((r, i: number) => ({
+    id: r.id,
+    name: r.name,
+    contentType: r.content_type,
+    size: r.size,
+    url: signed?.[i]?.signedUrl ?? null,
+  }));
 }
 
 // --- During and after a turn ------------------------------------------------------------------
@@ -280,7 +352,13 @@ async function finishTurn(body: Record<string, unknown>) {
     .eq("id", id)
     .maybeSingle();
   if (!turn) throw new AgentApiError("No such turn", 404);
-  const usage = body.usage && typeof body.usage === "object" ? body.usage : null;
+  const usage = body.usage && typeof body.usage === "object" ? (body.usage as AgentUsage) : null;
+  const usageBefore =
+    body.usageBefore && typeof body.usageBefore === "object"
+      ? (body.usageBefore as AgentUsage)
+      : null;
+  // What this message used of the weekly limit, for the chat's share (weeklyBudgetNow).
+  const spend = turnWeeklySpend(usageBefore, usage);
   const sessionId = str(body.sessionId, 100);
   const now = iso(new Date());
   await Promise.all([
@@ -294,6 +372,8 @@ async function finishTurn(body: Record<string, unknown>) {
         commits: Number.isInteger(body.commits) ? body.commits : 0,
         pushed_sha: /^[0-9a-f]{40}$/.test(String(body.pushedSha)) ? body.pushedSha : null,
         usage,
+        weekly_spent: spend?.spent ?? null,
+        weekly_resets_at: spend?.resetsAt ?? null,
         finished_at: now,
       })
       .eq("id", turn.id)

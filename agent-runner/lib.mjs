@@ -30,6 +30,7 @@ export function systemPrompt(job) {
     "- Where the repository's instructions (AGENTS.md, docs/agents/working-style.md) say to push, to wait for or poll the deploy, to check GitHub Actions or to publish an Artifact, skip that step: the console does it. Everything else in them applies, above all the native boundary.",
     "- Before you finish a change, run the build (`bun run build`) and make sure it passes: if it fails, the preview doesn't update. Dependencies are already installed; if you add one, run `bun install`.",
     "- You can't open the preview or a browser. Say what you changed and what to look at in the preview on the right.",
+    `- Files the person attaches to a message are in ${job.attachmentsDir ?? "/attachments"} (read-only; the message lists them). Read them with the Read tool: images and PDFs are shown to you. Files from earlier messages stay there. To use one in the game, copy it into the repository.`,
     "- Each message is one step of an ongoing conversation, not the end of a working session: only update AGENTS.md when you learned something the next agent really needs.",
     "",
     "Talking to them: reply in the language of their message. Keep it short and plain, with no code unless they ask for it. Lead with what you did or found. If something can't be done, or you need a decision from them, say so and ask one clear question.",
@@ -43,6 +44,50 @@ export function promptWithLostHistory(prompt) {
     "",
     prompt,
   ].join("\n");
+}
+
+/** What a file's size reads like. */
+export function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${Math.round((bytes / 1024 / 1024) * 10) / 10} MB`;
+}
+
+/** The message with the files sent with it listed at the end, where Claude finds them. */
+export function promptWithAttachments(prompt, files, dir = "/attachments") {
+  if (!files?.length) return prompt;
+  const kind = (type) =>
+    type?.startsWith("image/") ? "image" : type === "application/pdf" ? "PDF" : "text file";
+  return [
+    prompt,
+    "",
+    files.length === 1
+      ? "Attached file (read it with the Read tool):"
+      : "Attached files (read them with the Read tool):",
+    ...files.map((f) => `- ${dir}/${f.name} (${kind(f.contentType)}, ${formatBytes(f.size)})`),
+  ].join("\n");
+}
+
+/** A file name safe for the container, keeping the extension (same rule as the console). */
+export function safeFileName(name) {
+  const clean = String(name ?? "")
+    .normalize("NFKD")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[-.]+/, "")
+    .slice(0, 80);
+  return clean || "file";
+}
+
+/** `name`, or name-2, name-3… when a file of that name is already among `taken`. */
+export function uniqueFileName(name, taken) {
+  if (!taken.includes(name)) return name;
+  const dot = name.lastIndexOf(".");
+  const [base, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  for (let n = 2; ; n++) {
+    const candidate = `${base}-${n}${ext}`;
+    if (!taken.includes(candidate)) return candidate;
+  }
 }
 
 /** The CLI's arguments. The account's token is never among them: it goes in an env file. */
@@ -176,6 +221,47 @@ export function usageFrom(info, at = new Date()) {
   } else if (info.rateLimitType === "five_hour") put("fiveHour", info);
   else if (info.rateLimitType === "seven_day") put("weekly", info);
   return Object.keys(usage).length ? { ...usage, at: at.toISOString() } : null;
+}
+
+// --- The weekly share -------------------------------------------------------------------
+//
+// Settings → Claude caps what the Build chat may use of the account's weekly limit. The
+// turn comes with the share and what the chat has used in the current window
+// (job.budget: { percent, spent, resetsAt }); during the session, the account's usage at
+// each call says how much this turn has added. Same arithmetic as the console's
+// (src/lib/agent.ts, turnWeeklySpend).
+
+/** What the chat has used this week, counting this turn so far. */
+export function weeklySpent(budget, before, after) {
+  const a = after?.weekly;
+  if (!a) return budget?.spent ?? 0;
+  const base = budget?.resetsAt && a.resetsAt === budget.resetsAt ? budget.spent : 0;
+  const b = before?.weekly;
+  const delta = b && b.resetsAt === a.resetsAt ? Math.max(0, a.percent - b.percent) : 0;
+  return Math.round((base + delta) * 10) / 10;
+}
+
+export function overBudget(budget, before, after) {
+  return Boolean(budget?.percent > 0) && weeklySpent(budget, before, after) >= budget.percent;
+}
+
+/** "Friday at 07:00", in the console's time zone. */
+export function resetLabel(resetsAt) {
+  if (!resetsAt) return "when the limit resets";
+  const date = new Date(resetsAt);
+  const weekday = date.toLocaleDateString("en-GB", { weekday: "long", timeZone: "Europe/Madrid" });
+  const time = date.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Madrid",
+  });
+  return `${weekday} at ${time}`;
+}
+
+/** Why a session was stopped when the share ran out under it. */
+export function budgetStopMessage(budget, after) {
+  const resetsAt = after?.weekly?.resetsAt ?? budget?.resetsAt ?? null;
+  return `The Build chat has used its share of the Claude account's weekly limit (${budget.percent}% of it), so Claude was stopped here. What it had already saved is kept; the rest waits until ${resetLabel(resetsAt)}. The share is set in Settings → Claude.`;
 }
 
 /**

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
   availableMegabytes,
+  budgetStopMessage,
   claudeArgs,
   eventsFrom,
   isClaudeToken,
@@ -9,13 +10,18 @@ import {
   loginToken,
   loginUrl,
   megabytes,
+  overBudget,
   parseLine,
   plainText,
+  promptWithAttachments,
   protectedPaths,
   readResult,
+  safeFileName,
   stepLabel,
   systemPrompt,
+  uniqueFileName,
   usageFrom,
+  weeklySpent,
 } from "./lib.mjs";
 import { isAllowedHost, parseTarget } from "./egress.mjs";
 
@@ -182,7 +188,64 @@ test("systemPrompt says how this environment differs", () => {
   const text = systemPrompt(job);
   expect(text).toContain("Don't push");
   expect(text).toContain("https://bgp-bible-rpg.pages.dev");
+  expect(text).toContain("/attachments");
   expect(systemPrompt({ ...job, previewUrl: null })).toContain("no Cloudflare preview");
+  expect(systemPrompt({ ...job, attachmentsDir: "/tmp/att" })).toContain("/tmp/att");
+});
+
+describe("attachments", () => {
+  test("the message lists the files where Claude finds them", () => {
+    const files = [
+      { name: "logo.png", contentType: "image/png", size: 120 * 1024 },
+      { name: "brief.pdf", contentType: "application/pdf", size: 2 * 1024 * 1024 },
+    ];
+    const prompt = promptWithAttachments("Use this logo", files);
+    expect(prompt.startsWith("Use this logo\n\nAttached files")).toBe(true);
+    expect(prompt).toContain("- /attachments/logo.png (image, 120 KB)");
+    expect(prompt).toContain("- /attachments/brief.pdf (PDF, 2 MB)");
+    expect(promptWithAttachments("x", [files[0]], "/tmp/a")).toContain(
+      "Attached file (read it with the Read tool):\n- /tmp/a/logo.png",
+    );
+    expect(promptWithAttachments("x", [])).toBe("x");
+  });
+
+  test("file names are safe and unique", () => {
+    expect(safeFileName("../../etc/passwd")).toBe("etc-passwd");
+    expect(safeFileName("Foto de perfil (1).JPG")).toBe("Foto-de-perfil-1-.JPG");
+    expect(uniqueFileName("logo.png", ["logo.png", "logo-2.png"])).toBe("logo-3.png");
+    expect(uniqueFileName("notes", ["notes"])).toBe("notes-2");
+    expect(uniqueFileName("logo.png", [])).toBe("logo.png");
+  });
+});
+
+describe("the weekly share", () => {
+  const window = "2026-11-06T06:00:00.000Z";
+  const at = (percent, resetsAt = window) => ({ weekly: { percent, resetsAt } });
+  const budget = { percent: 10, spent: 8, resetsAt: window };
+
+  test("counts what the chat used before plus this turn so far", () => {
+    expect(weeklySpent(budget, at(54), at(55))).toBe(9);
+    expect(overBudget(budget, at(54), at(55))).toBe(false);
+    expect(overBudget(budget, at(54), at(56))).toBe(true);
+    // A share that was already used up stops the turn at its first call.
+    expect(overBudget({ ...budget, spent: 10 }, at(54), at(54))).toBe(true);
+  });
+
+  test("a new window starts from nothing, and no share means no stop", () => {
+    const next = "2026-11-13T06:00:00.000Z";
+    expect(weeklySpent(budget, at(99), at(1, next))).toBe(0);
+    expect(weeklySpent({ ...budget, resetsAt: null }, at(1, next), at(3, next))).toBe(2);
+    expect(overBudget({ percent: 0, spent: 50, resetsAt: window }, at(1), at(99))).toBe(false);
+    expect(overBudget(null, at(1), at(99))).toBe(false);
+    expect(weeklySpent(budget, null, null)).toBe(8);
+  });
+
+  test("says why it stopped and when it resets", () => {
+    const why = budgetStopMessage(budget, at(56));
+    expect(why).toContain("10% of it");
+    expect(why).toContain("Friday at 07:00");
+    expect(why).toContain("Settings → Claude");
+  });
 });
 
 test("protectedPaths is the native boundary", () => {

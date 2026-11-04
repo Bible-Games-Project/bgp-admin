@@ -29,6 +29,60 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_attachments: {
+        Row: {
+          app_id: string
+          content_type: string
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          size: number
+          storage_path: string
+          thumbnail: string | null
+          turn_id: string | null
+        }
+        Insert: {
+          app_id: string
+          content_type: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          size: number
+          storage_path: string
+          thumbnail?: string | null
+          turn_id?: string | null
+        }
+        Update: {
+          app_id?: string
+          content_type?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          size?: number
+          storage_path?: string
+          thumbnail?: string | null
+          turn_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_attachments_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "apps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_attachments_turn_id_fkey"
+            columns: ["turn_id"]
+            isOneToOne: false
+            referencedRelation: "agent_turns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_chats: {
         Row: {
           app_id: string
@@ -223,6 +277,8 @@ export type Database = {
           started_at: string | null
           status: string
           usage: Json | null
+          weekly_resets_at: string | null
+          weekly_spent: number | null
         }
         Insert: {
           app_id: string
@@ -241,6 +297,8 @@ export type Database = {
           started_at?: string | null
           status?: string
           usage?: Json | null
+          weekly_resets_at?: string | null
+          weekly_spent?: number | null
         }
         Update: {
           app_id?: string
@@ -259,6 +317,8 @@ export type Database = {
           started_at?: string | null
           status?: string
           usage?: Json | null
+          weekly_resets_at?: string | null
+          weekly_spent?: number | null
         }
         Relationships: [
           {

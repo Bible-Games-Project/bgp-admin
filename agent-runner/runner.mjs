@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import * as lib from "./lib.mjs";
 
-const VERSION = "1";
+const VERSION = "2";
 const env = process.env;
 const CONFIG = {
   console: (env.CONSOLE_URL ?? "https://bgp-admin-preview.biblegamesproject.workers.dev").replace(
@@ -71,6 +71,10 @@ CONFIG.minFreeMb = Number(env.AGENT_MIN_FREE_MB ?? lib.megabytes(CONFIG.memory) 
 const ACCOUNT = join(CONFIG.state, "claude.json");
 const CURRENT = join(CONFIG.state, "current.json");
 const LOGS = join(CONFIG.state, "logs");
+// The files sent with the chats' messages, one folder per chat (see fetchAttachments).
+const ATTACHMENTS = join(CONFIG.state, "attachments");
+const ATTACHMENTS_MOUNT = "/attachments";
+const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
 const KNOWN_HOSTS = join(CONFIG.state, ".ssh", "known_hosts");
 const TURN_CONTAINER = "bgp-agent-turn";
 const LOGIN_CONTAINER = "bgp-agent-login";
@@ -226,6 +230,7 @@ function dockerArgs({
   network = CONFIG.network,
   repoDir,
   homeDir,
+  attachmentsDir,
   envFile,
   extraEnv = {},
   tty = false,
@@ -261,6 +266,8 @@ function dockerArgs({
     ...(homeDir
       ? ["-v", `${homeDir}:/home/agent`]
       : ["--tmpfs", `/home/agent:rw,size=64m,uid=${uid},gid=${gid},mode=0700`]),
+    // The chat's attached files, which Claude may read and copy into the game, not change
+    ...(attachmentsDir ? ["-v", `${attachmentsDir}:${ATTACHMENTS_MOUNT}:ro`] : []),
     ...(envFile ? ["--env-file", envFile] : []),
     "-e",
     "HOME=/home/agent",
@@ -475,7 +482,11 @@ class TurnReporter {
     this.id = id;
     this.pending = [];
     this.sessionId = null;
+    // The account's usage as Claude first and last reported it in this turn: the
+    // difference is what the turn used (the console adds it to the chat's weekly share).
     this.usage = null;
+    this.usageBefore = null;
+    this.budgetStop = false;
     this.cancelled = false;
     this.onCancel = null;
     this.lastSent = 0;
@@ -522,14 +533,14 @@ class TurnReporter {
 }
 
 // One Claude session: streams what it does to the reporter as it goes.
-async function runClaude(job, repo, reporter, { prompt, sessionId }) {
+async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }) {
   const args = lib.claudeArgs({
-    prompt,
+    prompt: lib.promptWithAttachments(prompt, attachments.files, attachments.mount),
     model: job.model,
     effort: job.effort,
     sessionId,
     maxTurns: CONFIG.maxTurns,
-    job,
+    job: { ...job, attachmentsDir: attachments.mount },
   });
   let child;
   let secrets = null;
@@ -541,6 +552,7 @@ async function runClaude(job, repo, reporter, { prompt, sessionId }) {
       dockerArgs({
         name: TURN_CONTAINER,
         ...repo,
+        attachmentsDir: attachments.dir,
         envFile: secrets,
         extraEnv: claudeEnv(job),
         command: ["claude", ...args],
@@ -576,7 +588,17 @@ async function runClaude(job, repo, reporter, { prompt, sessionId }) {
     if (message.type === "system" && message.subtype === "init" && message.session_id) {
       reporter.sessionId = message.session_id;
     } else if (message.type === "rate_limit_event") {
-      reporter.usage = { ...reporter.usage, ...lib.usageFrom(message.rate_limit_info) };
+      const usage = lib.usageFrom(message.rate_limit_info);
+      if (usage) {
+        reporter.usage = { ...reporter.usage, ...usage };
+        reporter.usageBefore ??= usage;
+        // The share ran out under this turn: stopped after this call, like Stop.
+        if (!reporter.budgetStop && lib.overBudget(job.budget, reporter.usageBefore, usage)) {
+          reporter.budgetStop = true;
+          log(`turn ${job.id}: the chat's weekly share is used up, stopping`);
+          stop();
+        }
+      }
     } else if (message.type === "result") {
       result = message;
     }
@@ -599,6 +621,8 @@ async function runClaude(job, repo, reporter, { prompt, sessionId }) {
   if (secrets) rmSync(secrets, { force: true });
   keepLog(`${repoSlug(job.repo)}-${job.id.slice(0, 8)}.jsonl`, lines.join("\n"));
   if (result?.session_id) reporter.sessionId = result.session_id;
+  if (reporter.budgetStop)
+    return { ok: false, why: lib.budgetStopMessage(job.budget, reporter.usage) };
   return lib.readResult({
     result,
     code,
@@ -696,6 +720,62 @@ async function settle(job, repo, outcome, reporter) {
   return { status, reply: outcome.reply ?? null, error, commits, pushedSha };
 }
 
+// --- Attachments ---------------------------------------------------------------------------------
+
+/**
+ * The files sent with the message, fetched from the console's Storage (a signed link each)
+ * into the chat's folder, which Claude's container sees as /attachments. Earlier messages'
+ * files stay in the folder, so Claude can go back to them.
+ */
+async function fetchAttachments(job, reporter) {
+  const none = { dir: null, mount: ATTACHMENTS_MOUNT, files: [] };
+  const wanted = Array.isArray(job.attachments) ? job.attachments : [];
+  if (!wanted.length) return none;
+  const dir = join(ATTACHMENTS, String(job.chatId ?? job.id).replace(/[^\w-]/g, ""));
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  reporter.step(
+    wanted.length === 1
+      ? "Fetching the attached file"
+      : `Fetching the ${wanted.length} attached files`,
+  );
+  const files = [];
+  const taken = [];
+  for (const attachment of wanted) {
+    const name = lib.uniqueFileName(lib.safeFileName(attachment.name), taken);
+    taken.push(name);
+    if (!attachment.url) throw new Said(`The console gave no link to the attached file ${name}.`);
+    let bytes;
+    try {
+      const response = await fetch(attachment.url, { signal: AbortSignal.timeout(120_000) });
+      if (!response.ok) throw new Error(`it answered ${response.status}`);
+      bytes = new Uint8Array(await response.arrayBuffer());
+    } catch (error) {
+      throw new Said(
+        `The attached file ${name} couldn't be fetched (${error.message}). Send the message again.`,
+      );
+    }
+    if (bytes.length > ATTACHMENT_MAX_BYTES)
+      throw new Said(`The attached file ${name} is too big (${lib.formatBytes(bytes.length)}).`);
+    writeFileSync(join(dir, name), bytes, { mode: 0o600 });
+    files.push({ name, contentType: attachment.contentType, size: bytes.length });
+  }
+  return {
+    dir,
+    mount: CONFIG.sandbox === "docker" ? ATTACHMENTS_MOUNT : dir,
+    files,
+  };
+}
+
+/** Chats' attachment folders untouched for two months are dropped. */
+function pruneAttachments() {
+  if (!existsSync(ATTACHMENTS)) return;
+  const before = Date.now() - 60 * 24 * 3600_000;
+  for (const name of readdirSync(ATTACHMENTS)) {
+    const dir = join(ATTACHMENTS, name);
+    if (statSync(dir).mtimeMs < before) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // null where there's no /proc (a laptop trying the runner out)
 function freeMegabytes() {
   return existsSync("/proc/meminfo")
@@ -724,12 +804,15 @@ async function doTurn(job) {
       );
     }
     const repo = await prepareRepo(job, reporter);
+    pruneAttachments();
+    const attachments = await fetchAttachments(job, reporter);
     let outcome = { ok: false, why: "Stopped." };
     if (!reporter.cancelled) {
       reporter.sessionId = job.sessionId ?? null;
       outcome = await runClaude(job, repo, reporter, {
         prompt: job.prompt,
         sessionId: job.sessionId,
+        attachments,
       });
       if (outcome.missingSession) {
         log(`turn ${job.id}: session ${job.sessionId} isn't here, starting a new one`);
@@ -737,6 +820,7 @@ async function doTurn(job) {
         outcome = await runClaude(job, repo, reporter, {
           prompt: lib.promptWithLostHistory(job.prompt),
           sessionId: null,
+          attachments,
         });
       }
       writeFileSync(join(repo.repoDir, ".git", "config"), repo.gitConfig);
@@ -752,7 +836,12 @@ async function doTurn(job) {
     };
   }
   await reporter.close();
-  await sendFinish(job.id, { ...report, sessionId: reporter.sessionId, usage: reporter.usage });
+  await sendFinish(job.id, {
+    ...report,
+    sessionId: reporter.sessionId,
+    usage: reporter.usage,
+    usageBefore: reporter.usageBefore,
+  });
   log(
     `turn ${job.id}: ${report.status}${report.pushedSha ? ` (pushed ${report.pushedSha.slice(0, 7)})` : ""}`,
   );

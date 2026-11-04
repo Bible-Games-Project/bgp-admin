@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -7,6 +7,7 @@ import {
   Bot,
   CheckCircle2,
   ExternalLink,
+  Gauge,
   KeyRound,
   Loader2,
   Server,
@@ -23,7 +24,13 @@ import {
   unlinkClaudeAccount,
   type ClaudeLoginView,
 } from "@/lib/agent.functions";
-import { AGENT_EFFORTS, AGENT_MODELS, type RunnerView } from "@/lib/agent";
+import {
+  AGENT_EFFORTS,
+  AGENT_MODELS,
+  resetLabel,
+  type RunnerView,
+  type WeeklyBudget,
+} from "@/lib/agent";
 import { UsageSummary } from "@/components/build/UsageSummary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,6 +82,7 @@ function ClaudeSettingsPage() {
           <RunnerCard runner={q.data!.runner} />
           <AccountCard data={q.data!} />
           <ModelCard settings={q.data!.settings} />
+          <WeeklyShareCard settings={q.data!.settings} budget={q.data!.budget} />
         </>
       )}
     </div>
@@ -429,5 +437,113 @@ function ModelCard({ settings }: { settings: SettingsData["settings"] }) {
         account's limit.
       </p>
     </Card>
+  );
+}
+
+/**
+ * How much of the account's weekly limit the Build chat may use. The account is shared
+ * with Claude Code elsewhere, so this keeps the chat from using it all up.
+ */
+function WeeklyShareCard({
+  settings,
+  budget,
+}: {
+  settings: SettingsData["settings"];
+  budget: WeeklyBudget;
+}) {
+  const qc = useQueryClient();
+  const saveFn = useServerFn(saveAgentSettings);
+  const [value, setValue] = useState(String(settings.weeklyBudgetPercent));
+  useEffect(() => setValue(String(settings.weeklyBudgetPercent)), [settings.weeklyBudgetPercent]);
+  const percent = Number(value);
+  const valid = value.trim() !== "" && Number.isFinite(percent) && percent >= 0 && percent <= 100;
+  const save = useMutation({
+    mutationFn: () => saveFn({ data: { ...settings, weeklyBudgetPercent: percent } }),
+    onSuccess: () => {
+      toast.success(
+        percent > 0 ? `Saved: the Build chat may use ${percent}% a week.` : "Saved: no limit.",
+      );
+      qc.invalidateQueries({ queryKey: ["claude-settings"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Card icon={Gauge} title="Weekly share">
+      <p className="text-muted-foreground">
+        How much of the Claude account's weekly limit the Build chat may use, so it can't use up
+        what Claude Code needs elsewhere with the same account. 0 means no limit.
+      </p>
+      <form
+        className="flex items-center gap-2 flex-wrap"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (valid) save.mutate();
+        }}
+      >
+        <Input
+          type="number"
+          min={0}
+          max={100}
+          step={1}
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="w-24"
+          aria-label="Share of the weekly limit, in percent"
+        />
+        <span className="text-muted-foreground">% of the weekly limit</span>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={!valid || save.isPending || percent === settings.weeklyBudgetPercent}
+        >
+          Save
+        </Button>
+      </form>
+      <WeeklyShareStatus budget={budget} />
+      <p className="text-xs text-muted-foreground">
+        Claude reports the account's usage after each message, and what the chat used this week is
+        the sum of those, so it's approximate by a percent or two. Once the share is used, messages
+        wait until the limit resets; a message under way is stopped where it is, and what it had
+        saved is kept.
+      </p>
+    </Card>
+  );
+}
+
+function WeeklyShareStatus({ budget }: { budget: WeeklyBudget }) {
+  if (budget.percent <= 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        No limit: the chat may use the whole weekly limit.
+      </p>
+    );
+  }
+  const used = Math.min(100, (budget.spent / budget.percent) * 100);
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between gap-3 text-xs text-muted-foreground">
+        <span>Used this week</span>
+        <span className="text-right">
+          {budget.spent}% of {budget.percent}%
+          {budget.resetsAt
+            ? ` · resets ${resetLabel(budget.resetsAt)} (${ago(budget.resetsAt)})`
+            : " · Claude hasn't reported the account's usage yet"}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+        <div
+          className={`h-full ${budget.exhausted ? "bg-destructive" : "bg-primary"}`}
+          style={{ width: `${used}%` }}
+        />
+      </div>
+      {budget.exhausted && (
+        <p className="text-xs text-destructive flex gap-1.5">
+          <TriangleAlert className="h-3.5 w-3.5 shrink-0 mt-px" />
+          Used up: messages in the Build chat wait until it resets.
+        </p>
+      )}
+    </div>
   );
 }

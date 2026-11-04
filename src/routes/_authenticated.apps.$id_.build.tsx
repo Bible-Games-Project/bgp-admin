@@ -6,16 +6,25 @@ import { ArrowLeft, Loader2, MessageSquarePlus, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  getBuildAttachmentUrl,
   getBuildChat,
   getPreviewDeploy,
   newBuildChat,
   sendBuildMessage,
   stopBuildTurn,
+  uploadBuildAttachment,
 } from "@/lib/agent.functions";
 import { checkPreviewDeployWorkflow } from "@/lib/capacitor.functions";
-import { AGENT_MODELS, fixPreviewPrompt, isActiveTurn, previewSrc } from "@/lib/agent";
+import {
+  AGENT_MODELS,
+  fixPreviewPrompt,
+  isActiveTurn,
+  previewSrc,
+  type BuildAttachment,
+} from "@/lib/agent";
 import { BuildChat } from "@/components/build/BuildChat";
 import { BuildPreview, type PreviewDeploy } from "@/components/build/BuildPreview";
+import { SplitHandle, useChatWidth } from "@/components/build/Split";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -75,9 +84,15 @@ function BuildPage() {
   const sendFn = useServerFn(sendBuildMessage);
   const stopFn = useServerFn(stopBuildTurn);
   const newChatFn = useServerFn(newBuildChat);
+  const uploadFn = useServerFn(uploadBuildAttachment);
+  const attachmentUrlFn = useServerFn(getBuildAttachmentUrl);
   const [tab, setTab] = useState<"chat" | "preview">("chat");
   const [draft, setDraft] = useState("");
   const [reloads, setReloads] = useState(0);
+  // On a wide screen the chat's width is whatever the divider was dragged to.
+  const [chatWidth, setChatWidth] = useChatWidth();
+  const [resizing, setResizing] = useState(false);
+  const splitRef = useRef<HTMLDivElement>(null);
 
   const chatKey = ["build-chat", id];
   const q = useQuery({
@@ -133,10 +148,31 @@ function BuildPage() {
   }, [deployQ.data?.state]);
 
   const send = useMutation({
-    mutationFn: (prompt: string) => sendFn({ data: { appId: id, prompt } }),
+    mutationFn: ({ prompt, attachmentIds = [] }: { prompt: string; attachmentIds?: string[] }) =>
+      sendFn({ data: { appId: id, prompt, attachmentIds } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: chatKey }),
     onError: (e: Error) => toast.error(e.message, { duration: 10_000 }),
   });
+  const upload = (file: File, thumbnail: string | null) => {
+    const form = new FormData();
+    form.set("appId", id);
+    form.set("file", file);
+    if (thumbnail) form.set("thumbnail", thumbnail);
+    return uploadFn({ data: form });
+  };
+  // The tab opens at once, from the click, and gets the link when it arrives: a tab opened
+  // after waiting is what browsers block as a pop-up.
+  const openAttachment = async (attachment: BuildAttachment) => {
+    const tab = window.open("", "_blank");
+    try {
+      const { url } = await attachmentUrlFn({ data: { id: attachment.id } });
+      if (tab) tab.location.href = url;
+      else window.location.assign(url);
+    } catch (e) {
+      tab?.close();
+      toast.error((e as Error).message);
+    }
+  };
   const stop = useMutation({
     mutationFn: (turnId: string) => stopFn({ data: { turnId } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: chatKey }),
@@ -245,10 +281,15 @@ function BuildPage() {
         </Button>
       </div>
 
-      <div className="flex-1 min-h-0 flex">
+      <div
+        ref={splitRef}
+        className="flex-1 min-h-0 flex"
+        style={{ "--chat-width": `${chatWidth}px` } as React.CSSProperties}
+      >
         <section
           className={cn(
-            "min-h-0 w-full md:w-[400px] lg:w-[460px] md:shrink-0 md:border-r border-border",
+            // The dragged width, kept to what leaves the preview room on this window.
+            "min-h-0 w-full md:w-[max(320px,min(var(--chat-width),calc(100%_-_280px)))] md:shrink-0",
             tab === "chat" ? "flex flex-col" : "hidden md:flex md:flex-col",
           )}
         >
@@ -260,17 +301,28 @@ function BuildPage() {
             waitingFor={data.waitingFor}
             runner={data.runner}
             account={data.account}
+            budget={data.budget}
             sending={send.isPending}
-            onSend={(prompt) => send.mutateAsync(prompt)}
+            onSend={(prompt, attachmentIds) => send.mutateAsync({ prompt, attachmentIds })}
             onStop={(turnId) => stop.mutate(turnId)}
+            onUpload={upload}
+            onOpenAttachment={openAttachment}
             draft={draft}
             setDraft={setDraft}
           />
         </section>
+        <SplitHandle
+          width={chatWidth}
+          containerRef={splitRef}
+          onChange={setChatWidth}
+          onDragging={setResizing}
+        />
         <section
           className={cn(
             "min-h-0 min-w-0 flex-1",
             tab === "preview" ? "flex flex-col" : "hidden md:flex md:flex-col",
+            // While the divider is dragged, the preview's iframe must not take the pointer.
+            resizing && "pointer-events-none select-none",
           )}
         >
           <BuildPreview
@@ -289,7 +341,7 @@ function BuildPage() {
               const error =
                 deployQ.data && "error" in deployQ.data ? (deployQ.data.error ?? "") : "";
               setTab("chat");
-              send.mutate(fixPreviewPrompt(error));
+              send.mutate({ prompt: fixPreviewPrompt(error) });
             }}
           />
         </section>

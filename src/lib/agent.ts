@@ -24,22 +24,48 @@ export const AGENT_EFFORTS = [
 ] as const;
 export type AgentEffort = (typeof AGENT_EFFORTS)[number]["id"];
 
-export const DEFAULT_AGENT_SETTINGS: { model: AgentModel; effort: AgentEffort } = {
+export type AgentSettings = {
+  model: AgentModel;
+  effort: AgentEffort;
+  /**
+   * How much of the Claude account's weekly limit the Build chat may use, in percent
+   * (0: no limit). The account is shared with Claude Code elsewhere, so this keeps the
+   * chat from using it all up. See weeklyBudgetFrom.
+   */
+  weeklyBudgetPercent: number;
+};
+
+export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   model: "claude-opus-5-5",
   effort: "medium",
+  weeklyBudgetPercent: 10,
 };
 
 /** app_settings keys. */
 export const AGENT_MODEL_SETTING = "agent_model";
 export const AGENT_EFFORT_SETTING = "agent_effort";
+export const AGENT_WEEKLY_BUDGET_SETTING = "agent_weekly_budget_percent";
+export const AGENT_SETTING_KEYS = [
+  AGENT_MODEL_SETTING,
+  AGENT_EFFORT_SETTING,
+  AGENT_WEEKLY_BUDGET_SETTING,
+];
 
-export function agentSettingsFrom(rows: { key: string; value: unknown }[]) {
+export function agentSettingsFrom(rows: { key: string; value: unknown }[]): AgentSettings {
   const get = (key: string) => rows.find((r) => r.key === key)?.value;
   const model = AGENT_MODELS.find((m) => m.id === get(AGENT_MODEL_SETTING))?.id;
   const effort = AGENT_EFFORTS.find((e) => e.id === get(AGENT_EFFORT_SETTING))?.id;
+  const budget = Number(get(AGENT_WEEKLY_BUDGET_SETTING));
   return {
     model: model ?? DEFAULT_AGENT_SETTINGS.model,
     effort: effort ?? DEFAULT_AGENT_SETTINGS.effort,
+    weeklyBudgetPercent:
+      get(AGENT_WEEKLY_BUDGET_SETTING) !== undefined &&
+      Number.isFinite(budget) &&
+      budget >= 0 &&
+      budget <= 100
+        ? budget
+        : DEFAULT_AGENT_SETTINGS.weeklyBudgetPercent,
   };
 }
 
@@ -68,6 +94,161 @@ export const LOGIN_EXPIRES_MINUTES = 12;
 
 export type AgentUsageWindow = { percent: number; resetsAt: string | null };
 export type AgentUsage = { fiveHour?: AgentUsageWindow; weekly?: AgentUsageWindow; at?: string };
+
+// --- The weekly share ---------------------------------------------------------------------
+//
+// Claude reports the account's usage (percent of each limit, and when it resets) at every
+// call it makes. The build server keeps the first and the last report of each message, and
+// the difference is what that message used of the weekly limit. Added up over the current
+// window, that is what the Build chat has used this week, and Settings → Claude says how
+// much it may. It is an approximation: the reports come in whole percents, and anything
+// else using the account during a message counts towards it.
+
+export type WeeklyBudget = {
+  /** Of the account's weekly limit; 0 for no limit. */
+  percent: number;
+  /** What the Build chat used in the current window, in percent of the weekly limit. */
+  spent: number;
+  /** When the current window resets; null until Claude has reported it (or it has passed). */
+  resetsAt: string | null;
+  exhausted: boolean;
+};
+
+const tenth = (n: number) => Math.round(n * 10) / 10;
+
+/** What a message used of the weekly limit, and which window it counts in. */
+export function turnWeeklySpend(
+  before: AgentUsage | null | undefined,
+  after: AgentUsage | null | undefined,
+): { spent: number; resetsAt: string } | null {
+  const a = after?.weekly;
+  const b = before?.weekly;
+  if (!a?.resetsAt) return null;
+  const spent = b && b.resetsAt === a.resetsAt ? Math.max(0, a.percent - b.percent) : 0;
+  return { spent: tenth(spent), resetsAt: a.resetsAt };
+}
+
+/** The window Claude last reported, as long as it hasn't reset since. */
+export function currentWeeklyWindow(usage: AgentUsage | null | undefined, now = new Date()) {
+  const resetsAt = usage?.weekly?.resetsAt;
+  return resetsAt && Date.parse(resetsAt) > now.getTime() ? resetsAt : null;
+}
+
+/** `spends` are the messages' weekly spends in the current window (turnWeeklySpend). */
+export function weeklyBudgetFrom(
+  percent: number,
+  usage: AgentUsage | null | undefined,
+  spends: (number | null)[],
+  now = new Date(),
+): WeeklyBudget {
+  const resetsAt = currentWeeklyWindow(usage, now);
+  const spent = resetsAt ? tenth(spends.reduce<number>((sum, x) => sum + (Number(x) || 0), 0)) : 0;
+  return {
+    percent,
+    spent,
+    resetsAt,
+    exhausted: percent > 0 && resetsAt !== null && spent >= percent,
+  };
+}
+
+/** "Friday at 07:00", in the console's time zone. */
+export function resetLabel(resetsAt: string | null) {
+  if (!resetsAt) return "when the limit resets";
+  const date = new Date(resetsAt);
+  const weekday = date.toLocaleDateString("en-GB", { weekday: "long", timeZone: "Europe/Madrid" });
+  const time = date.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Madrid",
+  });
+  return `${weekday} at ${time}`;
+}
+
+/** What the chat and the build server say when the share is used up. */
+export function budgetExhaustedMessage(budget: WeeklyBudget) {
+  return `The Build chat has used its share of the Claude account's weekly limit (${budget.percent}% of it), so it waits until ${resetLabel(budget.resetsAt)}. The share is set in Settings → Claude.`;
+}
+
+// --- Attachments ----------------------------------------------------------------------------
+//
+// A message can carry files for Claude to look at: images and PDFs (which Claude Code's Read
+// tool shows Claude) and plain text. They go to Storage (bucket agent-attachments) and the
+// build server fetches them before Claude starts, into /attachments in Claude's container.
+
+export const ATTACHMENTS_BUCKET = "agent-attachments";
+export const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
+export const ATTACHMENTS_PER_MESSAGE = 8;
+
+const ATTACHMENT_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  pdf: "application/pdf",
+  txt: "text/plain",
+  md: "text/markdown",
+  csv: "text/csv",
+  json: "application/json",
+};
+
+/** For the file picker. */
+export const ATTACHMENT_ACCEPT = Object.keys(ATTACHMENT_TYPES)
+  .map((ext) => `.${ext}`)
+  .join(",");
+
+/**
+ * The type a file is kept as, from its name (browsers often leave the type blank, and
+ * the name is what Claude sees), or null when it can't be attached.
+ */
+export function attachmentType(name: string): string | null {
+  const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase();
+  return (ext && ATTACHMENT_TYPES[ext]) || null;
+}
+
+export function attachmentKind(contentType: string): "image" | "pdf" | "text" {
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType === "application/pdf") return "pdf";
+  return "text";
+}
+
+/** Why a file can't be attached, in words for the person, or null when it can. */
+export function attachmentProblem(file: { name: string; size: number }): string | null {
+  if (!attachmentType(file.name)) {
+    return `${file.name}: only images (PNG, JPEG, GIF, WebP), PDFs and text files (TXT, MD, CSV, JSON) can be attached.`;
+  }
+  if (file.size > ATTACHMENT_MAX_BYTES) {
+    return `${file.name} is ${formatBytes(file.size)}; the most is ${formatBytes(ATTACHMENT_MAX_BYTES)}.`;
+  }
+  if (file.size === 0) return `${file.name} is empty.`;
+  return null;
+}
+
+export function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${tenth(bytes / 1024 / 1024)} MB`;
+}
+
+/** A file name safe for Storage and for Claude's container, keeping the extension. */
+export function safeFileName(name: string) {
+  const clean = name
+    .normalize("NFKD")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[-.]+/, "")
+    .slice(0, 80);
+  return clean || "file";
+}
+
+export type BuildAttachment = {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  /** A small data: URL of an image, for the chat. */
+  thumbnail: string | null;
+};
 
 export type AgentAccount = {
   last4: string;
