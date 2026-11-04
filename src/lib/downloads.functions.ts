@@ -1,4 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/integrations/supabase/types";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { appStoreIds } from "./app-kind";
@@ -22,8 +24,13 @@ async function assertAdmin(supabase: any, userId: string) {
 export const getDownloads = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { supabase } = context;
-    await assertAdmin(supabase, context.userId);
+    await assertAdmin(context.supabase, context.userId);
+    return loadDownloads(context.supabase);
+  });
+
+/** What the Downloads page shows; also what Ruben's downloads tool reads. */
+export async function loadDownloads(supabase: SupabaseClient<Database>) {
+  {
     const [downloads, income, apps, sync] = await Promise.all([
       supabase.from("download_reports").select("source, report, period, version, rows"),
       supabase.from("income_reports").select("source, report, period, version, unconverted, rows"),
@@ -59,7 +66,8 @@ export const getDownloads = createServerFn({ method: "GET" })
       playProblem: sync.data!.find((s) => s.source === "google_play")?.problem ?? null,
       checkedAt: checks.length === 2 ? checks[0] : null,
     };
-  });
+  }
+}
 
 /** Marks a game as the free demo of another (or of none). */
 export const setFullGame = createServerFn({ method: "POST" })

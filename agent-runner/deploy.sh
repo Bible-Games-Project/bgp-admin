@@ -6,6 +6,6 @@ set -eu
 host="${AGENT_HOST:-root@192.168.1.24}"
 here="$(cd "$(dirname "$0")" && pwd)"
 ssh "$host" 'rm -rf /root/bgp-agent-src && mkdir -p /root/bgp-agent-src'
-scp -q "$here"/runner.mjs "$here"/lib.mjs "$here"/egress.mjs "$here"/Dockerfile "$here"/bgp-agent.service \
+scp -q "$here"/runner.mjs "$here"/lib.mjs "$here"/egress.mjs "$here"/console-mcp.mjs "$here"/Dockerfile "$here"/bgp-agent.service \
   "$here"/install.sh "$host":/root/bgp-agent-src/
 ssh "$host" 'bash /root/bgp-agent-src/install.sh'

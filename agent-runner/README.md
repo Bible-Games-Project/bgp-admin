@@ -40,6 +40,17 @@ Settings → Claude open, and every 10 seconds otherwise. The answer is one of t
   the server checks the token with a one-word Claude call. The token lives only here, in
   `/var/lib/bgp-agent/claude.json` (600). The console only sees its last four characters.
 - **Unlink**: it deletes that file.
+- **A message to Ruben, the console's assistant** (a turn of `kind: "assistant"`). Ruben is the chat
+  that floats over every page of the console (`src/lib/assistant.ts`). Its turns run like the Build
+  chat's, but with no repository and none of Claude Code's own tools (`--tools ""`): Claude gets the
+  console's tools through an MCP server inside the container, `console-mcp.mjs`, which forwards each
+  call to `<console>/api/assistant/*` with a token the console made for that turn only (`ASSISTANT_TOKEN`,
+  in the same env file as the Claude token). The egress proxy lets the container reach the console's host
+  for that (`EGRESS_ALLOW`, set by install.sh from `CONSOLE_URL`). The tools only read (Home, apps, a
+  Build chat, expenses, revenue, downloads, reviews, settings); what Ruben proposes to do shows in the chat
+  as buttons, and the console does it as the person who presses them. The instructions Claude gets come
+  with the turn (`job.systemPrompt`), so this server knows nothing about Ruben itself. Each person's chat
+  resumes its own session from `homes/assistant-<chat id>/`.
 - **Read the account's usage** (`refreshUsage`). The console only learns the account's limits from
   Claude, so between messages the usage it shows gets old. When a page asks (the one it has is older
   than 15 minutes, or someone pressed Refresh in Settings → Claude), the server makes one tiny call
@@ -74,9 +85,10 @@ share is approximate by a percent or two.
 
 ## What Claude can and can't do
 
-- **It can only reach the Claude API and the npm registry.** The container sits on a Docker network with
-  no way out (`bgp-agent-internal`). The only thing on it is the proxy `bgp-agent-egress` (`egress.mjs`),
-  which opens tunnels only to `api.anthropic.com:443` and `registry.npmjs.org:443`. It can't reach
+- **It can only reach the Claude API, the npm registry and the console.** The container sits on a Docker
+  network with no way out (`bgp-agent-internal`). The only thing on it is the proxy `bgp-agent-egress`
+  (`egress.mjs`), which opens tunnels only to `api.anthropic.com:443`, `registry.npmjs.org:443` and the
+  console's host (for Ruben's tools, which the console only answers with a turn's token). It can't reach
   GitHub, other websites, or anything on the home network.
 - **It sees nothing of the server** except the game's clone (`/work`) and its own home folder for that game
   (`/home/agent`, where Claude keeps the chat's session). It has no secret besides the Claude token. The

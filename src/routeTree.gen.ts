@@ -21,6 +21,7 @@ import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedExpensesRouteImport } from './routes/_authenticated.expenses'
 import { Route as AuthenticatedDownloadsRouteImport } from './routes/_authenticated.downloads'
 import { Route as AuthenticatedAppsIndexRouteImport } from './routes/_authenticated.apps.index'
+import { Route as ApiAssistantSplatRouteImport } from './routes/api.assistant.$'
 import { Route as ApiAgentSplatRouteImport } from './routes/api.agent.$'
 import { Route as AuthenticatedSettingsSecurityRouteImport } from './routes/_authenticated.settings.security'
 import { Route as AuthenticatedSettingsClaudeRouteImport } from './routes/_authenticated.settings.claude'
@@ -87,6 +88,11 @@ const AuthenticatedAppsIndexRoute = AuthenticatedAppsIndexRouteImport.update({
   path: '/apps/',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const ApiAssistantSplatRoute = ApiAssistantSplatRouteImport.update({
+  id: '/api/assistant/$',
+  path: '/api/assistant/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAgentSplatRoute = ApiAgentSplatRouteImport.update({
   id: '/api/agent/$',
   path: '/api/agent/$',
@@ -137,6 +143,7 @@ export interface FileRoutesByFullPath {
   '/settings/claude': typeof AuthenticatedSettingsClaudeRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
+  '/api/assistant/$': typeof ApiAssistantSplatRoute
   '/apps/': typeof AuthenticatedAppsIndexRoute
   '/apps/$id/build': typeof AuthenticatedAppsIdBuildRoute
 }
@@ -156,6 +163,7 @@ export interface FileRoutesByTo {
   '/settings/claude': typeof AuthenticatedSettingsClaudeRoute
   '/settings/security': typeof AuthenticatedSettingsSecurityRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
+  '/api/assistant/$': typeof ApiAssistantSplatRoute
   '/apps': typeof AuthenticatedAppsIndexRoute
   '/apps/$id/build': typeof AuthenticatedAppsIdBuildRoute
 }
@@ -177,6 +185,7 @@ export interface FileRoutesById {
   '/_authenticated/settings/claude': typeof AuthenticatedSettingsClaudeRoute
   '/_authenticated/settings/security': typeof AuthenticatedSettingsSecurityRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
+  '/api/assistant/$': typeof ApiAssistantSplatRoute
   '/_authenticated/apps/': typeof AuthenticatedAppsIndexRoute
   '/_authenticated/apps/$id_/build': typeof AuthenticatedAppsIdBuildRoute
 }
@@ -198,6 +207,7 @@ export interface FileRouteTypes {
     | '/settings/claude'
     | '/settings/security'
     | '/api/agent/$'
+    | '/api/assistant/$'
     | '/apps/'
     | '/apps/$id/build'
   fileRoutesByTo: FileRoutesByTo
@@ -217,6 +227,7 @@ export interface FileRouteTypes {
     | '/settings/claude'
     | '/settings/security'
     | '/api/agent/$'
+    | '/api/assistant/$'
     | '/apps'
     | '/apps/$id/build'
   id:
@@ -237,6 +248,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings/claude'
     | '/_authenticated/settings/security'
     | '/api/agent/$'
+    | '/api/assistant/$'
     | '/_authenticated/apps/'
     | '/_authenticated/apps/$id_/build'
   fileRoutesById: FileRoutesById
@@ -249,6 +261,7 @@ export interface RootRouteChildren {
   MfaChallengeRoute: typeof MfaChallengeRoute
   SetupMfaRoute: typeof SetupMfaRoute
   ApiAgentSplatRoute: typeof ApiAgentSplatRoute
+  ApiAssistantSplatRoute: typeof ApiAssistantSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -337,6 +350,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppsIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/api/assistant/$': {
+      id: '/api/assistant/$'
+      path: '/api/assistant/$'
+      fullPath: '/api/assistant/$'
+      preLoaderRoute: typeof ApiAssistantSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/$': {
       id: '/api/agent/$'
       path: '/api/agent/$'
@@ -422,6 +442,7 @@ const rootRouteChildren: RootRouteChildren = {
   MfaChallengeRoute: MfaChallengeRoute,
   SetupMfaRoute: SetupMfaRoute,
   ApiAgentSplatRoute: ApiAgentSplatRoute,
+  ApiAssistantSplatRoute: ApiAssistantSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

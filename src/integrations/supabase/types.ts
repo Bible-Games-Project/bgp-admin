@@ -85,28 +85,34 @@ export type Database = {
       }
       agent_chats: {
         Row: {
-          app_id: string
+          app_id: string | null
           archived_at: string | null
           created_at: string
           created_by: string | null
           id: string
           session_id: string | null
+          kind: string
+          user_id: string | null
         }
         Insert: {
-          app_id: string
+          app_id?: string | null
           archived_at?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
           session_id?: string | null
+          kind?: string
+          user_id?: string | null
         }
         Update: {
-          app_id?: string
+          app_id?: string | null
           archived_at?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
           session_id?: string | null
+          kind?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -120,7 +126,7 @@ export type Database = {
       }
       agent_events: {
         Row: {
-          app_id: string
+          app_id: string | null
           body: Json
           created_at: string
           id: number
@@ -128,7 +134,7 @@ export type Database = {
           turn_id: string
         }
         Insert: {
-          app_id: string
+          app_id: string | null
           body: Json
           created_at?: string
           id?: number
@@ -136,7 +142,7 @@ export type Database = {
           turn_id: string
         }
         Update: {
-          app_id?: string
+          app_id?: string | null
           body?: Json
           created_at?: string
           id?: number
@@ -264,7 +270,7 @@ export type Database = {
       }
       agent_turns: {
         Row: {
-          app_id: string
+          app_id: string | null
           cancel_requested_at: string | null
           chat_id: string
           commits: number
@@ -282,9 +288,11 @@ export type Database = {
           usage: Json | null
           weekly_resets_at: string | null
           weekly_spent: number | null
+          context: Json | null
+          tool_token: string | null
         }
         Insert: {
-          app_id: string
+          app_id: string | null
           cancel_requested_at?: string | null
           chat_id: string
           commits?: number
@@ -302,9 +310,11 @@ export type Database = {
           usage?: Json | null
           weekly_resets_at?: string | null
           weekly_spent?: number | null
+          context?: Json | null
+          tool_token?: string | null
         }
         Update: {
-          app_id?: string
+          app_id?: string | null
           cancel_requested_at?: string | null
           chat_id?: string
           commits?: number
@@ -322,6 +332,8 @@ export type Database = {
           usage?: Json | null
           weekly_resets_at?: string | null
           weekly_spent?: number | null
+          context?: Json | null
+          tool_token?: string | null
         }
         Relationships: [
           {

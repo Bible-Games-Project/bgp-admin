@@ -24,6 +24,7 @@ import {
   type AgentUsage,
   type WeeklyBudget,
 } from "@/lib/agent";
+import { assistantSystemPrompt, cleanContext, describeContext } from "@/lib/assistant";
 
 // The tables are typed, but the nested selects below read more easily untyped.
 const db = () => supabaseAdmin as any;
@@ -182,7 +183,7 @@ async function poll(body: Record<string, unknown>) {
 
   const { data: pending } = await db()
     .from("agent_turns")
-    .select("id, status, chat_id, app_id, prompt, created_by_email")
+    .select("id, status, chat_id, app_id, prompt, context, created_by_email")
     .in("status", ["queued", "running"])
     .order("created_at", { ascending: true })
     .limit(10);
@@ -258,24 +259,47 @@ async function claimTurn(turn: any, now: Date) {
   };
   const [{ data: app }, { data: chat }, { data: settingRows }, { data: runner }] =
     await Promise.all([
-      db()
-        .from("apps")
-        .select("id, github_owner, github_repo, default_ref")
-        .eq("id", turn.app_id)
-        .maybeSingle(),
-      db().from("agent_chats").select("session_id").eq("id", turn.chat_id).maybeSingle(),
+      turn.app_id
+        ? db()
+            .from("apps")
+            .select("id, github_owner, github_repo, default_ref")
+            .eq("id", turn.app_id)
+            .maybeSingle()
+        : { data: null },
+      db().from("agent_chats").select("session_id, kind").eq("id", turn.chat_id).maybeSingle(),
       db().from("app_settings").select("key, value").in("key", AGENT_SETTING_KEYS),
       db().from("agent_runner").select("usage").eq("id", "main").maybeSingle(),
     ]);
-  if (!app?.github_owner || !app?.github_repo)
-    return fail("This game has no GitHub repo any more.");
-  if (isSelfRepo(app.github_owner, app.github_repo))
-    return fail("The console isn't built from its own chat.");
-
   const settings = agentSettingsFrom(settingRows ?? []);
   // Queued before the share ran out (another game's message used the rest): not started.
   const budget = await weeklyBudgetNow(settings.weeklyBudgetPercent, runner?.usage ?? null, now);
   if (budget.exhausted) return fail(budgetExhaustedMessage(budget));
+
+  // The assistant (Ruben): no repository; Claude reads the console through its tools, with
+  // a token that only works while this turn runs (assistant.server.ts).
+  if (chat?.kind === "assistant") {
+    const toolToken = `ast_${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, "");
+    await db().from("agent_turns").update({ tool_token: toolToken }).eq("id", turn.id);
+    const context = cleanContext(turn.context);
+    return {
+      kind: "assistant",
+      id: turn.id,
+      chatId: turn.chat_id,
+      prompt: `${describeContext(context)}\n\n${turn.prompt}`,
+      sessionId: chat?.session_id ?? null,
+      author: { email: turn.created_by_email },
+      model: settings.model,
+      effort: settings.effort,
+      budget,
+      toolToken,
+      systemPrompt: assistantSystemPrompt(),
+    };
+  }
+
+  if (!app?.github_owner || !app?.github_repo)
+    return fail("This game has no GitHub repo any more.");
+  if (isSelfRepo(app.github_owner, app.github_repo))
+    return fail("The console isn't built from its own chat.");
 
   const repo = `${app.github_owner}/${app.github_repo}`.toLowerCase();
   const [{ data: key }, previewUrl, attachments] = await Promise.all([
@@ -284,6 +308,7 @@ async function claimTurn(turn: any, now: Date) {
     attachmentsOf(turn.id),
   ]);
   return {
+    kind: "build",
     id: turn.id,
     chatId: turn.chat_id,
     prompt: turn.prompt,
@@ -400,6 +425,7 @@ async function finishTurn(body: Record<string, unknown>) {
         usage,
         weekly_spent: spend?.spent ?? null,
         weekly_resets_at: spend?.resetsAt ?? null,
+        tool_token: null,
         finished_at: now,
       })
       .eq("id", turn.id)

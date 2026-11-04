@@ -18,3 +18,5 @@ RUN npm install -g --ignore-scripts "@anthropic-ai/claude-code-linux-x64@${CLAUD
  && claude --version \
  && rm -rf /root/.npm
 COPY egress.mjs /opt/bgp-agent/egress.mjs
+# The console's tools for Ruben, started by Claude Code inside the container
+COPY console-mcp.mjs /opt/bgp-agent/console-mcp.mjs

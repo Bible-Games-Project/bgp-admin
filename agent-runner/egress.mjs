@@ -7,7 +7,16 @@
 import { createServer } from "node:http";
 import { connect } from "node:net";
 
-export const ALLOWED = ["api.anthropic.com", "registry.npmjs.org"];
+// The console is added through EGRESS_ALLOW (install.sh takes it from CONSOLE_URL): Ruben's
+// tools read it from inside the container (console-mcp.mjs).
+export const ALLOWED = [
+  "api.anthropic.com",
+  "registry.npmjs.org",
+  ...String(process.env.EGRESS_ALLOW ?? "")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean),
+];
 const PORT = Number(process.env.EGRESS_PORT ?? 3128);
 
 export function isAllowedHost(host, allow = ALLOWED) {

@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import * as lib from "./lib.mjs";
 
-const VERSION = "3";
+const VERSION = "4";
 const env = process.env;
 const CONFIG = {
   console: (env.CONSOLE_URL ?? "https://bgp-admin-preview.biblegamesproject.workers.dev").replace(
@@ -262,7 +262,7 @@ function dockerArgs({
     "no-new-privileges",
     "--user",
     `${uid}:${gid}`,
-    ...(repoDir ? ["-v", `${repoDir}:/work`, "-w", "/work"] : []),
+    ...(repoDir ? ["-v", `${repoDir}:/work`, "-w", "/work"] : ["-w", "/home/agent"]),
     ...(homeDir
       ? ["-v", `${homeDir}:/home/agent`]
       : ["--tmpfs", `/home/agent:rw,size=64m,uid=${uid},gid=${gid},mode=0700`]),
@@ -295,13 +295,46 @@ function dockerArgs({
   ];
 }
 
-// The token reaches a container through a file only it reads, never through argv.
-function tokenFile(name, token) {
+// The token reaches a container through a file only it reads, never through argv. So
+// does whatever else is secret for a turn (Ruben's token for the console's tools).
+function tokenFile(name, token, extra = {}) {
   const dir = join(CONFIG.state, "run");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const file = join(dir, `${name}.env`);
-  writeFileSync(file, `CLAUDE_CODE_OAUTH_TOKEN=${token}\n`, { mode: 0o600 });
+  const lines = [
+    `CLAUDE_CODE_OAUTH_TOKEN=${token}`,
+    ...Object.entries(extra).map(([k, v]) => `${k}=${v}`),
+  ];
+  writeFileSync(file, `${lines.join("\n")}\n`, { mode: 0o600 });
   return file;
+}
+
+// Ruben (the console's assistant) works with no repository: a home folder per chat for
+// its session, and the MCP config that gives Claude the console's tools (console-mcp.mjs).
+// What those tools may reach is decided by the console, with the turn's token.
+function prepareAssistant(job) {
+  const homeDir = join(
+    CONFIG.state,
+    "homes",
+    `assistant-${String(job.chatId).replace(/[^\w-]/g, "")}`,
+  );
+  mkdirSync(join(CONFIG.state, "homes"), { recursive: true, mode: 0o700 });
+  mkdirSync(homeDir, { recursive: true, mode: 0o700 });
+  const server =
+    CONFIG.sandbox === "docker"
+      ? "/opt/bgp-agent/console-mcp.mjs"
+      : new URL("console-mcp.mjs", import.meta.url).pathname;
+  writeFileSync(
+    join(homeDir, "mcp.json"),
+    JSON.stringify({ mcpServers: { console: { command: "node", args: [server] } } }),
+    { mode: 0o600 },
+  );
+  return {
+    repoDir: null,
+    homeDir,
+    mcpConfig: CONFIG.sandbox === "docker" ? "/home/agent/mcp.json" : join(homeDir, "mcp.json"),
+    toolEnv: { CONSOLE_URL: CONFIG.console, ASSISTANT_TOKEN: job.toolToken ?? "" },
+  };
 }
 
 // --- The game's repo -----------------------------------------------------------------------
@@ -534,18 +567,29 @@ class TurnReporter {
 
 // One Claude session: streams what it does to the reporter as it goes.
 async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }) {
-  const args = lib.claudeArgs({
-    prompt: lib.promptWithAttachments(prompt, attachments.files, attachments.mount),
-    model: job.model,
-    effort: job.effort,
-    sessionId,
-    maxTurns: CONFIG.maxTurns,
-    job: { ...job, attachmentsDir: attachments.mount },
-  });
+  const assistant = job.kind === "assistant";
+  const args = assistant
+    ? lib.assistantArgs({
+        prompt,
+        model: job.model,
+        effort: job.effort,
+        sessionId,
+        maxTurns: CONFIG.maxTurns,
+        systemPrompt: job.systemPrompt ?? "",
+        mcpConfig: repo.mcpConfig,
+      })
+    : lib.claudeArgs({
+        prompt: lib.promptWithAttachments(prompt, attachments.files, attachments.mount),
+        model: job.model,
+        effort: job.effort,
+        sessionId,
+        maxTurns: CONFIG.maxTurns,
+        job: { ...job, attachmentsDir: attachments.mount },
+      });
   let child;
   let secrets = null;
   if (CONFIG.sandbox === "docker") {
-    secrets = tokenFile(TURN_CONTAINER, loadAccount().token);
+    secrets = tokenFile(TURN_CONTAINER, loadAccount().token, repo.toolEnv ?? {});
     await run("docker", ["rm", "-f", TURN_CONTAINER], { allowFail: true });
     child = spawn(
       "docker",
@@ -561,8 +605,8 @@ async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }
     );
   } else {
     child = spawn("claude", args, {
-      cwd: repo.repoDir,
-      env: { ...cleanEnv(), ...claudeEnv(job) },
+      cwd: repo.repoDir ?? repo.homeDir,
+      env: { ...cleanEnv(), ...claudeEnv(job), ...(repo.toolEnv ?? {}) },
       stdio: ["ignore", "pipe", "pipe"],
     });
   }
@@ -602,7 +646,9 @@ async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }
     } else if (message.type === "result") {
       result = message;
     }
-    reporter.add(lib.eventsFrom(message, CONFIG.sandbox === "docker" ? "/work" : repo.repoDir));
+    reporter.add(
+      lib.eventsFrom(message, CONFIG.sandbox === "docker" ? "/work" : (repo.repoDir ?? "/")),
+    );
   });
 
   let timedOut = false;
@@ -619,7 +665,10 @@ async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }
   });
   clearTimeout(timer);
   if (secrets) rmSync(secrets, { force: true });
-  keepLog(`${repoSlug(job.repo)}-${job.id.slice(0, 8)}.jsonl`, lines.join("\n"));
+  keepLog(
+    `${assistant ? "assistant" : repoSlug(job.repo)}-${job.id.slice(0, 8)}.jsonl`,
+    lines.join("\n"),
+  );
   if (result?.session_id) reporter.sessionId = result.session_id;
   if (reporter.budgetStop)
     return { ok: false, why: lib.budgetStopMessage(job.budget, reporter.usage) };
@@ -784,8 +833,9 @@ function freeMegabytes() {
 }
 
 async function doTurn(job) {
+  const assistant = job.kind === "assistant";
   log(
-    `turn ${job.id}: ${job.repo.owner}/${job.repo.name} (${job.model}, ${job.effort ?? "default effort"})`,
+    `turn ${job.id}: ${assistant ? "the assistant" : `${job.repo.owner}/${job.repo.name}`} (${job.model}, ${job.effort ?? "default effort"})`,
   );
   writeFileSync(CURRENT, JSON.stringify({ id: job.id }), { mode: 0o600 });
   const reporter = new TurnReporter(job.id);
@@ -803,9 +853,11 @@ async function doTurn(job) {
         "The build server is short of memory right now, so Claude didn't start. Send the message again in a few minutes.",
       );
     }
-    const repo = await prepareRepo(job, reporter);
+    const repo = assistant ? prepareAssistant(job) : await prepareRepo(job, reporter);
     pruneAttachments();
-    const attachments = await fetchAttachments(job, reporter);
+    const attachments = assistant
+      ? { dir: null, mount: ATTACHMENTS_MOUNT, files: [] }
+      : await fetchAttachments(job, reporter);
     let outcome = { ok: false, why: "Stopped." };
     if (!reporter.cancelled) {
       reporter.sessionId = job.sessionId ?? null;
@@ -823,10 +875,18 @@ async function doTurn(job) {
           attachments,
         });
       }
-      writeFileSync(join(repo.repoDir, ".git", "config"), repo.gitConfig);
+      if (!assistant) writeFileSync(join(repo.repoDir, ".git", "config"), repo.gitConfig);
       if (outcome.rejected) markRejected();
     }
-    report = await settle(job, repo, outcome, reporter);
+    report = assistant
+      ? {
+          status: reporter.cancelled ? "cancelled" : outcome.ok ? "done" : "failed",
+          reply: outcome.reply ?? null,
+          error: outcome.ok ? null : outcome.why,
+          commits: 0,
+          pushedSha: null,
+        }
+      : await settle(job, repo, outcome, reporter);
   } catch (error) {
     if (!(error instanceof Said)) log(`turn ${job.id}: ${error.stack ?? error.message}`);
     report = {

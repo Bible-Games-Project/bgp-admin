@@ -1,4 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/integrations/supabase/types";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { AscError, createAscApi } from "./asc.server";
@@ -30,9 +32,13 @@ async function assertAdmin(supabase: any, userId: string) {
 export const getHome = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { supabase } = context;
-    await assertAdmin(supabase, context.userId);
-    const now = new Date();
+    await assertAdmin(context.supabase, context.userId);
+    return loadHome(context.supabase);
+  });
+
+/** What Home shows; also what Ruben's home tool reads (assistant.server.ts). */
+export async function loadHome(supabase: SupabaseClient<Database>, now = new Date()) {
+  {
     // Income and expenses are read as the Revenue page reads them, so the profit here is
     // the one it shows for the same period.
     const [checks, apps, income, expenses] = await Promise.all([
@@ -78,7 +84,8 @@ export const getHome = createServerFn({ method: "GET" })
         string | null
       >,
     };
-  });
+  }
+}
 
 /**
  * Runs every check that hasn't run since `since` (the moment Check now was pressed).

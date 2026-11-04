@@ -10,6 +10,7 @@ import { failureExcerpt } from "@/lib/deploy-failure";
 import { isWebGame, NOT_A_WEB_GAME_MESSAGE } from "@/lib/app-kind";
 import { isSelfRepo } from "@/lib/self-repo";
 import { keepRunnerWatching, weeklyBudgetNow } from "@/lib/agent.server";
+import { ASSISTANT_NAME } from "@/lib/assistant";
 import {
   AGENT_EFFORTS,
   AGENT_EFFORT_SETTING,
@@ -38,7 +39,7 @@ import {
   usageIsStale,
 } from "@/lib/agent";
 
-async function assertAdmin(supabase: any, userId: string) {
+export async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
     .from("admins")
     .select("user_id")
@@ -51,7 +52,7 @@ async function assertAdmin(supabase: any, userId: string) {
 const admin = () => supabaseAdmin as any;
 const nowIso = () => new Date().toISOString();
 
-async function readRunner(supabase: any) {
+export async function readRunner(supabase: any) {
   const { data, error } = await supabase
     .from("agent_runner")
     .select(
@@ -75,7 +76,7 @@ async function readRunner(supabase: any) {
  * whenever the one it has is older than USAGE_STALE_MINUTES; from the Refresh button, now.
  * The server answers with a tiny Claude call (agent-runner/, doUsageRefresh).
  */
-async function requestUsageRefresh(
+export async function requestUsageRefresh(
   state: Awaited<ReturnType<typeof readRunner>>,
   { force = false } = {},
 ) {
@@ -89,7 +90,7 @@ async function requestUsageRefresh(
   return true;
 }
 
-async function readSettings(supabase: any) {
+export async function readSettings(supabase: any) {
   const { data } = await supabase
     .from("app_settings")
     .select("key, value")
@@ -345,6 +346,50 @@ async function loadBuildApp(supabase: any, appId: string) {
 
 const TURNS_SHOWN = 40;
 
+/** The columns a chat page reads for each turn, with its events and files. */
+export const TURN_COLUMNS =
+  "id, prompt, status, created_at, started_at, finished_at, created_by_email, cancel_requested_at, reply, error, commits, pushed_sha, agent_events(id, kind, body, created_at), agent_attachments(id, name, content_type, size, thumbnail, created_at)";
+
+export function turnView(t: any): BuildTurn {
+  return {
+    id: t.id,
+    prompt: t.prompt,
+    status: t.status,
+    createdAt: t.created_at,
+    startedAt: t.started_at,
+    finishedAt: t.finished_at,
+    createdByEmail: t.created_by_email,
+    cancelRequested: Boolean(t.cancel_requested_at),
+    reply: t.reply,
+    error: t.error,
+    commits: t.commits,
+    pushedSha: t.pushed_sha,
+    events: t.agent_events ?? [],
+    attachments: (t.agent_attachments ?? []).map(attachmentView),
+  };
+}
+
+/**
+ * What the build server is on, or will do first, ahead of this chat's queued message:
+ * another game's name, or the assistant. `pending` is every queued or running turn.
+ */
+export function aheadOf(
+  active: { id: string; createdAt: string },
+  pending: {
+    id: string;
+    app_id: string | null;
+    created_at: string;
+    apps?: { name: string } | null;
+  }[],
+  ownAppId: string | null,
+): string | null {
+  const ahead = pending.find(
+    (t) => t.id !== active.id && (ownAppId === null || t.app_id !== ownAppId),
+  );
+  if (!ahead || Date.parse(ahead.created_at) > Date.parse(active.createdAt)) return null;
+  return ahead.apps?.name ?? (ahead.app_id ? "another game" : ASSISTANT_NAME);
+}
+
 /** Everything the chat page shows. Polled while it's open; it also keeps the server alert. */
 export const getBuildChat = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -360,6 +405,7 @@ export const getBuildChat = createServerFn({ method: "GET" })
         .from("agent_chats")
         .select("id, created_at")
         .eq("app_id", app.id)
+        .eq("kind", "build")
         .is("archived_at", null)
         .maybeSingle(),
       readRunner(supabase),
@@ -376,41 +422,18 @@ export const getBuildChat = createServerFn({ method: "GET" })
     if (chat) {
       const { data: rows, error } = await supabase
         .from("agent_turns")
-        .select(
-          "id, prompt, status, created_at, started_at, finished_at, created_by_email, cancel_requested_at, reply, error, commits, pushed_sha, agent_events(id, kind, body, created_at), agent_attachments(id, name, content_type, size, thumbnail, created_at)",
-        )
+        .select(TURN_COLUMNS)
         .eq("chat_id", chat.id)
         .order("created_at", { ascending: false })
         .order("id", { referencedTable: "agent_events", ascending: true })
         .order("created_at", { referencedTable: "agent_attachments", ascending: true })
         .limit(TURNS_SHOWN);
       if (error) throw new Error(error.message);
-      turns = (rows ?? []).reverse().map((t: any) => ({
-        id: t.id,
-        prompt: t.prompt,
-        status: t.status,
-        createdAt: t.created_at,
-        startedAt: t.started_at,
-        finishedAt: t.finished_at,
-        createdByEmail: t.created_by_email,
-        cancelRequested: Boolean(t.cancel_requested_at),
-        reply: t.reply,
-        error: t.error,
-        commits: t.commits,
-        pushedSha: t.pushed_sha,
-        events: t.agent_events ?? [],
-        attachments: (t.agent_attachments ?? []).map(attachmentView),
-      }));
+      turns = (rows ?? []).reverse().map(turnView);
     }
 
-    // Another game's message ahead of this chat's in the build server's queue.
     const active = turns.find((t) => isActiveTurn(t.status));
-    let waitingFor: string | null = null;
-    if (active?.status === "queued") {
-      const ahead = (pending ?? []).find((t: any) => t.id !== active.id && t.app_id !== app.id);
-      if (ahead && Date.parse(ahead.created_at) <= Date.parse(active.createdAt))
-        waitingFor = ahead.apps?.name ?? "another game";
-    }
+    const waitingFor = active?.status === "queued" ? aheadOf(active, pending ?? [], app.id) : null;
 
     const budget = await weeklyBudgetNow(settings.weeklyBudgetPercent, runner.usage);
     if (!blocked) await requestUsageRefresh(runner);
@@ -611,7 +634,7 @@ export const sendBuildMessage = createServerFn({ method: "POST" })
     if (!chat) {
       const created = await admin()
         .from("agent_chats")
-        .insert({ app_id: app.id, created_by: context.userId })
+        .insert({ app_id: app.id, kind: "build", created_by: context.userId })
         .select("id")
         .single();
       // Two tabs starting the first chat at once: the other one won.

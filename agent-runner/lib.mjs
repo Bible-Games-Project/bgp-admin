@@ -117,6 +117,45 @@ export function claudeArgs({ prompt, model, effort, sessionId, maxTurns, job }) 
 }
 
 /**
+ * The CLI's arguments for one of Ruben's turns (the console's assistant): none of Claude
+ * Code's own tools, the console's tools through the MCP server console-mcp.mjs, and the
+ * instructions the console sends with the turn. No repository: it reads the console only.
+ */
+export function assistantArgs({
+  prompt,
+  model,
+  effort,
+  sessionId,
+  maxTurns,
+  systemPrompt,
+  mcpConfig,
+}) {
+  return [
+    "-p",
+    prompt,
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--model",
+    model,
+    ...(effort ? ["--effort", effort] : []),
+    "--max-turns",
+    String(maxTurns),
+    ...(sessionId ? ["--resume", sessionId] : []),
+    "--append-system-prompt",
+    systemPrompt,
+    "--tools",
+    "",
+    "--mcp-config",
+    mcpConfig,
+    "--strict-mcp-config",
+    "--settings",
+    JSON.stringify({ attribution: { commit: "", pr: "" }, includeCoAuthoredBy: false }),
+    "--dangerously-skip-permissions",
+  ];
+}
+
+/**
  * One tiny call: a word from a small model, no tools, a one-line system prompt in place of
  * Claude Code's own. Claude answers it with the account's limits (a rate_limit_event), which
  * is what it's for: checking a token, and reading the usage when a page asks.
@@ -157,8 +196,23 @@ function shortPath(path, root = "/work") {
   return (value.startsWith(`${root}/`) ? value.slice(root.length + 1) : value) || "a file";
 }
 
+/** What each of the console's tools reads, for the chat (console-mcp.mjs names them mcp__console__…). */
+const CONSOLE_TOOL_LABELS = {
+  home: "Looked at Home",
+  apps: "Listed the apps",
+  app: "Looked at an app",
+  build_chat: "Read a Build chat",
+  expenses: "Read the expenses",
+  revenue: "Read the revenue",
+  downloads: "Read the downloads",
+  reviews: "Read the reviews",
+  settings: "Read the settings",
+};
+
 /** What a tool call did, in a few words. */
 export function stepLabel(name, input = {}, root = "/work") {
+  const consoleTool = /^mcp__console__(\w+)$/.exec(name)?.[1];
+  if (consoleTool) return CONSOLE_TOOL_LABELS[consoleTool] ?? `Read ${oneLine(consoleTool, 40)}`;
   switch (name) {
     case "Read":
       return `Read ${shortPath(input.file_path, root)}`;

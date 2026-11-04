@@ -6,6 +6,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarEdgeSwipe } from "@/components/SidebarEdgeSwipe";
 import { PullToRefresh } from "@/components/PullToRefresh";
+import { Ruben } from "@/components/assistant/Ruben";
 import { checkAccessGate } from "@/lib/auth-gate";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -71,6 +72,8 @@ function AuthenticatedLayout() {
             <Outlet />
           </PullToRefresh>
         </div>
+        {/* The assistant's button and chat, over every page. */}
+        <Ruben />
       </div>
     </SidebarProvider>
   );

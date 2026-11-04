@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
+  assistantArgs,
   availableMegabytes,
   budgetStopMessage,
   claudeArgs,
@@ -84,7 +85,28 @@ describe("eventsFrom", () => {
   });
 });
 
+test("assistantArgs: no built-in tools, the console's through MCP, the console's instructions", () => {
+  const args = assistantArgs({
+    prompt: "What needs attention?",
+    model: "claude-opus-5-5",
+    effort: "medium",
+    sessionId: "abc",
+    maxTurns: 50,
+    systemPrompt: "You are Ruben.",
+    mcpConfig: "/home/agent/mcp.json",
+  });
+  expect(args[args.indexOf("--tools") + 1]).toBe("");
+  expect(args[args.indexOf("--mcp-config") + 1]).toBe("/home/agent/mcp.json");
+  expect(args).toContain("--strict-mcp-config");
+  expect(args[args.indexOf("--append-system-prompt") + 1]).toBe("You are Ruben.");
+  expect(args[args.indexOf("--resume") + 1]).toBe("abc");
+  expect(args).not.toContain("--disallowedTools");
+});
+
 test("stepLabel", () => {
+  expect(stepLabel("mcp__console__home", {})).toBe("Looked at Home");
+  expect(stepLabel("mcp__console__revenue", {})).toBe("Read the revenue");
+  expect(stepLabel("mcp__console__later", {})).toBe("Read later");
   expect(stepLabel("Write", { file_path: "/work/src/levels/two.ts" })).toBe(
     "Wrote src/levels/two.ts",
   );
