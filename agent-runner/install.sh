@@ -18,6 +18,8 @@ usermod -aG docker bgp-agent
 install -d -o root -g root -m 755 /opt/bgp-agent
 install -o root -g root -m 644 "$here"/runner.mjs "$here"/lib.mjs "$here"/egress.mjs "$here"/console-mcp.mjs "$here"/Dockerfile /opt/bgp-agent/
 install -d -o bgp-agent -g bgp-agent -m 700 /var/lib/bgp-agent
+# The sites allowed in Settings → Claude, which the service writes for the proxy to read
+install -d -o bgp-agent -g bgp-agent -m 755 /var/lib/bgp-agent/egress
 
 # GitHub's host key, so the deploy keys only ever talk to GitHub
 install -d -o bgp-agent -g bgp-agent -m 700 /var/lib/bgp-agent/.ssh
@@ -34,20 +36,22 @@ busy=0
 [ -n "$(docker ps -q --filter name='^bgp-agent-login$')" ] && busy=1
 
 # The sessions' network with no way out, and the proxy that only lets them reach the Claude
-# API and npm. The proxy is only replaced when it changed: replacing it would cut the
-# session going through it.
+# API, npm and the sites allowed in Settings → Claude (read from /var/lib/bgp-agent/egress).
+# The proxy is only replaced when it changed: replacing it would cut the session going
+# through it.
 docker network inspect bgp-agent-internal >/dev/null 2>&1 || docker network create --internal bgp-agent-internal >/dev/null
 docker build --quiet -t bgp-agent:latest /opt/bgp-agent >/dev/null
 # The console's host, which Ruben's tools reach from inside the container (console-mcp.mjs)
 console_host="$(sed -n 's#^CONSOLE_URL=https\?://\([^/]*\).*#\1#p' /etc/bgp-agent.env 2>/dev/null | head -1)"
 console_host="${console_host:-bgp-admin-preview.biblegamesproject.workers.dev}"
-egress="$(sha256sum /opt/bgp-agent/egress.mjs | cut -d' ' -f1)-$console_host"
+egress="$(sha256sum /opt/bgp-agent/egress.mjs | cut -d' ' -f1)-$console_host-allowfile"
 running="$(docker inspect -f '{{index .Config.Labels "egress"}}' bgp-agent-egress 2>/dev/null || true)"
 if [ "$running" != "$egress" ] && [ "$busy" = 0 ]; then
   docker rm -f bgp-agent-egress >/dev/null 2>&1 || true
   docker run -d --name bgp-agent-egress --restart unless-stopped --memory 128m --oom-score-adj 1000 --pids-limit 64 \
     --cap-drop ALL --security-opt no-new-privileges --user node --label "egress=$egress" \
     -e "EGRESS_ALLOW=$console_host" \
+    -v /var/lib/bgp-agent/egress:/etc/bgp-egress:ro \
     bgp-agent:latest node /opt/bgp-agent/egress.mjs >/dev/null
   docker network connect bgp-agent-internal bgp-agent-egress
 fi

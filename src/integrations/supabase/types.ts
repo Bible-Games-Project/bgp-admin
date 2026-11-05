@@ -124,6 +124,54 @@ export type Database = {
           },
         ]
       }
+      agent_environment_changes: {
+        Row: {
+          add_domains: string[]
+          created_at: string
+          created_by: string | null
+          created_by_email: string | null
+          domains: string[] | null
+          error: string | null
+          id: string
+          remove_domains: string[]
+          remove_variables: string[]
+          set_variables: Json | null
+          skipped: string[]
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          add_domains?: string[]
+          created_at?: string
+          created_by?: string | null
+          created_by_email?: string | null
+          domains?: string[] | null
+          error?: string | null
+          id?: string
+          remove_domains?: string[]
+          remove_variables?: string[]
+          set_variables?: Json | null
+          skipped?: string[]
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          add_domains?: string[]
+          created_at?: string
+          created_by?: string | null
+          created_by_email?: string | null
+          domains?: string[] | null
+          error?: string | null
+          id?: string
+          remove_domains?: string[]
+          remove_variables?: string[]
+          set_variables?: Json | null
+          skipped?: string[]
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       agent_events: {
         Row: {
           app_id: string | null
@@ -233,6 +281,7 @@ export type Database = {
         Row: {
           account: Json | null
           busy: boolean
+          environment: Json | null
           host: string | null
           id: string
           last_seen_at: string | null
@@ -245,6 +294,7 @@ export type Database = {
         Insert: {
           account?: Json | null
           busy?: boolean
+          environment?: Json | null
           host?: string | null
           id?: string
           last_seen_at?: string | null
@@ -257,6 +307,7 @@ export type Database = {
         Update: {
           account?: Json | null
           busy?: boolean
+          environment?: Json | null
           host?: string | null
           id?: string
           last_seen_at?: string | null

@@ -85,13 +85,29 @@ share is approximate by a percent or two.
 
 ## What Claude can and can't do
 
-- **It can only reach the Claude API, the npm registry and the console.** The container sits on a Docker
-  network with no way out (`bgp-agent-internal`). The only thing on it is the proxy `bgp-agent-egress`
-  (`egress.mjs`), which opens tunnels only to `api.anthropic.com:443`, `registry.npmjs.org:443` and the
-  console's host (for Ruben's tools, which the console only answers with a turn's token). It can't reach
-  GitHub, other websites, or anything on the home network.
+- **It can only reach the Claude API, the npm registry, the console and the sites allowed in Settings →
+  Claude → Internet and keys.** The container sits on a Docker network with no way out
+  (`bgp-agent-internal`). The only thing on it is the proxy `bgp-agent-egress` (`egress.mjs`), which opens
+  tunnels only to `api.anthropic.com:443`, `registry.npmjs.org:443`, the console's host (for Ruben's tools,
+  which the console only answers with a turn's token) and, while a Build chat turn runs, the sites of
+  Internet and keys. It never follows a name to a private address (the home network, the machine, Docker),
+  so it can't reach anything on the home network even through an allowed site.
+- **Internet and keys** is the Build chat's version of Claude Code on the web's cloud environment. OpenAI
+  and ElevenLabs connect with just their key (the console checks it with the service first and adds the
+  service's site); anything else goes under "Other websites and keys", pasted as in Claude Code. A change goes
+  to the server through `agent_environment_changes` (the values are deleted from the database as soon as
+  the server takes them) and lives in `STATE_DIR/environment.json` (600), like the Claude token; the
+  console only sees the sites and each key's last four characters (`agent_runner.environment`). The server
+  writes the sites to `STATE_DIR/egress/allow` when a Build chat turn starts and empties it when it ends;
+  the proxy reads that file (mounted at `/etc/bgp-egress`) on every tunnel. The keys reach the container
+  through the same env file as the token. Ruben's turns and the dependency installs get neither. Names the
+  server sets itself (`CLAUDE_*`, `ANTHROPIC_*`, `*_PROXY`, `PATH`, `HOME`, `GIT_*`…) can't be replaced.
+- **It can't publish a key.** Before pushing, the server reads the patch of every commit of the turn; if
+  the value of a key (20 characters or more) is in it, nothing is pushed and the chat says why
+  (`leakedSecrets` in `runner.mjs`). The game is public: a key in it is a key anyone can use.
 - **It sees nothing of the server** except the game's clone (`/work`) and its own home folder for that game
-  (`/home/agent`, where Claude keeps the chat's session). It has no secret besides the Claude token. The
+  (`/home/agent`, where Claude keeps the chat's session). It has no secret besides the Claude token and
+  the keys of Internet and keys. The
   GitHub keys stay outside, and so does the service's own token.
 - **It can't run anything on the server.** The service runs git with the repo's hooks and fsmonitor off,
   and puts `.git/config` back after each session.

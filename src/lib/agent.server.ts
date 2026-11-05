@@ -7,6 +7,8 @@ import { PREVIEW_DISABLED_STEP } from "@/lib/capacitor.functions";
 import { isSelfRepo } from "@/lib/self-repo";
 import {
   ATTACHMENTS_BUCKET,
+  ENVIRONMENT_RUNNER_VERSION,
+  ENVIRONMENT_SENDING_MINUTES,
   LOGIN_EXPIRES_MINUTES,
   POLL_FAST_SECONDS,
   POLL_IDLE_SECONDS,
@@ -17,6 +19,7 @@ import {
   budgetExhaustedMessage,
   cleanEvent,
   currentWeeklyWindow,
+  environmentFrom,
   isDeployKey,
   sameSecret,
   turnWeeklySpend,
@@ -107,8 +110,8 @@ export async function previewUrlFor(app: {
 
 /**
  * The build server's regular call. It says it's alive and which account it holds, and
- * gets one thing to do: forget the account, link one, or answer a chat message. With
- * nothing to do it learns how long to wait.
+ * gets one thing to do: forget the account, link one, take a change of its internet and
+ * keys, or answer a chat message. With nothing to do it learns how long to wait.
  */
 async function poll(body: Record<string, unknown>) {
   const now = new Date();
@@ -121,6 +124,8 @@ async function poll(body: Record<string, unknown>) {
       version: str(body.version, 20),
       busy: false,
       account,
+      // Servers before ENVIRONMENT_RUNNER_VERSION don't say: what's there stays.
+      ...(body.environment !== undefined ? { environment: environmentFrom(body.environment) } : {}),
     })
     .eq("id", "main")
     .select("watched_until, unlink_requested_at, usage_requested_at")
@@ -181,6 +186,10 @@ async function poll(body: Record<string, unknown>) {
     };
   }
 
+  // A change of internet and keys goes before the next message, so the message gets it.
+  const change = await nextEnvironmentChange(Number(body.version), now);
+  if (change) return { environment: change };
+
   const { data: pending } = await db()
     .from("agent_turns")
     .select("id, status, chat_id, app_id, prompt, context, created_by_email")
@@ -220,6 +229,84 @@ async function poll(body: Record<string, unknown>) {
   const watched = runner.watched_until && Date.parse(runner.watched_until) > now.getTime();
   const waiting = (logins ?? []).some((l: any) => !expired.includes(l));
   return { pollSeconds: watched || waiting ? POLL_FAST_SECONDS : POLL_IDLE_SECONDS };
+}
+
+/**
+ * The oldest change saved in Settings → Claude → Internet and keys, for the server to take.
+ * Its values leave the database as it goes. One the server took and never confirmed is
+ * given up: its values are gone, so the page asks to save it again.
+ */
+async function nextEnvironmentChange(version: number, now: Date) {
+  const sendingBefore = iso(new Date(now.getTime() - ENVIRONMENT_SENDING_MINUTES * 60_000));
+  await db()
+    .from("agent_environment_changes")
+    .update({
+      status: "failed",
+      error: "The build server didn't confirm this change. Save it again.",
+      set_variables: null,
+      updated_at: iso(now),
+    })
+    .eq("status", "sending")
+    .lt("updated_at", sendingBefore);
+  // An older server wouldn't know what to do with it: it waits for the update.
+  if (!(version >= ENVIRONMENT_RUNNER_VERSION)) return null;
+  const { data: next } = await db()
+    .from("agent_environment_changes")
+    .select(
+      "id, domains, add_domains, remove_domains, set_variables, remove_variables, created_by_email",
+    )
+    .eq("status", "pending")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!next) return null;
+  const { data: taken } = await db()
+    .from("agent_environment_changes")
+    .update({ status: "sending", set_variables: null, updated_at: iso(now) })
+    .eq("id", next.id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+  if (!taken) return null;
+  return {
+    id: next.id,
+    domains: next.domains ?? undefined,
+    addDomains: next.add_domains ?? [],
+    removeDomains: next.remove_domains ?? [],
+    set: next.set_variables ?? {},
+    remove: next.remove_variables ?? [],
+    createdByEmail: next.created_by_email,
+  };
+}
+
+/** The server kept a change (or couldn't), and says what it holds now. */
+async function environmentReport(body: Record<string, unknown>) {
+  const id = str(body.id, 64);
+  const skipped = (Array.isArray(body.skipped) ? body.skipped : [])
+    .filter((s): s is string => typeof s === "string")
+    .slice(0, 100)
+    .map((s) => s.slice(0, 200));
+  await Promise.all([
+    id
+      ? db()
+          .from("agent_environment_changes")
+          .update({
+            status: body.ok ? "applied" : "failed",
+            error: body.ok ? null : (str(body.error, 500) ?? "The build server couldn't keep it."),
+            skipped,
+            set_variables: null,
+            updated_at: iso(new Date()),
+          })
+          .eq("id", id)
+      : null,
+    body.environment !== undefined
+      ? db()
+          .from("agent_runner")
+          .update({ environment: environmentFrom(body.environment), last_seen_at: iso(new Date()) })
+          .eq("id", "main")
+      : null,
+  ]);
+  return { ok: true };
 }
 
 /** The account's usage as the tiny call the server made for a page just reported it. */
@@ -580,6 +667,7 @@ const ROUTES: Record<string, (body: Record<string, unknown>) => Promise<unknown>
   login: loginProgress,
   "repo-key": registerRepoKey,
   usage: usageReport,
+  environment: environmentReport,
 };
 
 export async function handleRunnerRequest(path: string, request: Request) {

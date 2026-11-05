@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ExternalLink,
   Gauge,
+  Globe,
   KeyRound,
   Loader2,
   Server,
@@ -18,7 +19,10 @@ import {
   cancelClaudeLogin,
   getClaudeSettings,
   pasteClaudeToken,
+  connectAgentService,
+  disconnectAgentService,
   refreshClaudeUsage,
+  saveAgentEnvironment,
   saveAgentSettings,
   startClaudeLogin,
   submitClaudeLoginCode,
@@ -28,13 +32,21 @@ import {
 import {
   AGENT_EFFORTS,
   AGENT_MODELS,
+  AGENT_SERVICES,
+  parseDomains,
+  parseVariables,
   resetLabel,
+  serviceKeyFrom,
+  serviceOfVariable,
+  type AgentService,
   type RunnerView,
   type WeeklyBudget,
 } from "@/lib/agent";
+import { ASSISTANT_NAME } from "@/lib/assistant";
 import { UsageSummary } from "@/components/build/UsageSummary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -51,6 +63,8 @@ export const Route = createFileRoute("/_authenticated/settings/claude")({
 
 const ago = (iso: string) => formatDistanceToNowStrict(new Date(iso), { addSuffix: true });
 const ACTIVE_LOGIN = ["starting", "waiting_code", "checking"];
+const changeOnItsWay = (change: { status: string } | null | undefined) =>
+  change?.status === "pending" || change?.status === "sending";
 
 function ClaudeSettingsPage() {
   const getFn = useServerFn(getClaudeSettings);
@@ -61,7 +75,8 @@ function ClaudeSettingsPage() {
     // so each step shows up at once.
     refetchInterval: (query) =>
       (query.state.data?.login && ACTIVE_LOGIN.includes(query.state.data.login.status)) ||
-      query.state.data?.usageRefreshPending
+      query.state.data?.usageRefreshPending ||
+      changeOnItsWay(query.state.data?.environmentChange)
         ? 2000
         : 10_000,
   });
@@ -84,6 +99,7 @@ function ClaudeSettingsPage() {
         <>
           <RunnerCard runner={q.data!.runner} />
           <AccountCard data={q.data!} />
+          <EnvironmentCard data={q.data!} />
           <ModelCard settings={q.data!.settings} />
           <WeeklyShareCard settings={q.data!.settings} budget={q.data!.budget} />
         </>
@@ -388,6 +404,350 @@ function PasteToken() {
       </CollapsibleContent>
     </Collapsible>
   );
+}
+
+/**
+ * Internet and keys: what the Build chat's Claude may use besides the Claude API and npm,
+ * like the cloud environment of Claude Code on the web. OpenAI and ElevenLabs connect with
+ * just their key; any other site or key goes under "Other websites and keys". It all lives
+ * on the build server: this page only sees the sites and each key's last four characters.
+ */
+function EnvironmentCard({ data }: { data: SettingsData }) {
+  const { environment } = data;
+  const serviceDomains: string[] = AGENT_SERVICES.flatMap((s) => [...s.domains]);
+  const others = {
+    domains: environment.domains.filter((d) => !serviceDomains.includes(d)),
+    variables: environment.variables.filter((v) => !serviceOfVariable(v.name)),
+  };
+  const [showOthers, setShowOthers] = useState(
+    others.domains.length > 0 || others.variables.length > 0,
+  );
+
+  return (
+    <Card icon={Globe} title="Internet and keys">
+      <p className="text-muted-foreground">
+        Services Claude can use while it builds a game. To connect one, paste its key and press
+        Connect.
+      </p>
+      <div className="space-y-3">
+        {AGENT_SERVICES.map((service) => (
+          <ServiceRow key={service.id} service={service} data={data} />
+        ))}
+      </div>
+      <EnvironmentStatus data={data} />
+      <Collapsible open={showOthers} onOpenChange={setShowOthers}>
+        <CollapsibleTrigger className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+          Other websites and keys
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-3">
+          <OtherSitesAndKeys data={data} others={others} />
+        </CollapsibleContent>
+      </Collapsible>
+      <p className="text-xs text-muted-foreground">
+        Keys stay on the build server: here you only see their last four characters. Claude uses
+        them while it works and never puts them in a game. {ASSISTANT_NAME} doesn't get them.
+      </p>
+    </Card>
+  );
+}
+
+/** One service: connected (with its key's last four), or a box to paste its key in. */
+function ServiceRow({ service, data }: { service: AgentService; data: SettingsData }) {
+  const qc = useQueryClient();
+  const connectFn = useServerFn(connectAgentService);
+  const disconnectFn = useServerFn(disconnectAgentService);
+  const [key, setKey] = useState("");
+  const [changing, setChanging] = useState(false);
+  const connected = data.environment.variables.find((v) => v.name === service.variable);
+  const busy = changeOnItsWay(data.environmentChange);
+  const refresh = () => qc.invalidateQueries({ queryKey: ["claude-settings"] });
+  const connect = useMutation({
+    mutationFn: () => connectFn({ data: { service: service.id, key } }),
+    onSuccess: () => {
+      setKey("");
+      setChanging(false);
+      refresh();
+    },
+  });
+  const disconnect = useMutation({
+    mutationFn: () => disconnectFn({ data: { service: service.id } }),
+    onSuccess: refresh,
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const parsed = key.trim() ? serviceKeyFrom(key, service) : null;
+  const problem = parsed && "problem" in parsed ? parsed.problem : null;
+  const error = problem ?? (connect.error as Error | null)?.message ?? null;
+
+  return (
+    <div className="border border-border rounded-md p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-medium">{service.label}</span>
+        <span className="text-xs text-muted-foreground">for {service.purpose}</span>
+        {connected && !changing && (
+          <span className="ml-auto flex items-center gap-1.5 text-xs">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Connected
+            <span className="font-mono text-muted-foreground">…{connected.last4}</span>
+          </span>
+        )}
+      </div>
+      {connected && !changing ? (
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={busy}
+            onClick={() => setChanging(true)}
+          >
+            Change key
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs text-destructive hover:text-destructive"
+            disabled={busy || disconnect.isPending}
+            onClick={() => {
+              if (confirm(`Disconnect ${service.label}? Claude won't be able to use it.`))
+                disconnect.mutate();
+            }}
+          >
+            Disconnect
+          </Button>
+        </div>
+      ) : (
+        <form
+          className="space-y-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!problem && key.trim()) connect.mutate();
+          }}
+        >
+          <div className="flex gap-2 items-start">
+            <Textarea
+              value={key}
+              onChange={(e) => {
+                setKey(e.target.value);
+                connect.reset();
+              }}
+              rows={1}
+              placeholder={`Paste the ${service.label} key here`}
+              aria-label={`${service.label} key`}
+              className="min-h-9 py-2 resize-none font-mono text-xs"
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <Button
+              type="submit"
+              size="sm"
+              className="h-9 shrink-0 gap-1.5"
+              disabled={!key.trim() || Boolean(problem) || connect.isPending || busy}
+            >
+              {connect.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {connect.isPending ? "Checking…" : "Connect"}
+            </Button>
+            {changing && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-9 shrink-0"
+                onClick={() => {
+                  setChanging(false);
+                  setKey("");
+                  connect.reset();
+                }}
+              >
+                Cancel
+              </Button>
+            )}
+          </div>
+          {error && (
+            <p className="text-xs text-destructive flex gap-1.5">
+              <TriangleAlert className="h-3.5 w-3.5 shrink-0 mt-px" />
+              {error}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Where is it? In Claude Code, in “Editar entorno de la nube”, the line that starts with{" "}
+            <span className="font-mono">{service.variable}=</span> (you can paste the whole line).
+            Or make a new one at{" "}
+            <a
+              href={service.keysUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
+              {new URL(service.keysUrl).host}
+            </a>
+            .
+          </p>
+        </form>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Any other site or key, as Claude Code's environment has them: websites one per line,
+ * keys as NAME=value. The services above keep their own site whatever this box says.
+ */
+function OtherSitesAndKeys({
+  data,
+  others,
+}: {
+  data: SettingsData;
+  others: { domains: string[]; variables: { name: string; last4: string }[] };
+}) {
+  const qc = useQueryClient();
+  const saveFn = useServerFn(saveAgentEnvironment);
+  const current = others.domains.join("\n");
+  const [sites, setSites] = useState(current);
+  const [sitesEdited, setSitesEdited] = useState(false);
+  useEffect(() => {
+    if (!sitesEdited) setSites(current);
+  }, [current, sitesEdited]);
+  const [keys, setKeys] = useState("");
+  const parsedSites = useMemo(() => parseDomains(sites), [sites]);
+  const parsedKeys = useMemo(() => parseVariables(keys), [keys]);
+  const sitesChanged = parsedSites.domains.join("\n") !== current;
+  const keyCount = Object.keys(parsedKeys.variables).length;
+  const problems = [...parsedSites.problems, ...parsedKeys.problems];
+  const busy = changeOnItsWay(data.environmentChange);
+
+  const save = useMutation({
+    mutationFn: (input: { domains: string | null; variables?: string; remove?: string[] }) =>
+      saveFn({ data: { variables: "", remove: [], ...input } }),
+    onSuccess: (_result, input) => {
+      if (input.variables !== undefined) {
+        setKeys("");
+        setSitesEdited(false);
+      }
+      qc.invalidateQueries({ queryKey: ["claude-settings"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Only if Claude needs something else. You can copy both lists from “Editar entorno de la
+        nube” in Claude Code.
+      </p>
+      <div className="space-y-1.5">
+        <label htmlFor="env-sites" className="text-xs font-medium">
+          Websites
+        </label>
+        <Textarea
+          id="env-sites"
+          value={sites}
+          onChange={(e) => {
+            setSites(e.target.value);
+            setSitesEdited(true);
+          }}
+          rows={Math.min(8, Math.max(2, sites.split("\n").length + 1))}
+          placeholder="One per line, like api.example.com"
+          className="font-mono text-xs"
+          spellCheck={false}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <span className="text-xs font-medium">Keys</span>
+        {others.variables.length > 0 && (
+          <ul className="divide-y divide-border border border-border rounded-md">
+            {others.variables.map((v) => (
+              <li key={v.name} className="flex items-center gap-3 px-3 py-1.5">
+                <span className="font-mono text-xs break-all">{v.name}</span>
+                <span className="font-mono text-xs text-muted-foreground">…{v.last4}</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="ml-auto h-7 text-xs text-destructive hover:text-destructive"
+                  disabled={save.isPending || busy}
+                  onClick={() => {
+                    if (confirm(`Remove ${v.name}? Claude won't have it from the next message.`))
+                      save.mutate({ domains: null, remove: [v.name] });
+                  }}
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Textarea
+          aria-label="Keys to add or replace"
+          value={keys}
+          onChange={(e) => setKeys(e.target.value)}
+          rows={Math.min(8, Math.max(2, keys.split("\n").length + 1))}
+          placeholder="NAME=value, one per line"
+          className="font-mono text-xs"
+          spellCheck={false}
+          autoComplete="off"
+        />
+      </div>
+      {problems.length > 0 && (
+        <ul className="space-y-1 text-xs text-destructive">
+          {problems.map((problem) => (
+            <li key={problem} className="flex gap-1.5">
+              <TriangleAlert className="h-3.5 w-3.5 shrink-0 mt-px" />
+              {problem}
+            </li>
+          ))}
+        </ul>
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={
+          (!sitesChanged && keyCount === 0) || problems.length > 0 || save.isPending || busy
+        }
+        onClick={() => save.mutate({ domains: sites, variables: keys })}
+      >
+        Save
+      </Button>
+    </div>
+  );
+}
+
+function EnvironmentStatus({ data }: { data: SettingsData }) {
+  const { environmentChange: change } = data;
+  if (changeOnItsWay(change)) {
+    return (
+      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        {!data.runner.online
+          ? "Saved. The build server is offline: it takes it when it's back."
+          : !data.runnerTakesEnvironment
+            ? "Saved. The build server takes it as soon as it's updated."
+            : "Saving it on the build server…"}
+      </p>
+    );
+  }
+  if (change?.status === "failed") {
+    return (
+      <p className="text-xs text-destructive flex gap-1.5">
+        <TriangleAlert className="h-3.5 w-3.5 shrink-0 mt-px" />
+        {change.error ?? "The build server couldn't keep it. Do it again."}
+      </p>
+    );
+  }
+  if (change?.status === "applied") {
+    return (
+      <div className="text-xs space-y-0.5">
+        <p className="flex gap-1.5">
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-px text-emerald-500" />
+          Done: Claude can use it from your next message in the Build chat.
+        </p>
+        {change.skipped.map((s) => (
+          <p key={s} className="text-destructive">
+            Left out: {s}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return null;
 }
 
 function ModelCard({ settings }: { settings: SettingsData["settings"] }) {

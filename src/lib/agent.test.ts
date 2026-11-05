@@ -1,20 +1,27 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AGENT_SERVICES,
   accountFrom,
   agentSettingsFrom,
   attachmentProblem,
   attachmentType,
   budgetExhaustedMessage,
   cleanEvent,
+  domainRule,
+  environmentFrom,
   fixPreviewPrompt,
   isClaudeToken,
   isDeployKey,
+  parseDomains,
+  parseVariables,
   previewDeployState,
   previewSrc,
   resetLabel,
   runnerView,
   safeFileName,
   sameSecret,
+  serviceKeyFrom,
+  serviceKeyVerdict,
   turnWeeklySpend,
   usageIsStale,
   weeklyBudgetFrom,
@@ -276,4 +283,121 @@ test("previewSrc adds a cache-busting parameter", () => {
   expect(previewSrc("https://bgp-bible-rpg.pages.dev", "abc")).toBe(
     "https://bgp-bible-rpg.pages.dev/?bgp_preview=abc",
   );
+});
+
+describe("internet and keys", () => {
+  test("the websites box takes what Claude Code's environment shows, and only public sites", () => {
+    const { domains, problems } = parseDomains(
+      "api.openai.com\nhttps://api.elevenlabs.io/v1\n*.googleapis.com, api.openai.com\n# a comment\nregistry.npmjs.org\n\n",
+    );
+    expect(domains).toEqual(["api.openai.com", "api.elevenlabs.io", "*.googleapis.com"]);
+    expect(problems).toEqual([]);
+    expect(parseDomains("192.168.1.24 localhost").problems).toHaveLength(2);
+    expect(domainRule("API.OpenAI.com:443")).toBe("api.openai.com");
+  });
+
+  test("the keys box reads .env lines, quotes and export included", () => {
+    const { variables, problems } = parseVariables(
+      [
+        "# from Claude Code",
+        "OPENAI_API_KEY=sk-proj-abc",
+        'export ELEVENLABS_API_KEY="xi-123"',
+        "SPACED = 'a b'",
+        "",
+      ].join("\n"),
+    );
+    expect(variables).toEqual({
+      OPENAI_API_KEY: "sk-proj-abc",
+      ELEVENLABS_API_KEY: "xi-123",
+      SPACED: "a b",
+    });
+    expect(problems).toEqual([]);
+  });
+
+  test("the keys box says what's wrong, line by line", () => {
+    const { variables, problems } = parseVariables(
+      "OPENAI_API_KEY=\njust some text\nCLAUDE_CODE_OAUTH_TOKEN=x\nHTTPS_PROXY=http://x\n9X=1",
+    );
+    expect(variables).toEqual({});
+    expect(problems).toEqual([
+      "OPENAI_API_KEY has no value.",
+      "Line 2 has no “=”: write it as NAME=value.",
+      "CLAUDE_CODE_OAUTH_TOKEN is set by the build server itself.",
+      "HTTPS_PROXY is set by the build server itself.",
+      "9X isn't a valid name.",
+    ]);
+  });
+
+  test("environmentFrom keeps names and last four, whatever the server sent", () => {
+    expect(environmentFrom(null)).toEqual({
+      domains: [],
+      variables: [],
+      updatedAt: null,
+      updatedBy: null,
+    });
+    expect(
+      environmentFrom({
+        domains: ["api.openai.com", 3],
+        variables: [{ name: "OPENAI_API_KEY", last4: "WXYZ", value: "leak" }, { last4: "x" }],
+        updatedAt: "2026-11-05T12:00:00Z",
+      }),
+    ).toEqual({
+      domains: ["api.openai.com"],
+      variables: [{ name: "OPENAI_API_KEY", last4: "WXYZ" }],
+      updatedAt: "2026-11-05T12:00:00Z",
+      updatedBy: null,
+    });
+  });
+});
+
+describe("connecting a service with its key", () => {
+  const [openai, elevenlabs] = AGENT_SERVICES;
+  const key = "sk-proj-AbCdEf0123456789XyZ";
+
+  test("the key alone, its line from Claude Code, or all the lines", () => {
+    expect(serviceKeyFrom(`  ${key}\n`, openai)).toEqual({ key });
+    expect(serviceKeyFrom(`OPENAI_API_KEY=${key}`, openai)).toEqual({ key });
+    expect(serviceKeyFrom(`export OPENAI_API_KEY="${key}"`, openai)).toEqual({ key });
+    expect(
+      serviceKeyFrom(`ELEVENLABS_API_KEY=sk_0123456789abcdef0123\nOPENAI_API_KEY=${key}`, openai),
+    ).toEqual({ key });
+    expect(serviceKeyFrom("sk_0123456789abcdef0123456789", elevenlabs)).toEqual({
+      key: "sk_0123456789abcdef0123456789",
+    });
+  });
+
+  test("says plainly what's wrong with what was pasted", () => {
+    expect(serviceKeyFrom("", openai)).toEqual({ problem: "Paste the key first." });
+    expect(serviceKeyFrom("sk-proj-abc", openai)).toEqual({
+      problem: "That's too short to be a key. Copy it again, whole.",
+    });
+    expect(serviceKeyFrom(`OPENAI_API_KEY=${key}`, elevenlabs)).toEqual({
+      problem: "That's the OpenAI key: paste it in the OpenAI box.",
+    });
+    expect(serviceKeyFrom("my key is sk-proj-AbCdEf0123456789XyZ", openai)).toEqual({
+      problem: "A key has no spaces. Copy it again, on its own.",
+    });
+    expect(serviceKeyFrom("A=1\nB=2", openai)).toEqual({
+      problem: "Paste only the key, or the line that starts with OPENAI_API_KEY=.",
+    });
+  });
+
+  test("only a plain 'invalid key' answer stops it", () => {
+    // What both services answered a made-up key on 2026-11-05
+    const openaiInvalid = {
+      error: { message: "Incorrect API key provided: sk-proj-***0000.", code: "invalid_api_key" },
+    };
+    const elevenInvalid = { detail: { status: "invalid_api_key", message: "Invalid API key" } };
+    expect(serviceKeyVerdict("openai", 401, openaiInvalid)).toBe("invalid");
+    expect(serviceKeyVerdict("elevenlabs", 401, elevenInvalid)).toBe("invalid");
+    expect(serviceKeyVerdict("openai", 200, {})).toBe("ok");
+    // A key limited to some things, a service in trouble, no answer at all
+    expect(
+      serviceKeyVerdict("openai", 401, { error: { message: "Missing scopes: api.model.read" } }),
+    ).toBe("unknown");
+    expect(
+      serviceKeyVerdict("elevenlabs", 401, { detail: { status: "missing_permissions" } }),
+    ).toBe("unknown");
+    expect(serviceKeyVerdict("openai", 503, null)).toBe("unknown");
+  });
 });

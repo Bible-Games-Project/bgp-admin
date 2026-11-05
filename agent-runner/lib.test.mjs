@@ -1,15 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
+  applyEnvironmentChange,
   assistantArgs,
   availableMegabytes,
   budgetStopMessage,
   claudeArgs,
+  domainRule,
+  environmentSummary,
   eventsFrom,
   isClaudeToken,
   loginError,
   loginToken,
   loginUrl,
+  longestSecret,
   megabytes,
   overBudget,
   parseLine,
@@ -19,13 +23,15 @@ import {
   protectedPaths,
   readResult,
   safeFileName,
+  secretsIn,
   stepLabel,
   systemPrompt,
   uniqueFileName,
   usageFrom,
+  variableProblem,
   weeklySpent,
 } from "./lib.mjs";
-import { isAllowedHost, parseTarget } from "./egress.mjs";
+import { hostsFromFile, isAllowedHost, isPrivateAddress, parseTarget } from "./egress.mjs";
 
 // A real session of Claude Code 2.1.316 (stream-json), paths moved to /work.
 const stream = readFileSync(new URL("./fixtures/stream.jsonl", import.meta.url), "utf8")
@@ -364,4 +370,139 @@ test("egress only to the Claude API and npm, over TLS", () => {
   expect(isAllowedHost("evil-api.anthropic.com")).toBe(false);
   expect(parseTarget("api.anthropic.com:443")).toEqual({ host: "api.anthropic.com", port: 443 });
   expect(parseTarget("http://x")).toBeNull();
+});
+
+test("the egress proxy adds the sites of Settings → Claude, and never a private address", () => {
+  const allow = ["api.anthropic.com", ...hostsFromFile("api.openai.com\n*.elevenlabs.io\n\n")];
+  expect(isAllowedHost("api.openai.com", allow)).toBe(true);
+  expect(isAllowedHost("openai.com", allow)).toBe(false);
+  expect(isAllowedHost("api.elevenlabs.io", allow)).toBe(true);
+  expect(isAllowedHost("elevenlabs.io", allow)).toBe(true);
+  expect(isAllowedHost("elevenlabs.io.evil.com", allow)).toBe(false);
+  for (const address of [
+    "192.168.1.24",
+    "10.0.0.1",
+    "127.0.0.1",
+    "172.18.0.2",
+    "169.254.169.254",
+    "::1",
+    "fd00::1",
+    "fe80::1",
+    "::ffff:192.168.1.24",
+    "100.100.1.1",
+  ])
+    expect(isPrivateAddress(address)).toBe(true);
+  for (const address of ["104.18.6.192", "160.79.104.10", "2606:4700::6812:6c0", "172.67.1.1"])
+    expect(isPrivateAddress(address)).toBe(false);
+});
+
+describe("internet and keys", () => {
+  test("a site is kept as a public host name, whatever was pasted", () => {
+    expect(domainRule("https://api.openai.com/v1/images")).toBe("api.openai.com");
+    expect(domainRule("API.OpenAI.com:443")).toBe("api.openai.com");
+    expect(domainRule("*.elevenlabs.io")).toBe("*.elevenlabs.io");
+    expect(domainRule(".elevenlabs.io")).toBe("*.elevenlabs.io");
+    expect(domainRule("fonts.googleapis.com.")).toBe("fonts.googleapis.com");
+    for (const bad of [
+      "192.168.1.24",
+      "localhost",
+      "intranet",
+      "nas.local",
+      "*",
+      "*.com",
+      "",
+      "http://[::1]/",
+    ])
+      expect(domainRule(bad)).toBeNull();
+  });
+
+  test("variables can't replace what the build server sets", () => {
+    expect(variableProblem("OPENAI_API_KEY", "sk-x")).toBeNull();
+    expect(variableProblem("ELEVENLABS_API_KEY", "x")).toBeNull();
+    for (const name of [
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "ANTHROPIC_BASE_URL",
+      "HTTPS_PROXY",
+      "no_proxy",
+      "PATH",
+      "HOME",
+      "NODE_OPTIONS",
+      "GIT_SSH_COMMAND",
+      "LD_PRELOAD",
+    ])
+      expect(variableProblem(name, "x")).toBe("is set by the build server itself");
+    expect(variableProblem("1KEY", "x")).toBe("isn't a valid variable name");
+    expect(variableProblem("KEY", "a\nb")).toBe("has a line break in its value");
+  });
+
+  test("a change replaces the sites, sets and removes keys, and says what it left out", () => {
+    const current = { domains: ["old.example.com"], variables: { A_KEY: "aaaa", GONE: "x" } };
+    const { environment, skipped } = applyEnvironmentChange(
+      current,
+      {
+        domains: ["api.openai.com", "api.anthropic.com", "192.168.1.24", "api.openai.com"],
+        set: { OPENAI_API_KEY: "sk-proj-123456789", CLAUDE_CODE_OAUTH_TOKEN: "nope", A_KEY: "" },
+        remove: ["GONE"],
+      },
+      { at: "2026-11-05T12:00:00Z", by: "joan@example.com" },
+    );
+    expect(environment.domains).toEqual(["api.openai.com"]);
+    expect(environment.variables).toEqual({ OPENAI_API_KEY: "sk-proj-123456789" });
+    expect(skipped).toEqual([
+      "192.168.1.24: isn't a public site",
+      "CLAUDE_CODE_OAUTH_TOKEN: is set by the build server itself",
+    ]);
+    // Without domains in the change, the sites stay
+    expect(applyEnvironmentChange(current, { set: {} }).environment.domains).toEqual([
+      "old.example.com",
+    ]);
+  });
+
+  test("connecting a service adds its site, disconnecting takes it out", () => {
+    const current = { domains: ["old.example.com"], variables: {} };
+    const connected = applyEnvironmentChange(current, {
+      addDomains: ["api.openai.com", "old.example.com"],
+      set: { OPENAI_API_KEY: "sk-proj-123456789" },
+    }).environment;
+    expect(connected.domains).toEqual(["old.example.com", "api.openai.com"]);
+    const gone = applyEnvironmentChange(connected, {
+      removeDomains: ["api.openai.com"],
+      remove: ["OPENAI_API_KEY"],
+    }).environment;
+    expect(gone).toMatchObject({ domains: ["old.example.com"], variables: {} });
+  });
+
+  test("the console only learns names and last four characters", () => {
+    const summary = environmentSummary({
+      domains: ["api.openai.com"],
+      variables: { OPENAI_API_KEY: "sk-proj-abcdefWXYZ", B: "1" },
+    });
+    expect(summary.variables).toEqual([
+      { name: "B", last4: "1" },
+      { name: "OPENAI_API_KEY", last4: "WXYZ" },
+    ]);
+    expect(JSON.stringify(summary)).not.toContain("abcdef");
+  });
+
+  test("a key in the commits is found, short values aren't taken for keys", () => {
+    const variables = { OPENAI_API_KEY: "sk-proj-0123456789abcdefghij", MODEL: "gpt-image-1" };
+    const patch = '+const key = "sk-proj-0123456789abcdefghij";\n+const model = "gpt-image-1";';
+    expect(secretsIn(patch, variables)).toEqual(["OPENAI_API_KEY"]);
+    expect(secretsIn("+nothing here", variables)).toEqual([]);
+    expect(longestSecret(variables)).toBe(28);
+    expect(longestSecret({ MODEL: "gpt-image-1" })).toBe(0);
+  });
+
+  test("Claude is told which sites and keys it has, and where more come from", () => {
+    const plain = systemPrompt(job);
+    expect(plain).toContain("the Claude API and the npm registry, nothing else");
+    expect(plain).toContain("Settings → Claude → Internet and keys");
+    const text = systemPrompt({
+      ...job,
+      environment: { domains: ["api.openai.com"], variables: ["OPENAI_API_KEY"] },
+    });
+    expect(text).toContain("api.openai.com");
+    expect(text).toContain("OPENAI_API_KEY");
+    expect(text).toContain("Never write a key into a file");
+  });
 });

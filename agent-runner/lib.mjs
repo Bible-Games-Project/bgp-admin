@@ -21,11 +21,22 @@ export function systemPrompt(job) {
   const preview = job.previewUrl
     ? `GitHub deploys the preview at ${job.previewUrl} about a minute later, and the page reloads it by itself.`
     : "This game has no Cloudflare preview yet, so there is nothing to look at after a change; say so if they ask where to see it.";
+  const domains = job.environment?.domains ?? [];
+  const names = job.environment?.variables ?? [];
+  const reach = domains.length
+    ? `You can reach the Claude API, the npm registry and these sites, which the person allowed in Settings → Claude → Internet and keys: ${domains.join(", ")}. Nothing else: no GitHub, no other websites.`
+    : "You can reach the Claude API and the npm registry, nothing else: no GitHub, no other websites.";
   return [
     "You are working inside the Build chat of the BGP Console (bgp-admin). The person writing to you builds this game from a chat in their browser, with the game's live preview next to it. They are not a programmer and never see a terminal.",
     "",
     "How this environment works:",
-    `- You run in a sandboxed container on the build server, in a clone of the game's repository (${job.repo.owner}/${job.repo.name}) on the branch \`${job.branch}\`. You can reach the Claude API and the npm registry, nothing else: no GitHub, no other websites.`,
+    `- You run in a sandboxed container on the build server, in a clone of the game's repository (${job.repo.owner}/${job.repo.name}) on the branch \`${job.branch}\`. ${reach}`,
+    ...(names.length
+      ? [
+          `- These keys are in your environment variables, from the same settings: ${names.join(", ")}. Use them from the shell (curl, node, bun) to call those services while you work, for example to generate images or sounds and save the files into the repository. Never write a key into a file, a commit or the game's code (the game is public: anyone could take it), and never print it in the chat. If you commit a key, the console refuses to save your changes.`,
+        ]
+      : []),
+    "- If you need a website or a key you don't have, don't look for a way around it: tell the person they can add it in Settings → Claude → Internet and keys (for OpenAI or ElevenLabs they only paste the key and press Connect), and that you'll use it from their next message. When an API can give its result either inline or as a link to another site (OpenAI images: ask for base64), ask for it inline: only the sites listed above are reachable.",
     `- Commit each finished change to \`${job.branch}\` with a clear English commit message. Don't push and don't create branches: when you finish, the console pushes your commits. ${preview}`,
     "- Where the repository's instructions (AGENTS.md, docs/agents/working-style.md) say to push, to wait for or poll the deploy, to check GitHub Actions or to publish an Artifact, skip that step: the console does it. Everything else in them applies, above all the native boundary.",
     "- Before you finish a change, run the build (`bun run build`) and make sure it passes: if it fails, the preview doesn't update. Dependencies are already installed; if you add one, run `bun install`.",
@@ -417,6 +428,133 @@ export function protectedPaths(files) {
 
 /** For changes Claude left uncommitted when it finished. */
 export const LEFTOVER_COMMIT_MESSAGE = "Apply changes requested in the Build chat";
+
+// --- Internet and keys (Settings → Claude) ----------------------------------------------
+//
+// Like the cloud environment of Claude Code on the web: sites the Build chat's sessions may
+// reach besides the Claude API and npm, and variables (API keys) they get. Both live only
+// on the build server (environment.json); the console sees the sites and the variables'
+// names with their last four characters. The console checks them the same way
+// (src/lib/agent.ts); these are checked again here.
+
+/** What the egress proxy always allows. */
+export const BUILT_IN_HOSTS = ["api.anthropic.com", "registry.npmjs.org"];
+
+/**
+ * A site as written in the settings ("api.openai.com", "*.openai.com" for its subdomains
+ * and itself), from what someone pasted: a URL, a host with a port, a trailing dot. Null
+ * for what isn't a public host name: IP addresses, localhost, the home network's names.
+ */
+export function domainRule(text) {
+  let value = String(text ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, "")
+    .split(/[/?#\s]/)[0]
+    .replace(/:\d*$/, "")
+    .replace(/\.$/, "");
+  let wildcard = false;
+  if (value.startsWith("*.")) [wildcard, value] = [true, value.slice(2)];
+  else if (value.startsWith(".")) [wildcard, value] = [true, value.slice(1)];
+  // At least two labels, the last one starting with a letter: no IPs, no single names
+  if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$/.test(value))
+    return null;
+  if (/\.(local|localhost|lan|home|internal|arpa|test|invalid)$/.test(value)) return null;
+  return wildcard ? `*.${value}` : value;
+}
+
+export const MAX_DOMAINS = 50;
+export const MAX_VARIABLES = 50;
+export const MAX_VARIABLE_CHARS = 4000;
+
+/**
+ * Names the build server sets itself, or that change how Claude Code, git, Node or the
+ * proxy behave: a pasted variable never replaces them.
+ */
+const RESERVED_VARIABLE =
+  /^(HOME|PATH|SHELL|USER|TZ|LANG|LC_\w+|NODE_OPTIONS|NODE_PATH|BUN_\w+|NPM_CONFIG_\w+|LD_\w+|DYLD_\w+|\w*_PROXY|CLAUDE\w*|ANTHROPIC\w*|GIT_\w+|SSH_\w+|DISABLE_\w+)$/i;
+
+export function variableProblem(name, value = "") {
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(name)) return "isn't a valid variable name";
+  if (RESERVED_VARIABLE.test(name)) return "is set by the build server itself";
+  if (/[\r\n\0]/.test(value)) return "has a line break in its value";
+  if (value.length > MAX_VARIABLE_CHARS) return "is too long";
+  return null;
+}
+
+/**
+ * The environment after a change from the console: `domains` replaces the sites (when
+ * given), `addDomains` and `removeDomains` add and take out some (connecting a service in
+ * Settings → Claude), `set` adds or replaces variables, `remove` deletes them. What
+ * doesn't pass the checks is left out, and said in `skipped`.
+ */
+export function applyEnvironmentChange(current, change, { at, by } = {}) {
+  const skipped = [];
+  let domains = Array.isArray(change?.domains) ? [] : [...(current?.domains ?? [])];
+  const add = [
+    ...(Array.isArray(change?.domains) ? change.domains : []),
+    ...(Array.isArray(change?.addDomains) ? change.addDomains : []),
+  ];
+  for (const raw of add) {
+    const rule = domainRule(raw);
+    if (!rule) skipped.push(`${String(raw).slice(0, 60)}: isn't a public site`);
+    else if (!BUILT_IN_HOSTS.includes(rule) && !domains.includes(rule)) domains.push(rule);
+  }
+  const takeOut = (Array.isArray(change?.removeDomains) ? change.removeDomains : [])
+    .map(domainRule)
+    .filter(Boolean);
+  domains = domains.filter((domain) => !takeOut.includes(domain));
+  const variables = { ...(current?.variables ?? {}) };
+  for (const name of Array.isArray(change?.remove) ? change.remove : []) delete variables[name];
+  for (const [name, raw] of Object.entries(change?.set ?? {})) {
+    const value = String(raw ?? "");
+    const problem = variableProblem(name, value);
+    if (problem) skipped.push(`${name}: ${problem}`);
+    else if (value) variables[name] = value;
+    else delete variables[name];
+  }
+  if (domains.length > MAX_DOMAINS) throw new Error(`At most ${MAX_DOMAINS} sites.`);
+  if (Object.keys(variables).length > MAX_VARIABLES)
+    throw new Error(`At most ${MAX_VARIABLES} keys.`);
+  return {
+    environment: { domains, variables, updatedAt: at ?? null, updatedBy: by ?? null },
+    skipped,
+  };
+}
+
+/** What the console may know about the environment: never a value. */
+export function environmentSummary(environment) {
+  const variables = Object.entries(environment?.variables ?? {})
+    .map(([name, value]) => ({ name, last4: String(value).slice(-4) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return {
+    domains: environment?.domains ?? [],
+    variables,
+    updatedAt: environment?.updatedAt ?? null,
+    updatedBy: environment?.updatedBy ?? null,
+  };
+}
+
+/**
+ * The variables whose value shows up in `text` (the patch of what Claude is about to
+ * push). Short values ("1", "true", a model name) aren't keys and are left alone.
+ */
+export const SECRET_MIN_CHARS = 20;
+export function secretsIn(text, variables) {
+  return Object.entries(variables ?? {})
+    .filter(([, value]) => String(value).length >= SECRET_MIN_CHARS && text.includes(value))
+    .map(([name]) => name);
+}
+
+/** The longest value secretsIn looks for: how much of a stream to keep between chunks. */
+export function longestSecret(variables) {
+  return Math.max(
+    0,
+    ...Object.values(variables ?? {})
+      .map((value) => String(value).length)
+      .filter((length) => length >= SECRET_MIN_CHARS),
+  );
+}
 
 // --- Memory -----------------------------------------------------------------------------
 

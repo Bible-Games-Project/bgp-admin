@@ -377,6 +377,226 @@ export const isClaudeToken = (token: string) =>
 export const isDeployKey = (key: string) =>
   /^ssh-ed25519 [A-Za-z0-9+/]+={0,2}( [^\n]{0,200})?$/.test(key.trim());
 
+// --- Internet and keys (Settings → Claude) ------------------------------------------------
+//
+// Like the cloud environment of Claude Code on the web: sites the Build chat's sessions may
+// reach besides the Claude API and npm, and variables (API keys) they get. Both live on the
+// build server, like the Claude token; the console sees the sites and each variable's name
+// with its last four characters. Same rules as agent-runner/lib.mjs, which checks again.
+
+/** What the Build chat can always reach. */
+export const BUILT_IN_SITES = ["api.anthropic.com", "registry.npmjs.org"];
+
+export const MAX_ENVIRONMENT_DOMAINS = 50;
+export const MAX_ENVIRONMENT_VARIABLES = 50;
+const MAX_VARIABLE_CHARS = 4000;
+
+/**
+ * The services Settings → Claude connects with just a key: the key goes in `variable` and
+ * Claude may reach `domains`. `check` is a call that only says whether the key is valid.
+ */
+export const AGENT_SERVICES = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    purpose: "images",
+    domains: ["api.openai.com"],
+    variable: "OPENAI_API_KEY",
+    keysUrl: "https://platform.openai.com/api-keys",
+    check: { url: "https://api.openai.com/v1/models", header: "authorization", bearer: true },
+  },
+  {
+    id: "elevenlabs",
+    label: "ElevenLabs",
+    purpose: "voices and sounds",
+    domains: ["api.elevenlabs.io"],
+    variable: "ELEVENLABS_API_KEY",
+    keysUrl: "https://elevenlabs.io/app/settings/api-keys",
+    check: { url: "https://api.elevenlabs.io/v1/models", header: "xi-api-key", bearer: false },
+  },
+] as const;
+export type AgentService = (typeof AGENT_SERVICES)[number];
+export type AgentServiceId = AgentService["id"];
+
+/**
+ * The key out of whatever was pasted in a service's box: the key alone, the line
+ * NAME=value from Claude Code's environment, or all of its lines (this service's is used).
+ */
+export function serviceKeyFrom(text: string, service: AgentService) {
+  const lines = String(text ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+  if (!lines.length) return { problem: "Paste the key first." };
+  const named = new RegExp(`^(?:export\\s+)?${service.variable}\\s*=`);
+  const line = lines.length === 1 ? lines[0] : lines.find((l) => named.test(l));
+  if (!line)
+    return {
+      problem: `Paste only the key, or the line that starts with ${service.variable}=.`,
+    };
+  const assignment = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+  const other = assignment ? serviceOfVariable(assignment[1]) : null;
+  if (other && other.id !== service.id)
+    return { problem: `That's the ${other.label} key: paste it in the ${other.label} box.` };
+  let key = (assignment ? assignment[2] : line).trim();
+  const quoted = /^(["'])(.*)\1$/.exec(key);
+  if (quoted) key = quoted[2];
+  if (/\s/.test(key)) return { problem: "A key has no spaces. Copy it again, on its own." };
+  if (key.length < 20) return { problem: "That's too short to be a key. Copy it again, whole." };
+  if (key.length > MAX_VARIABLE_CHARS) return { problem: "That's too long to be a key." };
+  return { key };
+}
+
+/**
+ * What the service said to its check call: "invalid" only when it says so plainly (a key
+ * mistyped or cut short); a key that can't list models, or a service that didn't answer,
+ * is "unknown" and kept.
+ */
+export function serviceKeyVerdict(
+  service: AgentServiceId,
+  status: number,
+  body: unknown,
+): "ok" | "invalid" | "unknown" {
+  if (status >= 200 && status < 300) return "ok";
+  const b = (body ?? {}) as {
+    error?: { code?: string; message?: string };
+    detail?: { status?: string };
+  };
+  if (service === "openai" && status === 401) {
+    if (b.error?.code === "invalid_api_key" || /incorrect api key/i.test(b.error?.message ?? ""))
+      return "invalid";
+  }
+  if (service === "elevenlabs" && status === 401 && b.detail?.status === "invalid_api_key")
+    return "invalid";
+  return "unknown";
+}
+
+/** The service a variable belongs to, if any. */
+export const serviceOfVariable = (name: string) =>
+  AGENT_SERVICES.find((service) => service.variable === name) ?? null;
+
+/** The first runner version (agent-runner/runner.mjs VERSION) that takes these changes. */
+export const ENVIRONMENT_RUNNER_VERSION = 5;
+/** A change the server took but never confirmed is given up after this. */
+export const ENVIRONMENT_SENDING_MINUTES = 5;
+
+export type AgentEnvironment = {
+  domains: string[];
+  variables: { name: string; last4: string }[];
+  updatedAt: string | null;
+  updatedBy: string | null;
+};
+
+export type EnvironmentChangeView = {
+  id: string;
+  status: "pending" | "sending" | "applied" | "failed";
+  error: string | null;
+  skipped: string[];
+  createdAt: string;
+};
+
+/** The environment as the build server reported it. */
+export function environmentFrom(value: unknown): AgentEnvironment {
+  const v = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const str = (x: unknown) => (typeof x === "string" ? x : null);
+  return {
+    domains: Array.isArray(v.domains) ? v.domains.filter((d) => typeof d === "string") : [],
+    variables: Array.isArray(v.variables)
+      ? (v.variables as { name?: unknown; last4?: unknown }[])
+          .filter((x) => x && typeof x.name === "string")
+          .map((x) => ({ name: x.name as string, last4: String(x.last4 ?? "") }))
+      : [],
+    updatedAt: str(v.updatedAt),
+    updatedBy: str(v.updatedBy),
+  };
+}
+
+/**
+ * A site as written in the settings ("api.openai.com", "*.openai.com" for its subdomains
+ * and itself), from what someone pasted: a URL, a host with a port, a trailing dot. Null
+ * for what isn't a public host name: IP addresses, localhost, the home network's names.
+ */
+export function domainRule(text: string): string | null {
+  let value = String(text ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, "")
+    .split(/[/?#\s]/)[0]
+    .replace(/:\d*$/, "")
+    .replace(/\.$/, "");
+  let wildcard = false;
+  if (value.startsWith("*.")) [wildcard, value] = [true, value.slice(2)];
+  else if (value.startsWith(".")) [wildcard, value] = [true, value.slice(1)];
+  if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$/.test(value))
+    return null;
+  if (/\.(local|localhost|lan|home|internal|arpa|test|invalid)$/.test(value)) return null;
+  return wildcard ? `*.${value}` : value;
+}
+
+/** The sites box: one per line (commas and spaces work too), # for comments. */
+export function parseDomains(text: string) {
+  const domains: string[] = [];
+  const problems: string[] = [];
+  for (const raw of text
+    .split("\n")
+    .map((line) => line.replace(/#.*/, ""))
+    .join(" ")
+    .split(/[\s,;]+/)
+    .filter(Boolean)) {
+    const rule = domainRule(raw);
+    if (!rule) problems.push(`“${raw.slice(0, 60)}” isn't a website's name (like api.openai.com).`);
+    else if (!BUILT_IN_SITES.includes(rule) && !domains.includes(rule)) domains.push(rule);
+  }
+  if (domains.length > MAX_ENVIRONMENT_DOMAINS)
+    problems.push(`At most ${MAX_ENVIRONMENT_DOMAINS} websites.`);
+  return { domains, problems };
+}
+
+/**
+ * Names the build server sets itself, or that change how Claude Code, git, Node or the
+ * proxy behave.
+ */
+const RESERVED_VARIABLE =
+  /^(HOME|PATH|SHELL|USER|TZ|LANG|LC_\w+|NODE_OPTIONS|NODE_PATH|BUN_\w+|NPM_CONFIG_\w+|LD_\w+|DYLD_\w+|\w*_PROXY|CLAUDE\w*|ANTHROPIC\w*|GIT_\w+|SSH_\w+|DISABLE_\w+)$/i;
+
+export function variableProblem(name: string, value = ""): string | null {
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(name)) return "isn't a valid name";
+  if (RESERVED_VARIABLE.test(name)) return "is set by the build server itself";
+  if (/[\r\n\0]/.test(value)) return "has a line break in its value";
+  if (value.length > MAX_VARIABLE_CHARS) return "is too long";
+  return null;
+}
+
+/**
+ * The keys box, in .env format as Claude Code's environment shows it: NAME=value per line,
+ * # comments, an optional `export`, quotes around the value.
+ */
+export function parseVariables(text: string) {
+  const variables: Record<string, string> = {};
+  const problems: string[] = [];
+  text.split("\n").forEach((raw, index) => {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) return;
+    const match = /^(?:export\s+)?([^=\s]+)\s*=\s*(.*)$/.exec(line);
+    if (!match) {
+      problems.push(`Line ${index + 1} has no “=”: write it as NAME=value.`);
+      return;
+    }
+    const name = match[1];
+    let value = match[2].trim();
+    const quoted = /^(["'])(.*)\1$/.exec(value);
+    if (quoted) value = quoted[2];
+    else value = value.replace(/\s+#.*$/, "");
+    const problem = variableProblem(name, value);
+    if (problem) problems.push(`${name} ${problem}.`);
+    else if (!value) problems.push(`${name} has no value.`);
+    else variables[name] = value;
+  });
+  if (Object.keys(variables).length > MAX_ENVIRONMENT_VARIABLES)
+    problems.push(`At most ${MAX_ENVIRONMENT_VARIABLES} keys.`);
+  return { variables, problems };
+}
+
 // --- The preview deploy -------------------------------------------------------------------
 
 /**

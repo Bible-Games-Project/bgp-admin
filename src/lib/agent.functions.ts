@@ -16,24 +16,32 @@ import {
   AGENT_EFFORT_SETTING,
   AGENT_MODELS,
   AGENT_MODEL_SETTING,
+  AGENT_SERVICES,
   AGENT_SETTING_KEYS,
   AGENT_WEEKLY_BUDGET_SETTING,
   ATTACHMENTS_BUCKET,
   ATTACHMENTS_PER_MESSAGE,
+  ENVIRONMENT_RUNNER_VERSION,
   MAX_PROMPT_CHARS,
   accountFrom,
   agentSettingsFrom,
   attachmentProblem,
   attachmentType,
   budgetExhaustedMessage,
+  environmentFrom,
   isActiveTurn,
   isClaudeToken,
+  parseDomains,
+  parseVariables,
   previewDeployState,
   runnerView,
   safeFileName,
+  serviceKeyFrom,
+  serviceKeyVerdict,
   type AgentEvent,
   type AgentUsage,
   type BuildAttachment,
+  type EnvironmentChangeView,
   type PreviewDeployState,
   type TurnStatus,
   usageIsStale,
@@ -56,7 +64,7 @@ export async function readRunner(supabase: any) {
   const { data, error } = await supabase
     .from("agent_runner")
     .select(
-      "last_seen_at, host, version, busy, account, usage, unlink_requested_at, usage_requested_at",
+      "last_seen_at, host, version, busy, account, usage, unlink_requested_at, usage_requested_at, environment",
     )
     .eq("id", "main")
     .maybeSingle();
@@ -64,6 +72,8 @@ export async function readRunner(supabase: any) {
   return {
     runner: runnerView(data),
     account: accountFrom(data?.account),
+    /** Internet and keys as the build server holds them (names and last four only). */
+    environment: environmentFrom(data?.environment),
     usage: (data?.usage ?? null) as AgentUsage | null,
     unlinkPending: Boolean(data?.unlink_requested_at),
     /** The build server has been asked for a fresh reading of the usage. */
@@ -127,15 +137,19 @@ export const getClaudeSettings = createServerFn({ method: "GET" })
         .limit(1),
     ]);
     const login = logins?.[0];
-    const [budget, refreshing] = await Promise.all([
+    const [budget, refreshing, environmentChange] = await Promise.all([
       weeklyBudgetNow(settings.weeklyBudgetPercent, runner.usage),
       requestUsageRefresh(runner),
+      latestEnvironmentChange(since),
     ]);
     return {
       ...runner,
       usageRefreshPending: runner.usageRefreshPending || refreshing,
       settings,
       budget,
+      environmentChange,
+      /** Older build servers don't take internet and keys: they wait for its update. */
+      runnerTakesEnvironment: Number(runner.runner.version) >= ENVIRONMENT_RUNNER_VERSION,
       login: login
         ? ({
             id: login.id,
@@ -148,6 +162,29 @@ export const getClaudeSettings = createServerFn({ method: "GET" })
         : null,
     };
   });
+
+/**
+ * The change of internet and keys the page shows the fate of: one still on its way, or the
+ * last one from the past few minutes. Read with the service role (the table holds values
+ * until the server takes them), and never a value.
+ */
+async function latestEnvironmentChange(since: string): Promise<EnvironmentChangeView | null> {
+  const { data } = await admin()
+    .from("agent_environment_changes")
+    .select("id, status, error, skipped, created_at, updated_at")
+    .or(`status.in.(pending,sending),updated_at.gte."${since}"`)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    id: data.id,
+    status: data.status,
+    error: data.error,
+    skipped: data.skipped ?? [],
+    createdAt: data.created_at,
+  };
+}
 
 async function cancelOpenLogins() {
   await admin()
@@ -306,6 +343,137 @@ export const saveAgentSettings = createServerFn({ method: "POST" })
         },
       ]);
     if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+// --- Internet and keys ---------------------------------------------------------------------------
+
+/**
+ * Settings → Claude → Internet and keys: the websites (the whole list, replacing the one the
+ * build server has) and keys to add or replace, pasted as in Claude Code's environment, or
+ * keys to remove. It goes to the build server on its next poll; the values only stay here
+ * until then.
+ */
+export const saveAgentEnvironment = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        domains: z.string().max(20_000).nullable(),
+        variables: z.string().max(200_000).default(""),
+        remove: z.array(z.string().max(100)).max(100).default([]),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const sites = data.domains === null ? null : parseDomains(data.domains);
+    const keys = parseVariables(data.variables);
+    const problems = [...(sites?.problems ?? []), ...keys.problems];
+    if (problems.length) throw new Error(problems.join(" "));
+    // The box only lists the other sites: a connected service keeps its own, and a service's
+    // key pasted here (all of Claude Code's variables at once) brings its site along.
+    const { environment } = await readRunner(admin());
+    const services = AGENT_SERVICES.filter(
+      (service) =>
+        service.variable in keys.variables ||
+        (environment.variables.some((v) => v.name === service.variable) &&
+          !data.remove.includes(service.variable)),
+    );
+    await queueEnvironmentChange(context, {
+      domains: sites?.domains ?? null,
+      add_domains: services.flatMap((service) => [...service.domains]),
+      set_variables: keys.variables,
+      remove_variables: data.remove,
+    });
+    return { ok: true, keys: Object.keys(keys.variables).length };
+  });
+
+async function queueEnvironmentChange(
+  context: { userId: string; claims: Record<string, unknown> },
+  change: {
+    domains?: string[] | null;
+    add_domains?: string[];
+    remove_domains?: string[];
+    set_variables?: Record<string, string>;
+    remove_variables?: string[];
+  },
+) {
+  const { error } = await admin()
+    .from("agent_environment_changes")
+    .insert({
+      ...change,
+      created_by: context.userId,
+      created_by_email: (context.claims.email as string | undefined) ?? null,
+    });
+  if (error) throw new Error(error.message);
+  await keepRunnerWatching();
+}
+
+/**
+ * Whether the service takes the key, asked with a call that only reads (the models list).
+ * Only a plain "invalid key" stops it: anything else (no answer, a key limited to some
+ * things) lets it through.
+ */
+async function checkServiceKey(service: (typeof AGENT_SERVICES)[number], key: string) {
+  try {
+    const response = await fetch(service.check.url, {
+      headers: { [service.check.header]: service.check.bearer ? `Bearer ${key}` : key },
+      signal: AbortSignal.timeout(8000),
+    });
+    const body = await response.json().catch(() => null);
+    return serviceKeyVerdict(service.id, response.status, body);
+  } catch {
+    return "unknown" as const;
+  }
+}
+
+/**
+ * Settings → Claude: one service (OpenAI, ElevenLabs), connected with just its key. The key
+ * is checked with the service first, so a key copied wrong is said here, not in the chat.
+ */
+export const connectAgentService = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        service: z.enum(AGENT_SERVICES.map((s) => s.id) as [string, ...string[]]),
+        key: z.string().max(20_000),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const service = AGENT_SERVICES.find((s) => s.id === data.service)!;
+    const parsed = serviceKeyFrom(data.key, service);
+    if (!("key" in parsed) || !parsed.key) throw new Error(parsed.problem);
+    const verdict = await checkServiceKey(service, parsed.key);
+    if (verdict === "invalid")
+      throw new Error(
+        `${service.label} says this key isn't valid. Copy it again, whole, and paste it here.`,
+      );
+    await queueEnvironmentChange(context, {
+      add_domains: [...service.domains],
+      set_variables: { [service.variable]: parsed.key },
+    });
+    return { ok: true, checked: verdict === "ok", last4: parsed.key.slice(-4) };
+  });
+
+/** Takes a service's key and site away from the Build chat. */
+export const disconnectAgentService = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({ service: z.enum(AGENT_SERVICES.map((s) => s.id) as [string, ...string[]]) })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const service = AGENT_SERVICES.find((s) => s.id === data.service)!;
+    await queueEnvironmentChange(context, {
+      remove_domains: [...service.domains],
+      remove_variables: [service.variable],
+    });
     return { ok: true };
   });
 

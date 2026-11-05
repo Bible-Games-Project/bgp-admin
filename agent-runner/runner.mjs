@@ -7,7 +7,8 @@
 // It also holds the Claude account it works with. Settings → Claude asks for a link; this
 // runs `claude setup-token` and passes the claude.ai link and the code back and forth
 // through the console. The token only lives here (STATE_DIR/claude.json): the console sees
-// its last four characters.
+// its last four characters. So do the keys of Settings → Claude → Internet and keys
+// (STATE_DIR/environment.json), with the sites the sessions may reach besides Claude and npm.
 //
 // Runs as the systemd service bgp-agent (bgp-agent.service), user bgp-agent, set up by
 // install.sh. See README.md.
@@ -20,6 +21,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -29,7 +31,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import * as lib from "./lib.mjs";
 
-const VERSION = "4";
+const VERSION = "5";
 const env = process.env;
 const CONFIG = {
   console: (env.CONSOLE_URL ?? "https://bgp-admin-preview.biblegamesproject.workers.dev").replace(
@@ -69,6 +71,9 @@ CONFIG.repoUrl =
 // default), so it can't be what leaves the machine's other services short.
 CONFIG.minFreeMb = Number(env.AGENT_MIN_FREE_MB ?? lib.megabytes(CONFIG.memory) ?? 1200);
 const ACCOUNT = join(CONFIG.state, "claude.json");
+const ENVIRONMENT = join(CONFIG.state, "environment.json");
+// Mounted read-only in the egress proxy's container as /etc/bgp-egress (install.sh)
+const EGRESS_DIR = join(CONFIG.state, "egress");
 const CURRENT = join(CONFIG.state, "current.json");
 const LOGS = join(CONFIG.state, "logs");
 // The files sent with the chats' messages, one folder per chat (see fetchAttachments).
@@ -221,6 +226,68 @@ function markRejected() {
   const account = loadAccount();
   if (account?.token && !account.rejectedAt)
     saveAccount({ ...account, rejectedAt: new Date().toISOString() });
+}
+
+// --- Internet and keys ------------------------------------------------------------------------
+
+function loadEnvironment() {
+  let saved = null;
+  try {
+    saved = JSON.parse(readFileSync(ENVIRONMENT, "utf8"));
+  } catch {}
+  return {
+    domains: Array.isArray(saved?.domains) ? saved.domains : [],
+    variables: saved?.variables && typeof saved.variables === "object" ? saved.variables : {},
+    updatedAt: saved?.updatedAt ?? null,
+    updatedBy: saved?.updatedBy ?? null,
+  };
+}
+
+function saveEnvironment(environment) {
+  const temporary = `${ENVIRONMENT}.new`;
+  writeFileSync(temporary, JSON.stringify(environment, null, 2), { mode: 0o600 });
+  chmodSync(temporary, 0o600);
+  renameSync(temporary, ENVIRONMENT);
+}
+
+/**
+ * The sites the egress proxy lets through besides its own: the environment's while a Build
+ * chat session runs, none otherwise. The proxy reads the file on every tunnel (egress.mjs).
+ */
+function allowSites(domains = []) {
+  mkdirSync(EGRESS_DIR, { recursive: true });
+  chmodSync(EGRESS_DIR, 0o755);
+  const file = join(EGRESS_DIR, "allow");
+  writeFileSync(`${file}.new`, domains.map((d) => `${d}\n`).join(""), { mode: 0o644 });
+  chmodSync(`${file}.new`, 0o644);
+  renameSync(`${file}.new`, file);
+}
+
+/** A change saved in Settings → Claude: kept here, and the console told what it is now. */
+async function doEnvironment(change) {
+  let error = null;
+  let skipped = [];
+  try {
+    const result = lib.applyEnvironmentChange(loadEnvironment(), change, {
+      at: new Date().toISOString(),
+      by: change.createdByEmail ?? null,
+    });
+    saveEnvironment(result.environment);
+    skipped = result.skipped;
+    log(
+      `internet and keys: ${result.environment.domains.length} sites, ${Object.keys(result.environment.variables).length} keys`,
+    );
+  } catch (caught) {
+    error = caught.message;
+    log(`internet and keys: ${error}`);
+  }
+  await api("environment", {
+    id: change.id,
+    ok: !error,
+    error,
+    skipped,
+    environment: lib.environmentSummary(loadEnvironment()),
+  }).catch((caught) => log(`couldn't report the change of internet and keys: ${caught.message}`));
 }
 
 // --- Containers --------------------------------------------------------------------------
@@ -568,6 +635,8 @@ class TurnReporter {
 // One Claude session: streams what it does to the reporter as it goes.
 async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }) {
   const assistant = job.kind === "assistant";
+  // Ruben gets neither the sites nor the keys: only the Build chat's sessions do.
+  const environment = assistant ? { domains: [], variables: {} } : loadEnvironment();
   const args = assistant
     ? lib.assistantArgs({
         prompt,
@@ -584,12 +653,23 @@ async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }
         effort: job.effort,
         sessionId,
         maxTurns: CONFIG.maxTurns,
-        job: { ...job, attachmentsDir: attachments.mount },
+        job: {
+          ...job,
+          attachmentsDir: attachments.mount,
+          environment: {
+            domains: environment.domains,
+            variables: Object.keys(environment.variables),
+          },
+        },
       });
   let child;
   let secrets = null;
   if (CONFIG.sandbox === "docker") {
-    secrets = tokenFile(TURN_CONTAINER, loadAccount().token, repo.toolEnv ?? {});
+    secrets = tokenFile(TURN_CONTAINER, loadAccount().token, {
+      ...environment.variables,
+      ...(repo.toolEnv ?? {}),
+    });
+    allowSites(environment.domains);
     await run("docker", ["rm", "-f", TURN_CONTAINER], { allowFail: true });
     child = spawn(
       "docker",
@@ -606,7 +686,12 @@ async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }
   } else {
     child = spawn("claude", args, {
       cwd: repo.repoDir ?? repo.homeDir,
-      env: { ...cleanEnv(), ...claudeEnv(job), ...(repo.toolEnv ?? {}) },
+      env: {
+        ...cleanEnv(),
+        ...environment.variables,
+        ...claudeEnv(job),
+        ...(repo.toolEnv ?? {}),
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
   }
@@ -665,6 +750,7 @@ async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }
   });
   clearTimeout(timer);
   if (secrets) rmSync(secrets, { force: true });
+  if (CONFIG.sandbox === "docker") allowSites([]);
   keepLog(
     `${assistant ? "assistant" : repoSlug(job.repo)}-${job.id.slice(0, 8)}.jsonl`,
     lines.join("\n"),
@@ -724,6 +810,47 @@ async function push(job, repo) {
   return (await git(repo.repoDir, ["rev-parse", "HEAD"])).stdout.trim();
 }
 
+/**
+ * The keys of Settings → Claude whose value is in the commits about to be pushed (every
+ * commit, not just the end result: a key added and then removed stays in the history).
+ * The patch is read as it comes, never whole, and no key goes on a command line.
+ */
+async function leakedSecrets(repo, range) {
+  const { variables } = loadEnvironment();
+  const keep = lib.longestSecret(variables);
+  if (!keep) return [];
+  const found = new Set();
+  await new Promise((resolve, reject) => {
+    const child = spawn(
+      "git",
+      [
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.fsmonitor=false",
+        "log",
+        "-p",
+        "--text",
+        "--no-color",
+        "--no-ext-diff",
+        "--format=%H %s",
+        range,
+      ],
+      { cwd: repo.repoDir, env: cleanEnv(), stdio: ["ignore", "pipe", "ignore"] },
+    );
+    let tail = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      const text = tail + chunk;
+      for (const name of lib.secretsIn(text, variables)) found.add(name);
+      tail = text.slice(-keep);
+    });
+    child.on("error", reject);
+    child.on("close", resolve);
+  });
+  return [...found].sort();
+}
+
 // What the session left in the repo becomes the turn's result: commits pushed, or why not.
 async function settle(job, repo, outcome, reporter) {
   const dirty = (await git(repo.repoDir, ["status", "--porcelain"])).stdout.trim();
@@ -753,8 +880,13 @@ async function settle(job, repo, outcome, reporter) {
       .split("\n")
       .filter(Boolean);
     const touched = lib.protectedPaths(files);
+    const leaked = await leakedSecrets(repo, `origin/${job.branch}..HEAD`);
     if (touched.length) {
       error = `Claude changed files that the console manages (${touched.join(", ")}), so its changes weren't saved. Ask again, and say not to touch those files.`;
+      await git(repo.repoDir, ["reset", "--quiet", "--hard", `origin/${job.branch}`]);
+    } else if (leaked.length) {
+      log(`turn ${job.id}: the commits carry the value of ${leaked.join(", ")}, not pushed`);
+      error = `Claude put ${leaked.length === 1 ? "a key" : "keys"} from Settings → Claude → Internet and keys (${leaked.join(", ")}) into the game's files, so its changes weren't saved: anyone who opens the game could have taken ${leaked.length === 1 ? "it" : "them"}. Ask again, and say to use the key only while working, never in the game.`;
       await git(repo.repoDir, ["reset", "--quiet", "--hard", `origin/${job.branch}`]);
     } else {
       reporter.step("Saving the changes to GitHub");
@@ -1116,6 +1248,7 @@ function keepLog(name, text) {
 // A turn cut short by a restart: the chat says so instead of waiting forever.
 async function recover() {
   if (CONFIG.sandbox === "docker") {
+    allowSites([]);
     await run("docker", ["rm", "-f", TURN_CONTAINER, LOGIN_CONTAINER, "bgp-agent-check"], {
       allowFail: true,
     });
@@ -1148,7 +1281,12 @@ async function main() {
     }
     let work;
     try {
-      work = await api("poll", { host: CONFIG.name, version: VERSION, account: accountSummary() });
+      work = await api("poll", {
+        host: CONFIG.name,
+        version: VERSION,
+        account: accountSummary(),
+        environment: lib.environmentSummary(loadEnvironment()),
+      });
     } catch (error) {
       log(error.message);
       connected = false;
@@ -1163,6 +1301,7 @@ async function main() {
       rmSync(ACCOUNT, { force: true });
       log("Claude account unlinked");
     } else if (work.login) await doLogin(work.login);
+    else if (work.environment) await doEnvironment(work.environment);
     else if (work.turn) await doTurn(work.turn);
     else if (work.refreshUsage) await doUsageRefresh();
     else await sleep(work.pollSeconds ?? 10);
