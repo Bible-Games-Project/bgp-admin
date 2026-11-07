@@ -107,6 +107,10 @@ test("assistantArgs: no built-in tools, the console's through MCP, the console's
   expect(args[args.indexOf("--append-system-prompt") + 1]).toBe("You are Ruben.");
   expect(args[args.indexOf("--resume") + 1]).toBe("abc");
   expect(args).not.toContain("--disallowedTools");
+  expect(args[args.indexOf("--max-turns") + 1]).toBe("50");
+  expect(
+    assistantArgs({ prompt: "x", model: "m", maxTurns: 0, systemPrompt: "", mcpConfig: "/m.json" }),
+  ).not.toContain("--max-turns");
 });
 
 test("stepLabel", () => {
@@ -210,6 +214,14 @@ describe("claudeArgs", () => {
     expect(
       claudeArgs({ prompt: "x", model: "m", sessionId: null, maxTurns: 1, job }),
     ).not.toContain("--resume");
+  });
+
+  test("no step limit unless one is set", () => {
+    expect(
+      claudeArgs({ prompt: "x", model: "m", sessionId: null, maxTurns: 0, job }),
+    ).not.toContain("--max-turns");
+    const capped = claudeArgs({ prompt: "x", model: "m", sessionId: null, maxTurns: 200, job });
+    expect(capped[capped.indexOf("--max-turns") + 1]).toBe("200");
   });
 });
 

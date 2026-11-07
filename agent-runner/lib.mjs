@@ -101,6 +101,12 @@ export function uniqueFileName(name, taken) {
   }
 }
 
+// No --max-turns unless a cap is set (MAX_TURNS above 0): by default a turn takes as many
+// steps as it needs.
+function maxTurnsArgs(maxTurns) {
+  return maxTurns > 0 ? ["--max-turns", String(maxTurns)] : [];
+}
+
 /** The CLI's arguments. The account's token is never among them: it goes in an env file. */
 export function claudeArgs({ prompt, model, effort, sessionId, maxTurns, job }) {
   return [
@@ -112,8 +118,7 @@ export function claudeArgs({ prompt, model, effort, sessionId, maxTurns, job }) 
     "--model",
     model,
     ...(effort ? ["--effort", effort] : []),
-    "--max-turns",
-    String(maxTurns),
+    ...maxTurnsArgs(maxTurns),
     ...(sessionId ? ["--resume", sessionId] : []),
     "--append-system-prompt",
     systemPrompt(job),
@@ -150,8 +155,7 @@ export function assistantArgs({
     "--model",
     model,
     ...(effort ? ["--effort", effort] : []),
-    "--max-turns",
-    String(maxTurns),
+    ...maxTurnsArgs(maxTurns),
     ...(sessionId ? ["--resume", sessionId] : []),
     "--append-system-prompt",
     systemPrompt,

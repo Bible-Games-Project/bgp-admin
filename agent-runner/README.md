@@ -113,7 +113,9 @@ share is approximate by a percent or two.
   and puts `.git/config` back after each session.
 - **It can't change the native boundary.** Commits that touch `capacitor.config.*`, `ios/`, `android/` or
   the deploy and preview workflows aren't pushed, and the chat says why (`protectedPaths` in `lib.mjs`).
-- **One turn at a time**, 30 minutes at most, with 1.2 GB of memory (`AGENT_MEMORY`) and no swap.
+- **One turn at a time**, with 1.2 GB of memory (`AGENT_MEMORY`) and no swap. A turn has no time or step
+  limit: it runs until Claude finishes, someone presses Stop, or the account's usage (or the chat's weekly
+  share of it) runs out. `TURN_MINUTES` and `MAX_TURNS` bring a cap back if one is ever wanted.
 - **It gives way to the machine's other services.** The home server has 3.8 GB and also runs cpl-agent,
   the GitHub Actions runners and other services that must not stop. So:
   - a turn only starts when the machine has as much memory free as the turn may use (`AGENT_MIN_FREE_MB`,
@@ -158,7 +160,7 @@ Two ways; the first is the default.
   is wider than a deploy key's: every repo it was given.
 
 Optional settings: `AGENT_NAME` (how Settings → Claude names it, the hostname by default), `AGENT_MEMORY`
-(`1200m`), `AGENT_MIN_FREE_MB` (`1200`), `AGENT_CPUS` (`2`), `TURN_MINUTES` (`30`), `MAX_TURNS` (`200`) and
+(`1200m`), `AGENT_MIN_FREE_MB` (`1200`), `AGENT_CPUS` (`2`), `TURN_MINUTES` (`0`, no limit), `MAX_TURNS` (`0`, no limit) and
 `AGENT_COMPACT_WINDOW` (`200k`, see below).
 
 ### Long chats

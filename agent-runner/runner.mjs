@@ -49,8 +49,11 @@ const CONFIG = {
   proxy: env.AGENT_PROXY ?? "http://bgp-agent-egress:3128",
   memory: env.AGENT_MEMORY ?? "1200m",
   cpus: env.AGENT_CPUS ?? "2",
-  turnMinutes: Number(env.TURN_MINUTES ?? 30),
-  maxTurns: Number(env.MAX_TURNS ?? 200),
+  // No limit on how long a turn takes or how many steps it makes (0): a turn ends when
+  // Claude finishes, someone presses Stop, or the account's usage (or the chat's weekly
+  // share of it) runs out. A positive value brings a cap back.
+  turnMinutes: Number(env.TURN_MINUTES ?? 0),
+  maxTurns: Number(env.MAX_TURNS ?? 0),
   // How long a chat's conversation gets before Claude Code summarizes it (auto-compact).
   // The CLI's own choice for Opus 5.5 is about a million tokens, and every step of every
   // turn reads the whole conversation again. "auto" leaves it to the CLI.
@@ -737,10 +740,13 @@ async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }
   });
 
   let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    stop();
-  }, CONFIG.turnMinutes * 60_000);
+  const timer =
+    CONFIG.turnMinutes > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          stop();
+        }, CONFIG.turnMinutes * 60_000)
+      : null;
   const code = await new Promise((resolve) => {
     child.on("error", (error) => {
       stderr += error.message;
