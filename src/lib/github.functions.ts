@@ -163,7 +163,7 @@ export async function commitPreviewWorkflow({
   owner: string;
   repo: string;
   branch: string;
-}): Promise<{ committed: boolean; commitUrl?: string }> {
+}): Promise<{ committed: boolean; commitUrl?: string; sha?: string }> {
   const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${PREVIEW_WORKFLOW_PATH}`;
 
   const getRes = await fetch(`${apiUrl}?ref=${encodeURIComponent(branch)}`, {
@@ -193,7 +193,11 @@ export async function commitPreviewWorkflow({
   }
 
   const result = (await putRes.json()) as any;
-  return { committed: true, commitUrl: result.commit?.html_url as string | undefined };
+  return {
+    committed: true,
+    commitUrl: result.commit?.html_url as string | undefined,
+    sha: result.commit?.sha as string | undefined,
+  };
 }
 
 const createRepoInput = z.object({

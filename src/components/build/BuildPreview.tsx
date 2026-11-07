@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Link } from "@tanstack/react-router";
 import {
   ExternalLink,
   Loader2,
   Monitor,
+  Power,
   RefreshCw,
   Smartphone,
   Sparkles,
@@ -82,19 +82,36 @@ function DeployStatus({
   }
 }
 
+/** Instead of the game while it can't be shown yet. */
+function Placeholder({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center text-sm">
+      {children}
+    </div>
+  );
+}
+
 export function BuildPreview({
-  appId,
   previewUrl,
   checking,
+  turnedOff,
+  onTurnOn,
+  turningOn,
+  firstBuild,
   src,
   deploy,
   onReload,
   onAskFix,
   canAsk,
 }: {
-  appId: string;
   previewUrl: string | null;
   checking: boolean;
+  /** The preview was switched off in Setup ("previews somewhere else"). */
+  turnedOff: boolean;
+  onTurnOn: () => void;
+  turningOn: boolean;
+  /** The preview was just turned on and its site doesn't exist until this build is live. */
+  firstBuild: boolean;
   src: string | null;
   deploy: PreviewDeploy;
   onReload: () => void;
@@ -105,27 +122,38 @@ export function BuildPreview({
   const [device, setDevice] = useState<"phone" | "desktop">("phone");
 
   if (!previewUrl) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center text-sm">
-        {checking ? (
+    if (checking) {
+      return (
+        <Placeholder>
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        ) : (
-          <>
-            <p className="font-medium">This game has no Cloudflare preview yet.</p>
-            <p className="text-muted-foreground max-w-sm">
-              Claude can still change it, but there's nothing to look at until the preview is on.
-              It's one step in Setup (Preview Deploy).
-            </p>
-            <Button asChild size="sm" variant="outline">
-              <Link to="/apps/$id" params={{ id: appId }} search={{ tab: "setup" }}>
-                Open Setup
-              </Link>
-            </Button>
-          </>
-        )}
-      </div>
+        </Placeholder>
+      );
+    }
+    return (
+      <Placeholder>
+        <p className="font-medium">
+          {turnedOff ? "The preview is turned off for this game." : "This game has no preview yet."}
+        </p>
+        <p className="text-muted-foreground max-w-sm">
+          {turnedOff
+            ? "It was set to preview somewhere else (Lovable, Vercel…). Turn it on to see the game here, next to the chat."
+            : "Turning it on adds a workflow to the game's repo that builds the game after every change and shows it here."}{" "}
+          The first build takes a couple of minutes. Claude can change the game meanwhile.
+        </p>
+        <Button size="sm" className="gap-1.5" onClick={onTurnOn} disabled={turningOn}>
+          {turningOn ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Power className="h-3.5 w-3.5" />
+          )}
+          Turn on the preview
+        </Button>
+      </Placeholder>
     );
   }
+
+  // Until the first build is live the address leads nowhere, so the frame waits.
+  const waitingForFirstBuild = firstBuild && deploy?.state !== "live";
 
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -162,30 +190,55 @@ export function BuildPreview({
           </a>
         </Button>
       </div>
-      <div
-        className={cn(
-          "flex-1 min-h-0",
-          device === "phone" && "sm:flex sm:items-center sm:justify-center sm:bg-muted/40 sm:p-4",
-        )}
-      >
+      {waitingForFirstBuild ? (
+        <div className="flex-1 min-h-0">
+          <Placeholder>
+            {deploy?.state === "failed" ? (
+              <p className="max-w-sm">
+                The game's first preview didn't build. Claude can find out why: press "Ask Claude to
+                fix it" above.
+              </p>
+            ) : deploy?.state === "stalled" ? (
+              <p className="text-muted-foreground max-w-sm">
+                GitHub didn't start the game's first preview build. Its Actions may be turned off in
+                the repo's settings on GitHub.
+              </p>
+            ) : (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <p className="text-muted-foreground max-w-sm">
+                  Building the game's first preview. It shows here in a couple of minutes.
+                </p>
+              </>
+            )}
+          </Placeholder>
+        </div>
+      ) : (
         <div
           className={cn(
-            "h-full w-full",
-            device === "phone" &&
-              "sm:h-full sm:max-h-[860px] sm:w-auto sm:max-w-full sm:aspect-[390/844] sm:rounded-[2rem] sm:border-[10px] sm:border-foreground/85 sm:overflow-hidden sm:shadow-xl",
+            "flex-1 min-h-0",
+            device === "phone" && "sm:flex sm:items-center sm:justify-center sm:bg-muted/40 sm:p-4",
           )}
         >
-          {src && (
-            <iframe
-              key={src}
-              src={src}
-              title="Game preview"
-              className="h-full w-full bg-background"
-              allow="autoplay; fullscreen; gamepad; accelerometer; gyroscope"
-            />
-          )}
+          <div
+            className={cn(
+              "h-full w-full",
+              device === "phone" &&
+                "sm:h-full sm:max-h-[860px] sm:w-auto sm:max-w-full sm:aspect-[390/844] sm:rounded-[2rem] sm:border-[10px] sm:border-foreground/85 sm:overflow-hidden sm:shadow-xl",
+            )}
+          >
+            {src && (
+              <iframe
+                key={src}
+                src={src}
+                title="Game preview"
+                className="h-full w-full bg-background"
+                allow="autoplay; fullscreen; gamepad; accelerometer; gyroscope"
+              />
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   AGENT_SERVICES,
   accountFrom,
+  bringBranchPrompt,
+  bringBranchResult,
+  followedPush,
+  isStrayBranchName,
+  sortStrayBranches,
+  strayBranchFrom,
   agentSettingsFrom,
   attachmentProblem,
   attachmentType,
@@ -399,5 +405,98 @@ describe("connecting a service with its key", () => {
       serviceKeyVerdict("elevenlabs", 401, { detail: { status: "missing_permissions" } }),
     ).toBe("unknown");
     expect(serviceKeyVerdict("openai", 503, null)).toBe("unknown");
+  });
+});
+
+describe("the preview the page follows", () => {
+  const claude = { pushedSha: "a".repeat(40), finishedAt: "2026-11-07T10:00:00Z" };
+  const page = { sha: "b".repeat(40), at: Date.parse("2026-11-07T10:05:00Z"), firstPreview: true };
+
+  test("is Claude's last push when nothing was pushed from the page", () => {
+    expect(followedPush(claude, null)).toEqual({
+      sha: claude.pushedSha,
+      since: Date.parse(claude.finishedAt),
+      page: null,
+    });
+    expect(followedPush(null, null)).toBeNull();
+    expect(followedPush({ pushedSha: null, finishedAt: null }, null)).toBeNull();
+  });
+
+  test("is the page's push until Claude pushes after it", () => {
+    expect(followedPush(claude, page)).toEqual({ sha: page.sha, since: page.at, page });
+    expect(followedPush(null, page)?.sha).toBe(page.sha);
+    const later = { pushedSha: "c".repeat(40), finishedAt: "2026-11-07T10:20:00Z" };
+    expect(followedPush(later, page)?.sha).toBe(later.pushedSha);
+    expect(followedPush(later, page)?.page).toBeNull();
+  });
+});
+
+describe("work on other branches", () => {
+  test("only claude/ branches other than main count", () => {
+    expect(isStrayBranchName("claude/laughing-einstein-qb1ywb", "main")).toBe(true);
+    expect(isStrayBranchName("main", "main")).toBe(false);
+    expect(isStrayBranchName("lovable-sync", "main")).toBe(false);
+    expect(isStrayBranchName("claude/../main", "main")).toBe(false);
+    expect(isStrayBranchName("claude/a b", "main")).toBe(false);
+    expect(isStrayBranchName("claude/x", "claude/x")).toBe(false);
+  });
+
+  test("a branch counts when it has work main doesn't, described by its newest commit", () => {
+    // Shaped like GitHub's compare of bible-xp's main with its web session's branch
+    const compare = {
+      ahead_by: 16,
+      html_url: "https://github.com/o/r/compare/main...claude/x",
+      commits: [
+        { commit: { message: "feat: older", committer: { date: "2026-10-22T14:10:30Z" } } },
+        {
+          commit: {
+            message: "feat: three more songs\n\nLonger body",
+            committer: { date: "2026-11-07T08:29:55Z" },
+          },
+        },
+      ],
+    };
+    expect(strayBranchFrom("claude/x", compare)).toEqual({
+      name: "claude/x",
+      ahead: 16,
+      lastCommitAt: "2026-11-07T08:29:55Z",
+      lastMessage: "feat: three more songs",
+      url: "https://github.com/o/r/compare/main...claude/x",
+    });
+    expect(strayBranchFrom("claude/x", { ahead_by: 0, commits: [] })).toBeNull();
+    expect(strayBranchFrom("claude/x", {})).toBeNull();
+  });
+
+  test("newest work comes first", () => {
+    const b = (name: string, lastCommitAt: string | null) => ({
+      name,
+      ahead: 1,
+      lastCommitAt,
+      lastMessage: "",
+      url: "",
+    });
+    const sorted = sortStrayBranches([
+      b("claude/old", "2026-10-01T00:00:00Z"),
+      b("claude/none", null),
+      b("claude/new", "2026-11-07T00:00:00Z"),
+    ]);
+    expect(sorted.map((x) => x.name)).toEqual(["claude/new", "claude/old", "claude/none"]);
+  });
+
+  test("GitHub's answer to the merge", () => {
+    expect(bringBranchResult(201, { sha: "f".repeat(40) })).toEqual({
+      state: "merged",
+      sha: "f".repeat(40),
+    });
+    expect(bringBranchResult(204, null)).toEqual({ state: "up_to_date" });
+    expect(bringBranchResult(409, null)).toEqual({ state: "conflict" });
+    expect(bringBranchResult(404, null)).toBeNull();
+    expect(bringBranchResult(201, {})).toBeNull();
+  });
+
+  test("the message for Claude names the branch and where it goes", () => {
+    const prompt = bringBranchPrompt("claude/x", "main");
+    expect(prompt).toContain("`origin/claude/x` into `main`");
+    expect(prompt).toContain("bun run build");
   });
 });

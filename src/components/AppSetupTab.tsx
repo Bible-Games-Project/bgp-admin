@@ -858,7 +858,8 @@ export function AppSetupTab({
             </span>
           ) : previewDisabled ? (
             <p className="text-xs text-muted-foreground mt-2">
-              Turned off for this app. Nothing is deployed here and no workflow runs on push.
+              Turned off for this app. Nothing is deployed here and no workflow runs on push, so the
+              Build chat shows no preview next to Claude. Untick the box below to turn it back on.
             </p>
           ) : (
             <div className="flex flex-col gap-1.5 mt-2">
@@ -928,8 +929,8 @@ export function AppSetupTab({
               />
               <span className="text-xs text-muted-foreground max-w-md">
                 This app previews somewhere else (Lovable, Vercel…), so skip preview deploys.
-                Ticking this removes <code>preview-deploy.yml</code> from the repo, which otherwise
-                fails on every push when no Cloudflare Pages project exists for it.
+                Ticking this removes <code>preview-deploy.yml</code> from the repo, and the Build
+                chat then has no preview to show.
               </span>
             </label>
           </div>

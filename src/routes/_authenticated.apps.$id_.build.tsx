@@ -6,22 +6,30 @@ import { ArrowLeft, Loader2, MessageSquarePlus, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  bringBranchToMain,
   getBuildAttachmentUrl,
   getBuildChat,
   getPreviewDeploy,
+  getStrayBranches,
   newBuildChat,
   sendBuildMessage,
   stopBuildTurn,
+  turnOnBuildPreview,
   uploadBuildAttachment,
 } from "@/lib/agent.functions";
 import { checkPreviewDeployWorkflow } from "@/lib/capacitor.functions";
 import {
   AGENT_MODELS,
+  bringBranchPrompt,
   fixPreviewPrompt,
+  followedPush,
   isActiveTurn,
   previewSrc,
   type BuildAttachment,
+  type PagePush,
+  type StrayBranch,
 } from "@/lib/agent";
+import { BranchNotice } from "@/components/build/BranchNotice";
 import { BuildChat } from "@/components/build/BuildChat";
 import { BuildPreview, type PreviewDeploy } from "@/components/build/BuildPreview";
 import { SplitHandle, useChatWidth } from "@/components/build/Split";
@@ -86,6 +94,9 @@ function BuildPage() {
   const newChatFn = useServerFn(newBuildChat);
   const uploadFn = useServerFn(uploadBuildAttachment);
   const attachmentUrlFn = useServerFn(getBuildAttachmentUrl);
+  const turnOnFn = useServerFn(turnOnBuildPreview);
+  const branchesFn = useServerFn(getStrayBranches);
+  const bringFn = useServerFn(bringBranchToMain);
   const [tab, setTab] = useState<"chat" | "preview">("chat");
   const [draft, setDraft] = useState("");
   const [reloads, setReloads] = useState(0);
@@ -93,6 +104,9 @@ function BuildPage() {
   const [chatWidth, setChatWidth] = useChatWidth();
   const [resizing, setResizing] = useState(false);
   const splitRef = useRef<HTMLDivElement>(null);
+  // A push made from this page (turning the preview on, bringing a branch over).
+  const [pagePush, setPagePush] = useState<PagePush | null>(null);
+  const [conflicts, setConflicts] = useState<string[]>([]);
 
   const chatKey = ["build-chat", id];
   const q = useQuery({
@@ -111,10 +125,21 @@ function BuildPage() {
   });
   const previewUrl = previewQ.data?.previewUrl ?? null;
 
-  // The preview of the last change Claude pushed: followed until it's live, then reloaded.
+  // Work left on claude/ branches, which neither the preview nor Claude here can see.
+  const branchesQ = useQuery({
+    queryKey: ["build-stray-branches", id],
+    queryFn: () => branchesFn({ data: { appId: id } }),
+    enabled: Boolean(q.data && !q.data.blocked),
+    staleTime: 60_000,
+  });
+
+  // The preview of the last change pushed (by Claude, or from this page): followed until
+  // it's live, then reloaded.
   const turns = q.data?.turns ?? [];
-  const pushed = [...turns].reverse().find((t) => t.pushedSha);
-  const sha = pushed?.pushedSha ?? null;
+  const pushed = [...turns].reverse().find((t) => t.pushedSha) ?? null;
+  const followed = followedPush(pushed, pagePush);
+  const sha = followed?.sha ?? null;
+  const since = followed?.since ?? null;
   const deployQ = useQuery({
     queryKey: ["preview-deploy", id, sha],
     queryFn: () => deployFn({ data: { appId: id, sha: sha! } }),
@@ -122,15 +147,12 @@ function BuildPage() {
     refetchInterval: (query) => {
       const state = query.state.data?.state;
       if (state === "live" || state === "failed") return false;
-      if (pushed?.finishedAt && Date.now() - Date.parse(pushed.finishedAt) > STALLED_AFTER_MS)
-        return false;
+      if (since && Date.now() - since > STALLED_AFTER_MS) return false;
       return 4000;
     },
   });
   const stalled =
-    deployQ.data?.state === "waiting" &&
-    pushed?.finishedAt &&
-    Date.now() - Date.parse(pushed.finishedAt) > STALLED_AFTER_MS;
+    deployQ.data?.state === "waiting" && since && Date.now() - since > STALLED_AFTER_MS;
   const deploy: PreviewDeploy = sha
     ? stalled
       ? { state: "stalled" }
@@ -138,14 +160,28 @@ function BuildPage() {
     : null;
 
   const seen = useRef<string | undefined>(undefined);
+  const fromPage = useRef(false);
+  fromPage.current = Boolean(followed?.page);
   useEffect(() => {
     const state = deployQ.data?.state;
     if (state === "live" && seen.current && seen.current !== "live") {
       setReloads((n) => n + 1);
-      toast.success("The preview has Claude's latest change.");
+      toast.success(
+        fromPage.current ? "The preview is up to date." : "The preview has Claude's latest change.",
+      );
     }
     seen.current = state;
   }, [deployQ.data?.state]);
+
+  // A turn may have joined a branch into main, so the branches are read again after each.
+  const activeTurnId = turns.find((t) => isActiveTurn(t.status))?.id;
+  const hadActiveTurn = useRef(false);
+  useEffect(() => {
+    if (hadActiveTurn.current && !activeTurnId) {
+      qc.invalidateQueries({ queryKey: ["build-stray-branches", id] });
+    }
+    hadActiveTurn.current = Boolean(activeTurnId);
+  }, [activeTurnId, id, qc]);
 
   const send = useMutation({
     mutationFn: ({ prompt, attachmentIds = [] }: { prompt: string; attachmentIds?: string[] }) =>
@@ -177,6 +213,32 @@ function BuildPage() {
     mutationFn: (turnId: string) => stopFn({ data: { turnId } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: chatKey }),
     onError: (e: Error) => toast.error(e.message),
+  });
+  const turnOn = useMutation({
+    mutationFn: () => turnOnFn({ data: { appId: id } }),
+    onSuccess: ({ sha }) => {
+      if (sha) setPagePush({ sha, at: Date.now(), firstPreview: true });
+      qc.invalidateQueries({ queryKey: ["preview-deploy-workflow", id] });
+    },
+    onError: (e: Error) => toast.error(e.message, { duration: 10_000 }),
+  });
+  const bring = useMutation({
+    mutationFn: (branch: StrayBranch) => bringFn({ data: { appId: id, branch: branch.name } }),
+    onSuccess: (result, branch) => {
+      if (result.state === "conflict") {
+        setConflicts((c) => [...c, branch.name]);
+        return;
+      }
+      if (result.state === "merged") {
+        setPagePush({ sha: result.sha, at: Date.now(), firstPreview: false });
+        toast.success(
+          "Done. The preview updates in a couple of minutes. Keep changing the game here, so new work lands where the preview is.",
+          { duration: 10_000 },
+        );
+      }
+      qc.invalidateQueries({ queryKey: ["build-stray-branches", id] });
+    },
+    onError: (e: Error) => toast.error(e.message, { duration: 10_000 }),
   });
   const newChat = useMutation({
     mutationFn: () => newChatFn({ data: { appId: id } }),
@@ -281,6 +343,33 @@ function BuildPage() {
         </Button>
       </div>
 
+      <BranchNotice
+        branches={branchesQ.data ?? []}
+        defaultBranch={data.app.branch}
+        bringing={bring.isPending ? (bring.variables?.name ?? null) : null}
+        conflicts={conflicts}
+        claudeWorking={Boolean(active)}
+        canAsk={canAsk}
+        onBring={(branch) => {
+          if (
+            confirm(
+              `Bring the ${branch.ahead === 1 ? "change" : `${branch.ahead} changes`} on ${branch.name} into ${data.app.branch}? The preview and Claude here will have ${branch.ahead === 1 ? "it" : "them"}.`,
+            )
+          ) {
+            bring.mutate(branch);
+          }
+        }}
+        onAskClaude={(branch) => {
+          setTab("chat");
+          send.mutate(
+            { prompt: bringBranchPrompt(branch.name, data.app.branch) },
+            {
+              onSuccess: () => setConflicts((c) => c.filter((name) => name !== branch.name)),
+            },
+          );
+        }}
+      />
+
       <div
         ref={splitRef}
         className="flex-1 min-h-0 flex"
@@ -326,9 +415,12 @@ function BuildPage() {
           )}
         >
           <BuildPreview
-            appId={id}
             previewUrl={previewUrl}
             checking={previewQ.isLoading}
+            turnedOff={previewQ.data?.disabled ?? false}
+            onTurnOn={() => turnOn.mutate()}
+            turningOn={turnOn.isPending}
+            firstBuild={Boolean(followed?.page?.firstPreview)}
             src={
               previewUrl
                 ? previewSrc(previewUrl, `${sha?.slice(0, 7) ?? "start"}-${reloads}`)

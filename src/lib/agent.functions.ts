@@ -5,7 +5,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { githubHeaders } from "@/lib/github.functions";
+import {
+  commitPreviewWorkflow,
+  githubHeaders,
+  PREVIEW_WORKFLOW_PATH,
+} from "@/lib/github.functions";
+import { PREVIEW_DISABLED_STEP } from "@/lib/capacitor.functions";
 import { failureExcerpt } from "@/lib/deploy-failure";
 import { isWebGame, NOT_A_WEB_GAME_MESSAGE } from "@/lib/app-kind";
 import { isSelfRepo } from "@/lib/self-repo";
@@ -17,6 +22,7 @@ import {
   AGENT_MODELS,
   AGENT_MODEL_SETTING,
   AGENT_SERVICES,
+  ACTIVE_TURN_STATUSES,
   AGENT_SETTING_KEYS,
   AGENT_WEEKLY_BUDGET_SETTING,
   ATTACHMENTS_BUCKET,
@@ -28,9 +34,11 @@ import {
   attachmentProblem,
   attachmentType,
   budgetExhaustedMessage,
+  bringBranchResult,
   environmentFrom,
   isActiveTurn,
   isClaudeToken,
+  isStrayBranchName,
   parseDomains,
   parseVariables,
   previewDeployState,
@@ -38,11 +46,16 @@ import {
   safeFileName,
   serviceKeyFrom,
   serviceKeyVerdict,
+  sortStrayBranches,
+  STRAY_BRANCHES_CHECKED,
+  strayBranchFrom,
   type AgentEvent,
   type AgentUsage,
+  type BringBranchResult,
   type BuildAttachment,
   type EnvironmentChangeView,
   type PreviewDeployState,
+  type StrayBranch,
   type TurnStatus,
   usageIsStale,
 } from "@/lib/agent";
@@ -929,4 +942,113 @@ export const getPreviewDeploy = createServerFn({ method: "POST" })
     const location = logRes.headers.get("location");
     const log = location ? await fetch(location) : logRes;
     return { ...state, error: log.ok ? failureExcerpt(await log.text()) : "" };
+  });
+
+// --- Turning the preview on, and work left on other branches -----------------------------
+
+/**
+ * "Turn on the preview" in the Build chat: the same as Setup → Preview Deploy (untick
+ * "previews somewhere else", then create the workflow), from where the preview is missing.
+ * Returns the commit that adds the workflow, so the page can follow its first build.
+ */
+export const turnOnBuildPreview = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ appId: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }): Promise<{ sha: string | null }> => {
+    await assertAdmin(context.supabase, context.userId);
+    const { app, blocked } = await loadBuildApp(context.supabase, data.appId);
+    if (blocked) throw new Error(blocked);
+    const { error } = await admin()
+      .from("app_setup_steps")
+      .delete()
+      .eq("app_id", app.id)
+      .eq("step_key", PREVIEW_DISABLED_STEP);
+    if (error) throw new Error(error.message);
+    const branch = app.default_ref || "main";
+    const existing = await fetch(
+      `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/${PREVIEW_WORKFLOW_PATH}?ref=${encodeURIComponent(branch)}`,
+      { headers: githubHeaders() },
+    );
+    if (existing.ok) return { sha: null };
+    const { sha } = await commitPreviewWorkflow({
+      owner: app.github_owner,
+      repo: app.github_repo,
+      branch,
+    });
+    return { sha: sha ?? null };
+  });
+
+/**
+ * The game's claude/ branches with work its main branch doesn't have (left there by
+ * Claude Code on the web), newest first. Empty when GitHub doesn't answer: it's a notice,
+ * and the page works without it.
+ */
+export const getStrayBranches = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ appId: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }): Promise<StrayBranch[]> => {
+    await assertAdmin(context.supabase, context.userId);
+    const { app, blocked } = await loadBuildApp(context.supabase, data.appId);
+    if (blocked) return [];
+    const base = app.default_ref || "main";
+    const repoApi = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}`;
+    const headers = githubHeaders();
+    const res = await fetch(`${repoApi}/branches?per_page=100`, { headers });
+    if (!res.ok) return [];
+    const names = ((await res.json()) as { name: string }[])
+      .map((b) => b.name)
+      .filter((name) => isStrayBranchName(name, base))
+      .slice(0, STRAY_BRANCHES_CHECKED);
+    const branches = await Promise.all(
+      names.map(async (name) => {
+        const compare = await fetch(`${repoApi}/compare/${base}...${name}`, { headers });
+        return compare.ok ? strayBranchFrom(name, await compare.json()) : null;
+      }),
+    );
+    return sortStrayBranches(branches.filter((b): b is StrayBranch => b !== null));
+  });
+
+/**
+ * Merges a claude/ branch into the game's main branch on GitHub, which starts the preview
+ * build like any push. Not while Claude is working here: its push would then be refused.
+ */
+export const bringBranchToMain = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z.object({ appId: z.string().uuid(), branch: z.string().min(1).max(200) }).parse(input),
+  )
+  .handler(async ({ data, context }): Promise<BringBranchResult> => {
+    await assertAdmin(context.supabase, context.userId);
+    const { app, blocked } = await loadBuildApp(context.supabase, data.appId);
+    if (blocked) throw new Error(blocked);
+    const base = app.default_ref || "main";
+    if (!isStrayBranchName(data.branch, base))
+      throw new Error("Only a claude/ branch can be brought over from here.");
+    const { data: active, error } = await admin()
+      .from("agent_turns")
+      .select("id")
+      .eq("app_id", app.id)
+      .in("status", ACTIVE_TURN_STATUSES)
+      .limit(1);
+    if (error) throw new Error(error.message);
+    if (active?.length)
+      throw new Error("Claude is working on this game. Bring the branch over once it finishes.");
+
+    const res = await fetch(
+      `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/merges`,
+      {
+        method: "POST",
+        headers: { ...githubHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base,
+          head: data.branch,
+          commit_message: `Merge ${data.branch} into ${base} from the Build chat`,
+        }),
+      },
+    );
+    const text = await res.text();
+    const body = res.status === 201 && text ? (JSON.parse(text) as { sha?: string }) : null;
+    const result = bringBranchResult(res.status, body);
+    if (result) return result;
+    throw new Error(`GitHub didn't merge ${data.branch} (${res.status}): ${text.slice(0, 200)}`);
   });

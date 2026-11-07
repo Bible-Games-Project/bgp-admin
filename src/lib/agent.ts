@@ -645,3 +645,100 @@ export function previewSrc(url: string, version: string | number) {
   u.searchParams.set("bgp_preview", String(version));
   return u.toString();
 }
+
+/** The page follows its own pushes (turning the preview on, bringing a branch over) too. */
+export type PagePush = { sha: string; at: number; firstPreview: boolean };
+
+/**
+ * The commit whose preview the page follows, and since when: Claude's last push, or a push
+ * made from the page after it.
+ */
+export function followedPush(
+  claude: { pushedSha: string | null; finishedAt: string | null } | null,
+  page: PagePush | null,
+): { sha: string; since: number | null; page: PagePush | null } | null {
+  const claudeAt = claude?.finishedAt ? Date.parse(claude.finishedAt) : null;
+  if (page && (!claude?.pushedSha || claudeAt === null || claudeAt < page.at)) {
+    return { sha: page.sha, since: page.at, page };
+  }
+  return claude?.pushedSha ? { sha: claude.pushedSha, since: claudeAt, page: null } : null;
+}
+
+// --- Work on other branches ---------------------------------------------------------------
+
+/**
+ * Claude Code on the web commits to claude/<name> branches and never to main, while the
+ * preview and this chat both start from the game's main branch. What's left there doesn't
+ * show anywhere in the console until it's brought over.
+ */
+export const STRAY_BRANCH_PREFIX = "claude/";
+/** At most this many are compared per visit, so a repo full of old branches stays cheap. */
+export const STRAY_BRANCHES_CHECKED = 10;
+
+export type StrayBranch = {
+  name: string;
+  /** Commits on the branch that the main branch doesn't have. */
+  ahead: number;
+  lastCommitAt: string | null;
+  lastMessage: string;
+  url: string;
+};
+
+export function isStrayBranchName(name: string, defaultBranch: string) {
+  return (
+    name !== defaultBranch &&
+    name.startsWith(STRAY_BRANCH_PREFIX) &&
+    /^[\w./-]+$/.test(name) &&
+    !name.includes("..")
+  );
+}
+
+type CompareCommit = { commit?: { message?: string; committer?: { date?: string } } };
+
+/**
+ * A branch from GitHub's comparison of the main branch with it, when it has work main
+ * doesn't. Without paging, GitHub lists the commits oldest first and the last is the newest.
+ */
+export function strayBranchFrom(
+  name: string,
+  compare: { ahead_by?: number; commits?: CompareCommit[]; html_url?: string },
+): StrayBranch | null {
+  const ahead = compare.ahead_by ?? 0;
+  if (ahead <= 0) return null;
+  const last = compare.commits?.[compare.commits.length - 1]?.commit;
+  return {
+    name,
+    ahead,
+    lastCommitAt: last?.committer?.date ?? null,
+    lastMessage: (last?.message ?? "").split("\n")[0].slice(0, 200),
+    url: compare.html_url ?? "",
+  };
+}
+
+/** Newest work first. */
+export function sortStrayBranches(branches: StrayBranch[]) {
+  return [...branches].sort(
+    (a, b) => Date.parse(b.lastCommitAt ?? "0") - Date.parse(a.lastCommitAt ?? "0"),
+  );
+}
+
+export type BringBranchResult =
+  | { state: "merged"; sha: string }
+  | { state: "up_to_date" }
+  | { state: "conflict" };
+
+/** GitHub's answer to merging a branch into main (POST /merges); null when it's an error. */
+export function bringBranchResult(
+  status: number,
+  body: { sha?: string } | null,
+): BringBranchResult | null {
+  if (status === 201 && body?.sha) return { state: "merged", sha: body.sha };
+  if (status === 204) return { state: "up_to_date" };
+  if (status === 409) return { state: "conflict" };
+  return null;
+}
+
+/** What "Ask Claude to join them" sends when GitHub can't merge a branch on its own. */
+export function bringBranchPrompt(branch: string, defaultBranch: string) {
+  return `Part of this game's work is on the branch \`${branch}\` (made in Claude Code on the web), not on \`${defaultBranch}\`, so neither the preview nor you can see it. GitHub can't merge it on its own because both sides changed the same lines. Merge \`origin/${branch}\` into \`${defaultBranch}\` (it's already fetched) and resolve each conflict so no work from either side is lost. Where the two really clash, keep the branch's version and tell me what you chose. Then check that \`bun run build\` passes and commit the merge.`;
+}
