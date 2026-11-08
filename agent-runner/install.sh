@@ -19,6 +19,7 @@ install -d -o root -g root -m 755 /opt/bgp-agent
 install -o root -g root -m 644 "$here"/runner.mjs "$here"/lib.mjs "$here"/egress.mjs "$here"/console-mcp.mjs "$here"/Dockerfile /opt/bgp-agent/
 install -d -o bgp-agent -g bgp-agent -m 700 /var/lib/bgp-agent
 # The sites allowed in Settings → Claude, which the service writes for the proxy to read
+# (egress/turns/<container>, one file per Build chat message)
 install -d -o bgp-agent -g bgp-agent -m 755 /var/lib/bgp-agent/egress
 
 # GitHub's host key, so the deploy keys only ever talk to GitHub
@@ -28,10 +29,11 @@ if ! grep -q "^github.com " /var/lib/bgp-agent/.ssh/known_hosts 2>/dev/null; the
   chown bgp-agent:bgp-agent /var/lib/bgp-agent/.ssh/known_hosts
 fi
 
-# A turn in progress is never cut short by an update: the new code waits, and the service
-# restarts itself with it when the turn ends (runner.mjs checks after each turn and poll).
+# A message in progress is never cut short by an update: the new code waits, and the service
+# stops taking messages and restarts itself with it when the ones in progress end (runner.mjs).
 busy=0
 [ -f /var/lib/bgp-agent/current.json ] && busy=1
+[ -n "$(docker ps -q --filter name='^bgp-agent-turn')" ] && busy=1
 # Same for someone linking a Claude account in Settings → Claude
 [ -n "$(docker ps -q --filter name='^bgp-agent-login$')" ] && busy=1
 
@@ -44,7 +46,7 @@ docker build --quiet -t bgp-agent:latest /opt/bgp-agent >/dev/null
 # The console's host, which Ruben's tools reach from inside the container (console-mcp.mjs)
 console_host="$(sed -n 's#^CONSOLE_URL=https\?://\([^/]*\).*#\1#p' /etc/bgp-agent.env 2>/dev/null | head -1)"
 console_host="${console_host:-bgp-admin-preview.biblegamesproject.workers.dev}"
-egress="$(sha256sum /opt/bgp-agent/egress.mjs | cut -d' ' -f1)-$console_host-allowfile"
+egress="$(sha256sum /opt/bgp-agent/egress.mjs | cut -d' ' -f1)-$console_host-turnfiles"
 running="$(docker inspect -f '{{index .Config.Labels "egress"}}' bgp-agent-egress 2>/dev/null || true)"
 if [ "$running" != "$egress" ] && [ "$busy" = 0 ]; then
   docker rm -f bgp-agent-egress >/dev/null 2>&1 || true
@@ -62,7 +64,7 @@ if [ ! -f /etc/bgp-agent.env ]; then
   echo "/etc/bgp-agent.env is missing: the service won't start until it's there (README.md)"
 elif [ "$busy" = 1 ]; then
   systemctl enable --quiet bgp-agent
-  echo "A turn or a sign-in is in progress: bgp-agent restarts itself with the new code when it ends"
+  echo "A message or a sign-in is in progress: bgp-agent restarts itself with the new code when it ends"
 else
   systemctl enable --quiet bgp-agent
   systemctl restart bgp-agent

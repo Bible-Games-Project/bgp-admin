@@ -4,12 +4,17 @@ import {
   applyEnvironmentChange,
   assistantArgs,
   availableMegabytes,
+  budgetBaseline,
   budgetStopMessage,
   claudeArgs,
+  containerMemory,
+  dockerMegabytes,
   domainRule,
   environmentSummary,
   eventsFrom,
+  installContainer,
   isClaudeToken,
+  isLeftoverContainer,
   loginError,
   loginToken,
   loginUrl,
@@ -22,16 +27,24 @@ import {
   promptWithAttachments,
   protectedPaths,
   readResult,
+  roomForAnotherTurn,
   safeFileName,
   secretsIn,
   stepLabel,
   systemPrompt,
+  turnContainer,
   uniqueFileName,
   usageFrom,
   variableProblem,
   weeklySpent,
 } from "./lib.mjs";
-import { hostsFromFile, isAllowedHost, isPrivateAddress, parseTarget } from "./egress.mjs";
+import {
+  hostsFromFile,
+  isAllowedHost,
+  isPrivateAddress,
+  parseTarget,
+  turnContainerFrom,
+} from "./egress.mjs";
 
 // A real session of Claude Code 2.1.316 (stream-json), paths moved to /work.
 const stream = readFileSync(new URL("./fixtures/stream.jsonl", import.meta.url), "utf8")
@@ -516,5 +529,74 @@ describe("internet and keys", () => {
     expect(text).toContain("api.openai.com");
     expect(text).toContain("OPENAI_API_KEY");
     expect(text).toContain("Never write a key into a file");
+  });
+});
+
+describe("several messages at once", () => {
+  const window = "2026-11-06T06:00:00.000Z";
+  const at = (percent, resetsAt = window) => ({ weekly: { percent, resetsAt } });
+
+  test("each message has its own container, which the egress proxy recognizes", () => {
+    const id = "6F1C2A4E-0B7d-4c1e-9a55-1234567890ab";
+    expect(turnContainer(id)).toBe("bgp-agent-turn-6f1c2a4e-0b7d-4c1e-9a55-1234567890ab");
+    expect(installContainer(id)).toBe("bgp-agent-install-6f1c2a4e-0b7d-4c1e-9a55-1234567890ab");
+    expect(turnContainer("../etc/x")).toBe("bgp-agent-turn-etcx");
+    expect(turnContainerFrom([`${turnContainer(id)}.bgp-agent-internal`])).toBe(turnContainer(id));
+    // The installs, Ruben's check and anything else on the network get no sites
+    expect(turnContainerFrom([`${installContainer(id)}.bgp-agent-internal`])).toBeNull();
+    expect(turnContainerFrom(["bgp-agent-check.bgp-agent-internal"])).toBeNull();
+    expect(turnContainerFrom([])).toBeNull();
+    expect(turnContainerFrom(undefined)).toBeNull();
+  });
+
+  test("a restart clears every message's containers, version 5's too", () => {
+    expect(isLeftoverContainer("bgp-agent-turn")).toBe(true);
+    expect(isLeftoverContainer("bgp-agent-turn-abc-123")).toBe(true);
+    expect(isLeftoverContainer("bgp-agent-install-abc")).toBe(true);
+    expect(isLeftoverContainer("bgp-agent-egress")).toBe(false);
+    expect(isLeftoverContainer("bgp-agent-login")).toBe(false);
+    expect(isLeftoverContainer("saints-adventures-web-1")).toBe(false);
+  });
+
+  test("reads what docker stats says each container uses", () => {
+    expect(dockerMegabytes("512MiB")).toBe(512);
+    expect(dockerMegabytes("1.5GiB")).toBe(1536);
+    expect(dockerMegabytes("980kB")).toBe(1);
+    expect(dockerMegabytes("2.1GB")).toBe(2003);
+    expect(dockerMegabytes("0B")).toBe(0);
+    expect(dockerMegabytes("lots")).toBeNull();
+    const stats =
+      "bgp-agent-turn-a\t412.3MiB / 1.172GiB\nbgp-agent-egress\t20MiB / 128MiB\nbroken line\n";
+    expect(containerMemory(stats)).toEqual({ "bgp-agent-turn-a": 412, "bgp-agent-egress": 20 });
+    expect(containerMemory("")).toEqual({});
+  });
+
+  test("another message starts only if the running ones can still grow to their limit", () => {
+    const room = (availableMb, used) =>
+      roomForAnotherTurn({ availableMb, limitMb: 1200, minFreeMb: 1200, used });
+    // The home server: one running message using 400 MB leaves about 1 GB
+    expect(room(1050, [400])).toBe(false);
+    // A VPS with 8 GB
+    expect(room(5800, [600])).toBe(true);
+    expect(room(4000, [1000, 900])).toBe(true);
+    expect(room(3000, [0, 0])).toBe(false);
+    // Over its limit (docker rounding) counts as nothing more to grow
+    expect(room(1200, [1300])).toBe(true);
+    // No /proc (a laptop trying it out): no limit
+    expect(room(null, [400])).toBe(true);
+  });
+
+  test("messages running together measure the weekly share from the earliest start", () => {
+    const budget = { percent: 10, spent: 2, resetsAt: window };
+    // B starts at 53 while A, which started at 50, runs: B counts from 50 too
+    const fromB = budgetBaseline(at(53), [at(50), null]);
+    expect(fromB).toEqual(at(50));
+    // Together they stop when the account has gone up the 8 points left of the share
+    expect(overBudget(budget, fromB, at(57.9))).toBe(false);
+    expect(overBudget(budget, fromB, at(58))).toBe(true);
+    // Alone, or with others in another window, a message counts from its own start
+    expect(budgetBaseline(at(53), [])).toEqual(at(53));
+    expect(budgetBaseline(at(53), [at(50, "2026-10-30T06:00:00.000Z")])).toEqual(at(53));
+    expect(budgetBaseline(at(53), [at(55)])).toEqual(at(53));
   });
 });

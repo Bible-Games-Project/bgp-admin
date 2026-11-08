@@ -576,6 +576,73 @@ export function availableMegabytes(meminfo) {
   return kb ? Math.floor(Number(kb) / 1024) : null;
 }
 
+/** A size as `docker stats` prints it ("512.3MiB", "1.17GiB", "980kB") in megabytes. */
+export function dockerMegabytes(size) {
+  const match = /^(\d+(?:\.\d+)?)\s*([kmg]?)(i?)b$/i.exec(String(size).trim());
+  if (!match) return null;
+  const base = match[3] ? 1024 : 1000;
+  const power = { "": 0, k: 1, m: 2, g: 3 }[match[2].toLowerCase()];
+  return Math.round((Number(match[1]) * base ** power) / 1024 / 1024);
+}
+
+/**
+ * How much memory each container is using, from `docker stats --no-stream --format
+ * "{{.Name}}\t{{.MemUsage}}"` ("bgp-agent-turn-… <tab> 512MiB / 1.172GiB" per line).
+ */
+export function containerMemory(statsOutput) {
+  const used = {};
+  for (const line of String(statsOutput ?? "").split("\n")) {
+    const [name, usage] = line.split("\t");
+    const megabytes = dockerMegabytes(String(usage ?? "").split("/")[0]);
+    if (name?.trim() && megabytes !== null) used[name.trim()] = megabytes;
+  }
+  return used;
+}
+
+/**
+ * Whether one more message may start while others run. Each running message may still grow
+ * to its whole limit, so what it hasn't used yet counts as taken: the machine must have room
+ * for all of them at their limit plus the new one, and still `minFreeMb` for the new one.
+ * `used` is what the running messages' containers use now (0 for one that has none yet).
+ */
+export function roomForAnotherTurn({ availableMb, limitMb, minFreeMb, used }) {
+  if (availableMb === null || availableMb === undefined) return true;
+  const stillToGrow = used.reduce((sum, mb) => sum + Math.max(0, limitMb - (Number(mb) || 0)), 0);
+  return availableMb - stillToGrow >= minFreeMb;
+}
+
+// --- Several messages at once ----------------------------------------------------------------
+
+/** The container a message's Claude session runs in; the egress proxy knows it by this name. */
+export const TURN_CONTAINER_PREFIX = "bgp-agent-turn-";
+export const turnContainer = (turnId) =>
+  `${TURN_CONTAINER_PREFIX}${String(turnId)
+    .toLowerCase()
+    .replace(/[^\w-]/g, "")}`;
+/** The one `bun install` runs in, before the session: it never gets the extra sites. */
+export const installContainer = (turnId) =>
+  `bgp-agent-install-${String(turnId)
+    .toLowerCase()
+    .replace(/[^\w-]/g, "")}`;
+/** Containers of messages a previous run of the service left behind (also v5's single one). */
+export const isLeftoverContainer = (name) =>
+  /^bgp-agent-(turn|install)(-[\w-]+)?$/.test(String(name).trim());
+
+/**
+ * Where a message measures the weekly share from. Messages that run at the same time all
+ * raise the same account usage, so a message that starts while others run measures from
+ * the earliest of their starting points (same weekly window): what they use together is
+ * then counted once, and they all stop when the share runs out. `others` are the starting
+ * points of the messages running now.
+ */
+export function budgetBaseline(usage, others = []) {
+  const window = usage?.weekly?.resetsAt;
+  const earlier = others
+    .filter((o) => o?.weekly && window && o.weekly.resetsAt === window)
+    .sort((a, b) => a.weekly.percent - b.weekly.percent)[0];
+  return earlier && earlier.weekly.percent < usage.weekly.percent ? earlier : usage;
+}
+
 // --- Linking an account: `claude setup-token` in a pseudo-terminal ---------------------
 
 // What a terminal shows, without colour or cursor codes (the CLI writes spaces by moving

@@ -4,6 +4,9 @@
 // the npm registry. When Claude finishes it pushes the commits to the game's branch, which
 // deploys the Cloudflare preview the page shows next to the chat.
 //
+// Several messages run at once (AGENT_PARALLEL), at most one per game, as long as the
+// machine has memory for them (freeSlots). Each has its own container.
+//
 // It also holds the Claude account it works with. Settings → Claude asks for a link; this
 // runs `claude setup-token` and passes the claude.ai link and the code back and forth
 // through the console. The token only lives here (STATE_DIR/claude.json): the console sees
@@ -31,7 +34,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import * as lib from "./lib.mjs";
 
-const VERSION = "5";
+const VERSION = "6";
 const env = process.env;
 const CONFIG = {
   console: (env.CONSOLE_URL ?? "https://bgp-admin-preview.biblegamesproject.workers.dev").replace(
@@ -49,6 +52,10 @@ const CONFIG = {
   proxy: env.AGENT_PROXY ?? "http://bgp-agent-egress:3128",
   memory: env.AGENT_MEMORY ?? "1200m",
   cpus: env.AGENT_CPUS ?? "2",
+  // How many messages may run at once (different games; one game's go one after another).
+  // Another only starts when the machine has room for it besides the running ones at their
+  // memory limit, so on a small machine it's often one anyway.
+  parallel: Math.max(1, Math.floor(Number(env.AGENT_PARALLEL ?? 3)) || 1),
   // No limit on how long a turn takes or how many steps it makes (0): a turn ends when
   // Claude finishes, someone presses Stop, or the account's usage (or the chat's weekly
   // share of it) runs out. A positive value brings a cap back.
@@ -77,6 +84,9 @@ const ACCOUNT = join(CONFIG.state, "claude.json");
 const ENVIRONMENT = join(CONFIG.state, "environment.json");
 // Mounted read-only in the egress proxy's container as /etc/bgp-egress (install.sh)
 const EGRESS_DIR = join(CONFIG.state, "egress");
+const TURN_SITES = join(EGRESS_DIR, "turns");
+// The messages in progress, so a restart can tell their chats (recover) and install.sh
+// waits for them
 const CURRENT = join(CONFIG.state, "current.json");
 const LOGS = join(CONFIG.state, "logs");
 // The files sent with the chats' messages, one folder per chat (see fetchAttachments).
@@ -84,7 +94,6 @@ const ATTACHMENTS = join(CONFIG.state, "attachments");
 const ATTACHMENTS_MOUNT = "/attachments";
 const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
 const KNOWN_HOSTS = join(CONFIG.state, ".ssh", "known_hosts");
-const TURN_CONTAINER = "bgp-agent-turn";
 const LOGIN_CONTAINER = "bgp-agent-login";
 const CHECK_MODEL = "claude-haiku-5-5";
 
@@ -254,17 +263,22 @@ function saveEnvironment(environment) {
 }
 
 /**
- * The sites the egress proxy lets through besides its own: the environment's while a Build
- * chat session runs, none otherwise. The proxy reads the file on every tunnel (egress.mjs).
+ * The sites the egress proxy lets a Build chat message's container reach besides its own: a
+ * file named after the container, written before it starts and removed when it ends. The
+ * proxy reads it on every tunnel from that container (egress.mjs). Ruben's containers and
+ * the dependency installs have none.
  */
-function allowSites(domains = []) {
-  mkdirSync(EGRESS_DIR, { recursive: true });
+function allowSites(container, domains) {
+  mkdirSync(TURN_SITES, { recursive: true });
   chmodSync(EGRESS_DIR, 0o755);
-  const file = join(EGRESS_DIR, "allow");
+  chmodSync(TURN_SITES, 0o755);
+  const file = join(TURN_SITES, container);
   writeFileSync(`${file}.new`, domains.map((d) => `${d}\n`).join(""), { mode: 0o644 });
   chmodSync(`${file}.new`, 0o644);
   renameSync(`${file}.new`, file);
 }
+
+const dropSites = (container) => rmSync(join(TURN_SITES, container), { force: true });
 
 /** A change saved in Settings → Claude: kept here, and the console told what it is now. */
 async function doEnvironment(change) {
@@ -426,13 +440,15 @@ function sshEnv(keyFile) {
   if (CONFIG.repoUrl.startsWith("file:")) return {};
   if (CONFIG.pushToken) {
     if (!existsSync(ASKPASS)) {
+      // Written aside and moved in: another message's git may be reading it
       writeFileSync(
-        ASKPASS,
+        `${ASKPASS}.${process.pid}.new`,
         '#!/bin/sh\ncase "$1" in Username*) echo x-access-token ;; *) echo "$GIT_PUSH_TOKEN" ;; esac\n',
         {
           mode: 0o700,
         },
       );
+      renameSync(`${ASKPASS}.${process.pid}.new`, ASKPASS);
     }
     return { GIT_ASKPASS: ASKPASS, GIT_PUSH_TOKEN: CONFIG.pushToken };
   }
@@ -546,13 +562,14 @@ async function installDependencies(job, repo, reporter) {
     return;
 
   reporter.step("Installing the game's dependencies");
+  const container = lib.installContainer(job.id);
   const result =
     CONFIG.sandbox === "docker"
       ? await (async () => {
-          await run("docker", ["rm", "-f", TURN_CONTAINER], { allowFail: true });
+          await run("docker", ["rm", "-f", container], { allowFail: true });
           return run(
             "docker",
-            dockerArgs({ name: TURN_CONTAINER, ...repo, command: ["bun", "install"] }),
+            dockerArgs({ name: container, ...repo, command: ["bun", "install"] }),
             {
               allowFail: true,
               timeoutMs: 15 * 60_000,
@@ -575,6 +592,9 @@ async function installDependencies(job, repo, reporter) {
 
 // --- One message -----------------------------------------------------------------------------
 
+/** The reporters of the messages in progress: where each measures the weekly share from. */
+const liveReporters = new Set();
+
 /**
  * Sends the turn's events to the console about once a second while Claude works, and
  * hears back whether the person pressed Stop. The calls also tell the console the server
@@ -589,12 +609,16 @@ class TurnReporter {
     // difference is what the turn used (the console adds it to the chat's weekly share).
     this.usage = null;
     this.usageBefore = null;
+    // Where the share is measured from while it runs: the earliest start of the messages
+    // running alongside it (lib.budgetBaseline), so together they stop at the share.
+    this.budgetFrom = null;
     this.budgetStop = false;
     this.cancelled = false;
     this.onCancel = null;
     this.lastSent = 0;
     this.sending = false;
     this.timer = setInterval(() => this.flush(), 1000);
+    liveReporters.add(this);
   }
 
   add(events) {
@@ -628,6 +652,7 @@ class TurnReporter {
 
   async close() {
     clearInterval(this.timer);
+    liveReporters.delete(this);
     for (let attempt = 0; attempt < 5 && (this.pending.length || attempt === 0); attempt++) {
       while (this.sending) await sleep(0.2);
       await this.flush(true);
@@ -667,17 +692,18 @@ async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }
       });
   let child;
   let secrets = null;
+  const container = lib.turnContainer(job.id);
   if (CONFIG.sandbox === "docker") {
-    secrets = tokenFile(TURN_CONTAINER, loadAccount().token, {
+    secrets = tokenFile(container, loadAccount().token, {
       ...environment.variables,
       ...(repo.toolEnv ?? {}),
     });
-    allowSites(environment.domains);
-    await run("docker", ["rm", "-f", TURN_CONTAINER], { allowFail: true });
+    if (!assistant) allowSites(container, environment.domains);
+    await run("docker", ["rm", "-f", container], { allowFail: true });
     child = spawn(
       "docker",
       dockerArgs({
-        name: TURN_CONTAINER,
+        name: container,
         ...repo,
         attachmentsDir: attachments.dir,
         envFile: secrets,
@@ -699,7 +725,7 @@ async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }
     });
   }
   const stop = () => {
-    if (CONFIG.sandbox === "docker") run("docker", ["kill", TURN_CONTAINER], { allowFail: true });
+    if (CONFIG.sandbox === "docker") run("docker", ["kill", container], { allowFail: true });
     else child.kill("SIGTERM");
   };
   reporter.onCancel = stop;
@@ -724,8 +750,12 @@ async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }
       if (usage) {
         reporter.usage = { ...reporter.usage, ...usage };
         reporter.usageBefore ??= usage;
+        reporter.budgetFrom ??= lib.budgetBaseline(
+          usage,
+          [...liveReporters].filter((r) => r !== reporter).map((r) => r.budgetFrom),
+        );
         // The share ran out under this turn: stopped after this call, like Stop.
-        if (!reporter.budgetStop && lib.overBudget(job.budget, reporter.usageBefore, usage)) {
+        if (!reporter.budgetStop && lib.overBudget(job.budget, reporter.budgetFrom, usage)) {
           reporter.budgetStop = true;
           log(`turn ${job.id}: the chat's weekly share is used up, stopping`);
           stop();
@@ -756,7 +786,7 @@ async function runClaude(job, repo, reporter, { prompt, sessionId, attachments }
   });
   clearTimeout(timer);
   if (secrets) rmSync(secrets, { force: true });
-  if (CONFIG.sandbox === "docker") allowSites([]);
+  if (CONFIG.sandbox === "docker") dropSites(container);
   keepLog(
     `${assistant ? "assistant" : repoSlug(job.repo)}-${job.id.slice(0, 8)}.jsonl`,
     lines.join("\n"),
@@ -975,14 +1005,14 @@ async function doTurn(job) {
   log(
     `turn ${job.id}: ${assistant ? "the assistant" : `${job.repo.owner}/${job.repo.name}`} (${job.model}, ${job.effort ?? "default effort"})`,
   );
-  writeFileSync(CURRENT, JSON.stringify({ id: job.id }), { mode: 0o600 });
   const reporter = new TurnReporter(job.id);
   let report;
   try {
     if (CONFIG.sandbox === "docker" && !loadAccount()?.token) {
       throw new Said("No Claude account is linked. Link one in Settings → Claude.");
     }
-    const free = freeMegabytes();
+    // With others running, freeSlots already found room for this one before taking it.
+    const free = running.size <= 1 ? freeMegabytes() : null;
     if (free !== null && free < CONFIG.minFreeMb) {
       log(
         `turn ${job.id}: only ${free} MB of memory free (it needs ${CONFIG.minFreeMb}), not starting`,
@@ -991,6 +1021,18 @@ async function doTurn(job) {
         "The build server is short of memory right now, so Claude didn't start. Send the message again in a few minutes.",
       );
     }
+    // The console gives a game one message at a time; its clone can't take two either.
+    const sameGame = [...running.values()].some(
+      (other) =>
+        other.job.id !== job.id &&
+        other.job.repo &&
+        job.repo &&
+        repoSlug(other.job.repo) === repoSlug(job.repo),
+    );
+    if (sameGame)
+      throw new Said(
+        "Claude is already working on this game. Send the message again when it's done.",
+      );
     const repo = assistant ? prepareAssistant(job) : await prepareRepo(job, reporter);
     pruneAttachments();
     const attachments = assistant
@@ -1043,7 +1085,6 @@ async function doTurn(job) {
   log(
     `turn ${job.id}: ${report.status}${report.pushedSha ? ` (pushed ${report.pushedSha.slice(0, 7)})` : ""}`,
   );
-  rmSync(CURRENT, { force: true });
 }
 
 // --- Linking an account ----------------------------------------------------------------------
@@ -1251,25 +1292,104 @@ function keepLog(name, text) {
   for (const { file } of files.slice(60)) rmSync(join(LOGS, file), { force: true });
 }
 
-// A turn cut short by a restart: the chat says so instead of waiting forever.
+// --- The messages in progress -------------------------------------------------------------------
+
+/** The messages being worked on now, by turn id. */
+const running = new Map();
+
+function saveRunning() {
+  if (running.size)
+    writeFileSync(CURRENT, JSON.stringify({ ids: [...running.keys()] }), { mode: 0o600 });
+  else rmSync(CURRENT, { force: true });
+}
+
+/** The messages a previous run was on (version 5 kept a single one). */
+function savedRunning() {
+  try {
+    const saved = JSON.parse(readFileSync(CURRENT, "utf8"));
+    return Array.isArray(saved.ids) ? saved.ids : saved.id ? [saved.id] : [];
+  } catch {
+    return [];
+  }
+}
+
+function startTurn(job) {
+  const entry = { job, promise: null };
+  running.set(job.id, entry);
+  saveRunning();
+  entry.promise = doTurn(job)
+    .catch((error) => log(`turn ${job.id}: ${error.stack ?? error.message}`))
+    .finally(() => {
+      running.delete(job.id);
+      saveRunning();
+    });
+}
+
+/** Resolves when one of the messages in progress ends (never, with none). */
+const anyTurnEnds = () => Promise.race([...running.values()].map((entry) => entry.promise));
+
+/** What each running message's containers use now, in megabytes (0 before it has any). */
+async function runningMemory() {
+  const ids = [...running.keys()];
+  if (CONFIG.sandbox !== "docker") return ids.map(() => 0);
+  const stats = await run(
+    "docker",
+    ["stats", "--no-stream", "--format", "{{.Name}}\t{{.MemUsage}}"],
+    { allowFail: true, timeoutMs: 30_000 },
+  );
+  // If docker can't say, nothing counts as used: the most cautious reading
+  const used = lib.containerMemory(stats.stdout);
+  return ids.map(
+    (id) => (used[lib.turnContainer(id)] ?? 0) + (used[lib.installContainer(id)] ?? 0),
+  );
+}
+
+/**
+ * How many more messages may start now. None past AGENT_PARALLEL. The first one always: if
+ * the machine is short of memory, doTurn says so in its chat. Another one only when the
+ * machine has room for it with the running ones at their limit (lib.roomForAnotherTurn);
+ * until then it waits in the queue, and its chat says what it waits for.
+ */
+async function freeSlots() {
+  if (running.size >= CONFIG.parallel) return 0;
+  if (!running.size) return CONFIG.parallel;
+  const room = lib.roomForAnotherTurn({
+    availableMb: freeMegabytes(),
+    limitMb: lib.megabytes(CONFIG.memory) ?? CONFIG.minFreeMb,
+    minFreeMb: CONFIG.minFreeMb,
+    used: await runningMemory(),
+  });
+  return room ? CONFIG.parallel - running.size : 0;
+}
+
+// Messages cut short by a restart: their chats say so instead of waiting forever.
 async function recover() {
   if (CONFIG.sandbox === "docker") {
-    allowSites([]);
-    await run("docker", ["rm", "-f", TURN_CONTAINER, LOGIN_CONTAINER, "bgp-agent-check"], {
+    // Version 5's single file of sites, and the files of the messages that were running
+    rmSync(join(EGRESS_DIR, "allow"), { force: true });
+    rmSync(TURN_SITES, { recursive: true, force: true });
+    const { stdout } = await run("docker", ["ps", "-a", "--format", "{{.Names}}"], {
+      allowFail: true,
+    });
+    const leftovers = stdout
+      .split("\n")
+      .map((name) => name.trim())
+      .filter(lib.isLeftoverContainer);
+    await run("docker", ["rm", "-f", ...leftovers, LOGIN_CONTAINER, "bgp-agent-check"], {
       allowFail: true,
     });
   }
-  if (!existsSync(CURRENT)) return;
-  const { id } = JSON.parse(readFileSync(CURRENT, "utf8"));
-  await sendFinish(id, {
-    status: "failed",
-    error: "The build server restarted in the middle of this message. Send it again.",
-  });
+  for (const id of savedRunning()) {
+    await sendFinish(id, {
+      status: "failed",
+      error: "The build server restarted in the middle of this message. Send it again.",
+    });
+  }
   rmSync(CURRENT, { force: true });
 }
 
-// When install.sh leaves new code while a turn runs, the service exits after it and systemd
-// starts it again with the new code.
+// When install.sh leaves new code while messages run, the service stops taking new ones,
+// exits once they end, and systemd starts it again with the new code.
 const CODE = ["runner.mjs", "lib.mjs"].map((file) => new URL(file, import.meta.url));
 const codeStamp = () => CODE.map((file) => statSync(file).mtimeMs).join(",");
 const STARTED_WITH = codeStamp();
@@ -1277,13 +1397,29 @@ const STARTED_WITH = codeStamp();
 async function main() {
   if (!CONFIG.runnerToken) throw new Error("AGENT_RUNNER_TOKEN is missing (/etc/bgp-agent.env)");
   mkdirSync(CONFIG.state, { recursive: true, mode: 0o700 });
-  log(`build server ${VERSION} (${CONFIG.sandbox}) asking ${CONFIG.console} for work`);
+  log(
+    `build server ${VERSION} (${CONFIG.sandbox}, up to ${CONFIG.parallel} messages at once) asking ${CONFIG.console} for work`,
+  );
   await recover();
   let connected = false;
+  let draining = false;
+  // A console from before version 6 takes a message still running at a poll for one the
+  // server lost. Until the console says it knows better, the server only asks between
+  // messages, as before.
+  let consoleRunsSeveral = false;
   for (;;) {
-    if (codeStamp() !== STARTED_WITH) {
-      log("new code: restarting");
-      process.exit(0);
+    if (!draining && codeStamp() !== STARTED_WITH) {
+      draining = true;
+      log(
+        running.size
+          ? `new code: restarting when the ${running.size} message(s) in progress end`
+          : "new code: restarting",
+      );
+    }
+    if (draining || (running.size && !consoleRunsSeveral)) {
+      if (!running.size) process.exit(0);
+      await anyTurnEnds();
+      continue;
     }
     let work;
     try {
@@ -1292,6 +1428,9 @@ async function main() {
         version: VERSION,
         account: accountSummary(),
         environment: lib.environmentSummary(loadEnvironment()),
+        running: [...running.keys()],
+        slots: await freeSlots(),
+        parallel: CONFIG.parallel,
       });
     } catch (error) {
       log(error.message);
@@ -1303,14 +1442,16 @@ async function main() {
     if (!connected)
       log(`connected to the console${accountSummary() ? "" : " (no Claude account linked yet)"}`);
     connected = true;
+    consoleRunsSeveral = work.several === true;
     if (work.unlink) {
       rmSync(ACCOUNT, { force: true });
       log("Claude account unlinked");
     } else if (work.login) await doLogin(work.login);
     else if (work.environment) await doEnvironment(work.environment);
-    else if (work.turn) await doTurn(work.turn);
+    else if (work.turn) startTurn(work.turn);
     else if (work.refreshUsage) await doUsageRefresh();
-    else await sleep(work.pollSeconds ?? 10);
+    // A message ending frees a place: the next one in the queue starts right away.
+    else await Promise.race([sleep(work.pollSeconds ?? 10), anyTurnEnds()]);
   }
 }
 

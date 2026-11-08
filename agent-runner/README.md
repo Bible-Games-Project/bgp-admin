@@ -89,8 +89,8 @@ share is approximate by a percent or two.
   Claude → Internet and keys.** The container sits on a Docker network with no way out
   (`bgp-agent-internal`). The only thing on it is the proxy `bgp-agent-egress` (`egress.mjs`), which opens
   tunnels only to `api.anthropic.com:443`, `registry.npmjs.org:443`, the console's host (for Ruben's tools,
-  which the console only answers with a turn's token) and, while a Build chat turn runs, the sites of
-  Internet and keys. It never follows a name to a private address (the home network, the machine, Docker),
+  which the console only answers with a turn's token) and, for a Build chat message's own container, the
+  sites of Internet and keys. It never follows a name to a private address (the home network, the machine, Docker),
   so it can't reach anything on the home network even through an allowed site.
 - **Internet and keys** is the Build chat's version of Claude Code on the web's cloud environment. OpenAI
   and ElevenLabs connect with just their key (the console checks it with the service first and adds the
@@ -98,8 +98,11 @@ share is approximate by a percent or two.
   to the server through `agent_environment_changes` (the values are deleted from the database as soon as
   the server takes them) and lives in `STATE_DIR/environment.json` (600), like the Claude token; the
   console only sees the sites and each key's last four characters (`agent_runner.environment`). The server
-  writes the sites to `STATE_DIR/egress/allow` when a Build chat turn starts and empties it when it ends;
-  the proxy reads that file (mounted at `/etc/bgp-egress`) on every tunnel. The keys reach the container
+  writes a Build chat message's sites to `STATE_DIR/egress/turns/<container>` before its container starts
+  and removes the file when it ends. The proxy reads it (mounted at `/etc/bgp-egress`) on every tunnel
+  from that container: it knows the container by its address, which Docker's DNS on `bgp-agent-internal`
+  names after it, and only the server names containers. So messages running at the same time each get
+  their own, and Ruben's containers and the dependency installs, which have no file, get none. The keys reach the container
   through the same env file as the token. Ruben's turns and the dependency installs get neither. Names the
   server sets itself (`CLAUDE_*`, `ANTHROPIC_*`, `*_PROXY`, `PATH`, `HOME`, `GIT_*`…) can't be replaced.
 - **It can't publish a key.** Before pushing, the server reads the patch of every commit of the turn; if
@@ -113,12 +116,23 @@ share is approximate by a percent or two.
   and puts `.git/config` back after each session.
 - **It can't change the native boundary.** Commits that touch `capacitor.config.*`, `ios/`, `android/` or
   the deploy and preview workflows aren't pushed, and the chat says why (`protectedPaths` in `lib.mjs`).
-- **One turn at a time**, with 1.2 GB of memory (`AGENT_MEMORY`) and no swap. A turn has no time or step
+- **Several messages at once, one per game.** Up to `AGENT_PARALLEL` (3) messages of different games (or
+  Ruben chats) run at the same time, each in its own container (`bgp-agent-turn-<turn id>`); a game's
+  messages go one after another. The console hands out the oldest queued message of a game the server isn't
+  on (`sortOutTurns` in `src/lib/agent.ts`), and the server says at each poll which messages it's on and
+  whether it can take another (`freeSlots`). Messages running together measure the weekly share from the
+  earliest of their starts, so together they stop at the share, and the console counts what they used
+  together once (`windowSpent`).
+- **1.2 GB of memory per message** (`AGENT_MEMORY`) and no swap. A message has no time or step
   limit: it runs until Claude finishes, someone presses Stop, or the account's usage (or the chat's weekly
   share of it) runs out. `TURN_MINUTES` and `MAX_TURNS` bring a cap back if one is ever wanted.
 - **It gives way to the machine's other services.** The home server has 3.8 GB and also runs cpl-agent,
   the GitHub Actions runners and other services that must not stop. So:
-  - a turn only starts when the machine has as much memory free as the turn may use (`AGENT_MIN_FREE_MB`,
+  - another message only starts while others run when the machine has room for all of them at their
+    limit plus `AGENT_MIN_FREE_MB` for the new one (`roomForAnotherTurn` in `lib.mjs`). Until then it waits in
+    the queue and its chat says what it waits for. On the home server that's one message at a time, now and
+    then two; a VPS with 8 GB runs three;
+  - the first message only starts when the machine has as much memory free as the turn may use (`AGENT_MIN_FREE_MB`,
     1200 by default). If it doesn't, the chat says to try again in a few minutes;
   - a turn that needs more than its 1.2 GB is stopped on its own, and the chat says it ran out of memory;
   - if the machine runs out of memory anyway (because of something else), the kernel kills Claude's container and
@@ -160,7 +174,7 @@ Two ways; the first is the default.
   is wider than a deploy key's: every repo it was given.
 
 Optional settings: `AGENT_NAME` (how Settings → Claude names it, the hostname by default), `AGENT_MEMORY`
-(`1200m`), `AGENT_MIN_FREE_MB` (`1200`), `AGENT_CPUS` (`2`), `TURN_MINUTES` (`0`, no limit), `MAX_TURNS` (`0`, no limit) and
+(`1200m`), `AGENT_MIN_FREE_MB` (`1200`), `AGENT_PARALLEL` (`3`), `AGENT_CPUS` (`2`), `TURN_MINUTES` (`0`, no limit), `MAX_TURNS` (`0`, no limit) and
 `AGENT_COMPACT_WINDOW` (`200k`, see below).
 
 ### Long chats

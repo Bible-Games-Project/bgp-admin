@@ -164,6 +164,43 @@ export function weeklyBudgetFrom(
   };
 }
 
+/**
+ * What the Build chat used in a weekly window, from its messages (`weekly_spent` from
+ * turnWeeklySpend, `usage` the account's usage when the message ended). Messages that ran at
+ * the same time each saw the account's usage rise by what they used together, so their
+ * spends overlap. Each message covers the stretch of the account's usage from where it
+ * started (where it ended, minus its spend) to where it ended, and a stretch that several
+ * messages share counts once. A spend whose end isn't known counts whole.
+ */
+export function windowSpent(
+  rows: { weekly_spent: number | null; usage: AgentUsage | null }[],
+  resetsAt: string,
+): number {
+  let loose = 0;
+  const stretches: [number, number][] = [];
+  for (const row of rows) {
+    const spent = Number(row.weekly_spent) || 0;
+    if (spent <= 0) continue;
+    const end = row.usage?.weekly;
+    if (end && end.resetsAt === resetsAt && typeof end.percent === "number")
+      stretches.push([end.percent - spent, end.percent]);
+    else loose += spent;
+  }
+  stretches.sort((a, b) => a[0] - b[0]);
+  let total = loose;
+  let from = 0;
+  let to = -Infinity;
+  for (const [start, end] of stretches) {
+    if (start > to) {
+      if (to > from) total += to - from;
+      from = start;
+      to = end;
+    } else to = Math.max(to, end);
+  }
+  if (to > from) total += to - from;
+  return tenth(total);
+}
+
 /** "Friday at 07:00", in the console's time zone. */
 export function resetLabel(resetsAt: string | null) {
   if (!resetsAt) return "when the limit resets";
@@ -310,6 +347,44 @@ export function accountFrom(value: unknown): AgentAccount | null {
     linkedAt: str(v.linkedAt),
     linkedBy: str(v.linkedBy),
     rejectedAt: str(v.rejectedAt),
+  };
+}
+
+// --- Several messages at once --------------------------------------------------------------
+//
+// The build server (from version 6) works on several messages at once: at most one per game
+// and one per chat, as many as AGENT_PARALLEL and its memory allow. At each poll it lists the
+// messages it's on and how many more it can take (`slots`).
+
+type PendingTurn = { id: string; status: string; app_id: string | null; chat_id: string };
+
+/**
+ * What a poll does with the queued and running messages. A running one the server didn't
+ * list is lost (it restarted, or was reinstalled). The queued ones it may take, oldest
+ * first, are those of games and chats it isn't already on, and none when it has no room.
+ * A server from before version 6 lists nothing: it only asks between messages, so every
+ * running one is lost and it can take one, as before.
+ */
+export function sortOutTurns<T extends PendingTurn>(
+  pending: T[],
+  running: string[] | undefined,
+  slots: number | undefined,
+): { lost: string[]; candidates: T[] } {
+  const listed = new Set(running ?? []);
+  const kept = pending.filter((t) => t.status === "running" && listed.has(t.id));
+  const busyApps = new Set(kept.map((t) => t.app_id).filter(Boolean));
+  const busyChats = new Set(kept.map((t) => t.chat_id));
+  const room = slots === undefined || slots > 0;
+  return {
+    lost: pending.filter((t) => t.status === "running" && !listed.has(t.id)).map((t) => t.id),
+    candidates: room
+      ? pending.filter(
+          (t) =>
+            t.status === "queued" &&
+            !busyChats.has(t.chat_id) &&
+            !(t.app_id && busyApps.has(t.app_id)),
+        )
+      : [],
   };
 }
 

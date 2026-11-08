@@ -28,9 +28,11 @@ import {
   sameSecret,
   serviceKeyFrom,
   serviceKeyVerdict,
+  sortOutTurns,
   turnWeeklySpend,
   usageIsStale,
   weeklyBudgetFrom,
+  windowSpent,
 } from "./agent";
 
 const now = new Date("2026-11-02T20:00:00Z");
@@ -142,6 +144,29 @@ describe("the weekly share", () => {
       exhausted: false,
     });
     expect(weeklyBudgetFrom(10, null, [7, 3]).resetsAt).toBeNull();
+  });
+
+  test("messages that ran at the same time count what they shared once", () => {
+    const turn = (spent: number | null, endedAt: number | null) => ({
+      weekly_spent: spent,
+      usage: endedAt === null ? null : usage(endedAt),
+    });
+    // One after the other: added up
+    expect(windowSpent([turn(3, 53), turn(2, 57)], window)).toBe(5);
+    // A ran 50 → 54 while B ran 51 → 55: together 50 → 55
+    expect(windowSpent([turn(4, 54), turn(4, 55)], window)).toBe(5);
+    expect(windowSpent([turn(4, 55), turn(4, 54)], window)).toBe(5);
+    // B inside A, and one that only touches the end of the other
+    expect(windowSpent([turn(6, 56), turn(2, 54), turn(1, 57)], window)).toBe(7);
+    // A spend whose end isn't known (or is in another window) counts whole; nothing counts nothing
+    expect(windowSpent([turn(2, null), turn(3, 53)], window)).toBe(5);
+    expect(
+      windowSpent(
+        [{ weekly_spent: 2, usage: usage(10, "2026-11-13T06:00:00.000Z") }, turn(3, 53)],
+        window,
+      ),
+    ).toBe(5);
+    expect(windowSpent([turn(0, 50), turn(null, 51)], window)).toBe(0);
   });
 
   test("says when it resets, in Madrid time", () => {
@@ -498,5 +523,43 @@ describe("work on other branches", () => {
     const prompt = bringBranchPrompt("claude/x", "main");
     expect(prompt).toContain("`origin/claude/x` into `main`");
     expect(prompt).toContain("bun run build");
+  });
+});
+
+describe("several messages at once", () => {
+  const turn = (id: string, status: string, app: string | null, chat = `chat-${app ?? id}`) => ({
+    id,
+    status,
+    app_id: app,
+    chat_id: chat,
+  });
+
+  test("a server from before version 6 lost every running message, and takes the oldest", () => {
+    const pending = [turn("a", "running", "eden"), turn("b", "queued", "eden", "chat-new")];
+    const { lost, candidates } = sortOutTurns(pending, undefined, undefined);
+    expect(lost).toEqual(["a"]);
+    expect(candidates.map((t) => t.id)).toEqual(["b"]);
+  });
+
+  test("keeps what the server is on, and skips its games and chats", () => {
+    const pending = [
+      turn("a", "running", "eden"),
+      turn("b", "running", null, "ruben-pau"),
+      turn("c", "running", "ascent"),
+      turn("d", "queued", "eden", "chat-eden-2"),
+      turn("e", "queued", null, "ruben-pau"),
+      turn("f", "queued", "ascent"),
+      turn("g", "queued", "didactic"),
+      turn("h", "queued", null, "ruben-joan"),
+    ];
+    const { lost, candidates } = sortOutTurns(pending, ["a", "b"], 2);
+    expect(lost).toEqual(["c"]);
+    // ascent's message was lost, so its next one may start
+    expect(candidates.map((t) => t.id)).toEqual(["f", "g", "h"]);
+  });
+
+  test("takes nothing when the server has no room", () => {
+    const pending = [turn("a", "running", "eden"), turn("b", "queued", "ascent")];
+    expect(sortOutTurns(pending, ["a"], 0)).toEqual({ lost: [], candidates: [] });
   });
 });

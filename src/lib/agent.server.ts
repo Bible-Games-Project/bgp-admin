@@ -22,8 +22,10 @@ import {
   environmentFrom,
   isDeployKey,
   sameSecret,
+  sortOutTurns,
   turnWeeklySpend,
   weeklyBudgetFrom,
+  windowSpent,
   type AgentUsage,
   type WeeklyBudget,
 } from "@/lib/agent";
@@ -63,14 +65,15 @@ export async function weeklyBudgetNow(
   now = new Date(),
 ): Promise<WeeklyBudget> {
   const resetsAt = currentWeeklyWindow(usage, now);
-  let spends: (number | null)[] = [];
+  let spends: number[] = [];
   if (resetsAt) {
     const { data, error } = await db()
       .from("agent_turns")
-      .select("weekly_spent")
+      .select("weekly_spent, usage")
       .eq("weekly_resets_at", resetsAt);
     if (error) throw new Error(error.message);
-    spends = ((data ?? []) as { weekly_spent: number | null }[]).map((t) => t.weekly_spent);
+    // Messages that ran at the same time count what they shared once (windowSpent)
+    spends = [windowSpent(data ?? [], resetsAt)];
   }
   return weeklyBudgetFrom(percent, usage, spends, now);
 }
@@ -109,20 +112,30 @@ export async function previewUrlFor(app: {
 // --- poll --------------------------------------------------------------------------------
 
 /**
- * The build server's regular call. It says it's alive and which account it holds, and
- * gets one thing to do: forget the account, link one, take a change of its internet and
- * keys, or answer a chat message. With nothing to do it learns how long to wait.
+ * The build server's regular call. It says it's alive, which account it holds and which
+ * messages it's on, and gets one thing to do: forget the account, link one, take a change of
+ * its internet and keys, or answer a chat message. With nothing to do it learns how long to
+ * wait. `several` tells a server from version 6 on that it may ask while messages run.
  */
 async function poll(body: Record<string, unknown>) {
+  return { ...(await nextWork(body)), several: true };
+}
+
+async function nextWork(body: Record<string, unknown>) {
   const now = new Date();
   const account = accountFrom(body.account);
+  // Version 6 on: the messages it's on now, and how many more it can take
+  const running = Array.isArray(body.running)
+    ? body.running.filter((id): id is string => typeof id === "string").slice(0, 50)
+    : undefined;
+  const slots = typeof body.slots === "number" ? body.slots : undefined;
   const { data: runner, error } = await db()
     .from("agent_runner")
     .update({
       last_seen_at: iso(now),
       host: str(body.host, 100),
       version: str(body.version, 20),
-      busy: false,
+      busy: (running?.length ?? 0) > 0,
       account,
       // Servers before ENVIRONMENT_RUNNER_VERSION don't say: what's there stays.
       ...(body.environment !== undefined ? { environment: environmentFrom(body.environment) } : {}),
@@ -195,10 +208,10 @@ async function poll(body: Record<string, unknown>) {
     .select("id, status, chat_id, app_id, prompt, context, created_by_email")
     .in("status", ["queued", "running"])
     .order("created_at", { ascending: true })
-    .limit(10);
-  // The server does one turn at a time and only asks for work between them, so a turn still
-  // "running" now was lost (the server was reinstalled, or crashed before saving it).
-  const lost = (pending ?? []).filter((t: any) => t.status === "running");
+    .limit(50);
+  // A message still "running" that the server didn't list was lost (it was reinstalled, or
+  // crashed before saving it). It takes the oldest queued message of a game it isn't on.
+  const { lost, candidates } = sortOutTurns(pending ?? [], running, slots);
   if (lost.length) {
     await db()
       .from("agent_turns")
@@ -207,12 +220,10 @@ async function poll(body: Record<string, unknown>) {
         error: "The build server lost this message. Send it again.",
         finished_at: iso(now),
       })
-      .in(
-        "id",
-        lost.map((t: any) => t.id),
-      );
+      .in("id", lost)
+      .eq("status", "running");
   }
-  for (const turn of (pending ?? []).filter((t: any) => t.status === "queued")) {
+  for (const turn of candidates) {
     const job = await claimTurn(turn, now);
     if (job) return { turn: job };
   }
@@ -318,7 +329,6 @@ async function usageReport(body: Record<string, unknown>) {
     .from("agent_runner")
     .update({
       last_seen_at: iso(new Date()),
-      busy: false,
       usage_requested_at: null,
       ...(usage ? { usage } : {}),
     })
@@ -520,9 +530,10 @@ async function finishTurn(body: Record<string, unknown>) {
     sessionId
       ? db().from("agent_chats").update({ session_id: sessionId }).eq("id", turn.chat_id)
       : null,
+    // Whether the server is still busy with other messages, its next poll says
     db()
       .from("agent_runner")
-      .update({ last_seen_at: now, busy: false, ...(usage ? { usage } : {}) })
+      .update({ last_seen_at: now, ...(usage ? { usage } : {}) })
       .eq("id", "main"),
   ]);
   return { ok: true };

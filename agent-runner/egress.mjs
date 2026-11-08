@@ -6,8 +6,9 @@
 // can't send anything anywhere else, nor reach anything on the home network.
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { lookup } from "node:dns/promises";
+import { lookup, reverse } from "node:dns/promises";
 import { connect } from "node:net";
+import { join } from "node:path";
 
 // The console is added through EGRESS_ALLOW (install.sh takes it from CONSOLE_URL): Ruben's
 // tools read it from inside the container (console-mcp.mjs).
@@ -21,11 +22,15 @@ export const ALLOWED = [
 ];
 const PORT = Number(process.env.EGRESS_PORT ?? 3128);
 
-// The sites allowed in Settings → Claude, one per line. The build server writes the file
-// (STATE_DIR/egress/allow, mounted read-only here) when a Build chat turn starts, and empties
-// it when the turn ends: Ruben's turns and the dependency installs never get them. It's read
-// on every tunnel, so a change applies at once.
-const ALLOW_FILE = process.env.EGRESS_ALLOW_FILE ?? "/etc/bgp-egress/allow";
+// The sites allowed in Settings → Claude, one per line, in a file per Build chat message:
+// STATE_DIR/egress/turns/<container> (mounted read-only here). The build server writes it
+// before that message's container starts and removes it when it ends. The proxy knows which
+// container a tunnel comes from by its address on the sessions' network, which Docker's DNS
+// names after the container (only the build server names containers). So with several
+// messages at once each gets its own sites, and Ruben's turns and the dependency installs,
+// which have no file, never get any. The file is read on every tunnel.
+const TURNS_DIR = process.env.EGRESS_TURNS_DIR ?? "/etc/bgp-egress/turns";
+const TURN_CONTAINER = /^bgp-agent-turn-[\w-]+$/;
 
 export function hostsFromFile(text) {
   return String(text ?? "")
@@ -34,9 +39,25 @@ export function hostsFromFile(text) {
     .filter(Boolean);
 }
 
-function allowedNow() {
+/**
+ * The message container a reverse lookup names ("bgp-agent-turn-<id>.bgp-agent-internal"),
+ * or null for anything else.
+ */
+export function turnContainerFrom(names) {
+  const name = String((Array.isArray(names) ? names[0] : names) ?? "")
+    .toLowerCase()
+    .split(".")[0];
+  return TURN_CONTAINER.test(name) ? name : null;
+}
+
+async function allowedFor(address) {
+  let container = null;
   try {
-    return [...ALLOWED, ...hostsFromFile(readFileSync(ALLOW_FILE, "utf8"))];
+    container = turnContainerFrom(await reverse(String(address).replace(/^::ffff:/, "")));
+  } catch {}
+  if (!container) return ALLOWED;
+  try {
+    return [...ALLOWED, ...hostsFromFile(readFileSync(join(TURNS_DIR, container), "utf8"))];
   } catch {
     return ALLOWED;
   }
@@ -90,7 +111,8 @@ export function parseTarget(target) {
   return port > 0 && port < 65536 ? { host: match[1], port } : null;
 }
 
-export function createEgressProxy(allow = allowedNow) {
+/** `allow`: the hosts allowed, or a function of the client's address that says them. */
+export function createEgressProxy(allow = allowedFor) {
   // No plain HTTP: everything that leaves is TLS to an allowed host
   const server = createServer((_request, response) =>
     response.writeHead(405, { connection: "close" }).end(),
@@ -102,7 +124,7 @@ export function createEgressProxy(allow = allowedNow) {
     };
     client.on("error", () => client.destroy());
     const target = parseTarget(request.url);
-    const rules = typeof allow === "function" ? allow() : allow;
+    const rules = typeof allow === "function" ? await allow(client.remoteAddress) : allow;
     if (!target || target.port !== 443 || !isAllowedHost(target.host, rules)) return refuse();
     let address;
     try {
@@ -133,7 +155,7 @@ export function createEgressProxy(allow = allowedNow) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   createEgressProxy().listen(PORT, () =>
     console.log(
-      `egress proxy on ${PORT}, only to ${ALLOWED.join(", ")} and the sites in ${ALLOW_FILE}`,
+      `egress proxy on ${PORT}, only to ${ALLOWED.join(", ")} and each message's sites in ${TURNS_DIR}`,
     ),
   );
 }
