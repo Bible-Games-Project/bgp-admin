@@ -6,7 +6,7 @@
 // can't send anything anywhere else, nor reach anything on the home network.
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { lookup, reverse } from "node:dns/promises";
+import { lookup, Resolver } from "node:dns/promises";
 import { connect } from "node:net";
 import { join } from "node:path";
 
@@ -53,7 +53,10 @@ export function turnContainerFrom(names) {
 async function allowedFor(address) {
   let container = null;
   try {
-    container = turnContainerFrom(await reverse(String(address).replace(/^::ffff:/, "")));
+    // A new resolver each time: the shared one caches answers (Docker gives them 10 minutes),
+    // and a container that got the address of one that ended would pass for it.
+    const resolver = new Resolver({ timeout: 2000, tries: 2 });
+    container = turnContainerFrom(await resolver.reverse(String(address).replace(/^::ffff:/, "")));
   } catch {}
   if (!container) return ALLOWED;
   try {
