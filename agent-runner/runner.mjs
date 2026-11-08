@@ -1442,6 +1442,12 @@ async function main() {
     if (!connected)
       log(`connected to the console${accountSummary() ? "" : " (no Claude account linked yet)"}`);
     connected = true;
+    if ((work.several === true) !== consoleRunsSeveral)
+      log(
+        work.several === true
+          ? `the console hands out several messages at once (up to ${CONFIG.parallel} here)`
+          : "the console hands out one message at a time",
+      );
     consoleRunsSeveral = work.several === true;
     if (work.unlink) {
       rmSync(ACCOUNT, { force: true });
