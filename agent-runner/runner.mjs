@@ -155,9 +155,25 @@ function cleanEnv() {
 
 // git on the host never runs anything from the repo: Claude can write to .git from inside
 // the container, so no hooks and no fsmonitor, and its config is put back after each
-// session (takeBackRepo).
+// session (takeBackRepo). Nor from a repo Claude nests in the game (a submodule), whose
+// config is Claude's too: git doesn't go into it for a fetch, a push or a status, and what
+// does go into it (`git add`) only runs in the sandbox (commitLeftovers).
+const GIT_SAFE = [
+  "-c",
+  "core.hooksPath=/dev/null",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "submodule.recurse=false",
+  "-c",
+  "fetch.recurseSubmodules=false",
+  "-c",
+  "push.recurseSubmodules=no",
+  "-c",
+  "diff.ignoreSubmodules=all",
+];
 const git = (repoDir, args, options = {}) =>
-  run("git", ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", ...args], {
+  run("git", [...GIT_SAFE, ...args], {
     cwd: repoDir,
     ...options,
   });
@@ -564,12 +580,25 @@ async function prepareRepo(job, reporter) {
 }
 
 /**
- * The clone back from the containers that had it writable, before the server runs git there
- * and pushes. Its .git has to be what git makes (lib.gitDirProblem): if not, the turn fails,
- * nothing is pushed, and the next message clones the game again (prepareRepo). Its config
- * is put back as it was before them, as a new file, never written through what's there.
+ * The clone back from the containers that had it writable (the install's scripts, Claude),
+ * before the server runs git there and pushes. If Claude finished, what it left uncommitted
+ * is committed in the sandbox in between (commitLeftovers), and the clone taken back again.
  */
-async function takeBackRepo(job, repo) {
+async function takeBackRepo(job, repo, { commit }) {
+  await checkRepo(job, repo);
+  if (commit) {
+    await commitLeftovers(job, repo);
+    await checkRepo(job, repo);
+  }
+  rmSync(repo.unchecked, { force: true });
+}
+
+/**
+ * Its .git has to be what git makes (lib.gitDirProblem): if not, the turn fails, nothing is
+ * pushed, and the next message clones the game again (prepareRepo). Its config is put back
+ * as it was before the containers, as a new file, never written through what's there.
+ */
+async function checkRepo(job, repo) {
   // Gone for sure first: a docker client that died early leaves its container running
   if (CONFIG.sandbox === "docker")
     await run("docker", ["rm", "-f", lib.turnContainer(job.id), lib.installContainer(job.id)], {
@@ -585,7 +614,6 @@ async function takeBackRepo(job, repo) {
     );
   }
   lib.replaceFile(join(repo.repoDir, ".git", "config"), repo.gitConfig);
-  rmSync(repo.unchecked, { force: true });
 }
 
 // bun install, inside the container (it runs the packages' install scripts), and only when
@@ -904,19 +932,7 @@ async function leakedSecrets(repo, range) {
   await new Promise((resolve, reject) => {
     const child = spawn(
       "git",
-      [
-        "-c",
-        "core.hooksPath=/dev/null",
-        "-c",
-        "core.fsmonitor=false",
-        "log",
-        "-p",
-        "--text",
-        "--no-color",
-        "--no-ext-diff",
-        "--format=%H %s",
-        range,
-      ],
+      [...GIT_SAFE, "log", "-p", "--text", "--no-color", "--no-ext-diff", "--format=%H %s", range],
       { cwd: repo.repoDir, env: cleanEnv(), stdio: ["ignore", "pipe", "ignore"] },
     );
     let tail = "";
@@ -932,22 +948,42 @@ async function leakedSecrets(repo, range) {
   return [...found].sort();
 }
 
+/**
+ * What a finished session left uncommitted becomes a commit of its own, made in the sandbox
+ * like the install (lib.commitLeftoversCommand), between two checks of the repo (takeBackRepo).
+ */
+async function commitLeftovers(job, repo) {
+  const command = lib.commitLeftoversCommand();
+  const container = lib.turnContainer(job.id);
+  const result =
+    CONFIG.sandbox === "docker"
+      ? await (async () => {
+          await run("docker", ["rm", "-f", container], { allowFail: true });
+          return run(
+            "docker",
+            dockerArgs({ name: container, ...repo, extraEnv: authorEnv(job), command }),
+            { allowFail: true, timeoutMs: 5 * 60_000 },
+          );
+        })()
+      : await run(command[0], command.slice(1), {
+          cwd: repo.repoDir,
+          extraEnv: authorEnv(job),
+          allowFail: true,
+          timeoutMs: 5 * 60_000,
+        });
+  if (result.code !== 0) {
+    const tail = result.stderr.trim().split("\n").slice(-2).join(" ").slice(-300);
+    log(`turn ${job.id}: committing what Claude left failed (${result.code}): ${tail}`);
+    throw new Said(
+      `Claude's last changes couldn't be committed (${tail || `exit ${result.code}`}), so nothing was saved. Send the message again.`,
+    );
+  }
+}
+
 // What the session left in the repo becomes the turn's result: commits pushed, or why not.
 async function settle(job, repo, outcome, reporter) {
-  const dirty = (await git(repo.repoDir, ["status", "--porcelain"])).stdout.trim();
-  if (dirty && outcome.ok) {
-    await git(repo.repoDir, ["add", "-A"]);
-    await git(
-      repo.repoDir,
-      ["commit", "--quiet", "--no-verify", "-m", lib.LEFTOVER_COMMIT_MESSAGE],
-      {
-        extraEnv: authorEnv(job),
-      },
-    );
-  } else if (dirty) {
-    // A stopped or failed session may have left a change half done: only its commits count.
-    await git(repo.repoDir, ["reset", "--quiet", "--hard", "HEAD"]);
-  }
+  // A stopped or failed session may have left a change half done: only its commits count.
+  if (!outcome.ok) await git(repo.repoDir, ["reset", "--quiet", "--hard", "HEAD"]);
 
   const commits = Number(
     (await git(repo.repoDir, ["rev-list", "--count", `origin/${job.branch}..HEAD`])).stdout.trim(),
@@ -1102,7 +1138,7 @@ async function doTurn(job) {
       }
       if (outcome.rejected) markRejected();
     }
-    if (!assistant) await takeBackRepo(job, repo);
+    if (!assistant) await takeBackRepo(job, repo, { commit: outcome.ok });
     report = assistant
       ? {
           status: reporter.cancelled ? "cancelled" : outcome.ok ? "done" : "failed",

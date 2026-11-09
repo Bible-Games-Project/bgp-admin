@@ -20,6 +20,7 @@ import {
   budgetBaseline,
   budgetStopMessage,
   claudeArgs,
+  commitLeftoversCommand,
   containerMemory,
   dockerMegabytes,
   domainRule,
@@ -436,6 +437,32 @@ describe("what a session may leave in .git", () => {
     replaceFile(folder, "{}", { mode: 0o600 });
     expect(readFileSync(folder, "utf8")).toBe("{}");
     expect(statSync(folder).mode & 0o777).toBe(0o600);
+  });
+
+  test("what Claude left uncommitted becomes one commit, and nothing else does", () => {
+    const dir = clone();
+    const env = {
+      PATH: process.env.PATH,
+      HOME: scratch,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_AUTHOR_NAME: "Build chat",
+      GIT_AUTHOR_EMAIL: "build-chat@localhost",
+      GIT_COMMITTER_NAME: "Build chat",
+      GIT_COMMITTER_EMAIL: "build-chat@localhost",
+    };
+    const [command, ...args] = commitLeftoversCommand();
+    const commit = () => execFileSync(command, args, { cwd: dir, env });
+    const log = () =>
+      execFileSync("git", ["log", "--format=%s"], { cwd: dir, env, encoding: "utf8" }).trim();
+    writeFileSync(join(dir, "game.txt"), "v1\n");
+    commit();
+    expect(log()).toBe("Apply changes requested in the Build chat");
+    // Nothing left: no empty commit, and it doesn't fail
+    commit();
+    expect(log()).toBe("Apply changes requested in the Build chat");
+    writeFileSync(join(dir, "game.txt"), "v2\n");
+    commit();
+    expect(log().split("\n")).toHaveLength(2);
   });
 });
 

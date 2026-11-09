@@ -436,6 +436,21 @@ export function protectedPaths(files) {
 /** For changes Claude left uncommitted when it finished. */
 export const LEFTOVER_COMMIT_MESSAGE = "Apply changes requested in the Build chat";
 
+/**
+ * Commits what Claude left uncommitted, if anything, in the game's folder. It runs in the
+ * sandbox, not on the server: `git add` goes into any repo nested in the game (a submodule)
+ * and runs what that repo's config says, and that config is Claude's.
+ */
+export function commitLeftoversCommand(message = LEFTOVER_COMMIT_MESSAGE) {
+  const git = "git -c core.hooksPath=/dev/null";
+  return [
+    "sh",
+    "-c",
+    `${git} add -A && { ${git} diff --cached --quiet || ${git} commit --quiet --no-verify -m "$0"; }`,
+    message,
+  ];
+}
+
 // --- What a session may leave in .git ----------------------------------------------------
 //
 // Claude's container, and the dependency install's, have the game's clone writable, .git
