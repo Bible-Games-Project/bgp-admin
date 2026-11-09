@@ -2,8 +2,41 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Boxes, Github, ImageIcon, ListChecks, Rocket, Store } from "lucide-react";
-import { listApps, createApp, createAppWithRepo, createExternalGame } from "@/lib/apps.functions";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  Plus,
+  Boxes,
+  Github,
+  GripVertical,
+  ImageIcon,
+  ListChecks,
+  Rocket,
+  Store,
+} from "lucide-react";
+import {
+  listApps,
+  createApp,
+  createAppWithRepo,
+  createExternalGame,
+  reorderApps,
+} from "@/lib/apps.functions";
+import { moveApp, withListOrder } from "@/lib/app-order";
+import { cn } from "@/lib/utils";
 import { checkPreviewDeployWorkflow } from "@/lib/capacitor.functions";
 import { appStoreIds, isWebGame, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
 import { Button } from "@/components/ui/button";
@@ -28,9 +61,36 @@ function AppsPage() {
   const createAppWithRepoFn = useServerFn(createAppWithRepo);
   const createExternalFn = useServerFn(createExternalGame);
   const checkPreviewFn = useServerFn(checkPreviewDeployWorkflow);
+  const reorderFn = useServerFn(reorderApps);
   const [open, setOpen] = useState(false);
 
   const q = useQuery({ queryKey: ["apps"], queryFn: () => listFn() });
+
+  // Cards are moved by their grip: with the mouse after a few pixels (so a click on
+  // the grip does nothing), by touch, or with the keyboard (space, arrows, space).
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const reorderM = useMutation({
+    mutationFn: (ids: string[]) => reorderFn({ data: { ids } }),
+    onError: (e: Error) => {
+      toast.error(`The new order could not be saved: ${e.message}`, { duration: 12000 });
+      qc.invalidateQueries({ queryKey: ["apps"] });
+    },
+  });
+
+  // The list shows the new order at once; the save happens behind it.
+  function onDragEnd({ active, over }: DragEndEvent) {
+    const current = q.data?.apps;
+    if (!current || !over) return;
+    const next = moveApp(current, String(active.id), String(over.id));
+    if (next === current) return;
+    void qc.cancelQueries({ queryKey: ["apps"] });
+    qc.setQueryData(["apps"], { apps: withListOrder(next) });
+    reorderM.mutate(next.map((a) => a.id));
+  }
 
   // A game only has a Cloudflare preview once its repo runs preview-deploy.yml, so each
   // one is checked before its link is shown. Same cache as the Setup tab and overview.
@@ -156,85 +216,128 @@ function AppsPage() {
         </div>
       )}
 
-      <div className="grid gap-3">
-        {q.data?.apps.map((a) => (
-          <div
-            key={a.id}
-            className="rounded-md border border-border bg-card hover:bg-accent/40 transition-colors flex flex-col sm:flex-row sm:items-center"
-          >
-            <Link
-              to="/apps/$id"
-              params={{ id: a.id }}
-              className="p-4 flex items-center gap-4 min-w-0 flex-1"
-            >
-              <div className="h-10 w-10 rounded-md border border-border bg-muted/40 flex items-center justify-center overflow-hidden shrink-0">
-                {a.icon_data_url ? (
-                  <img
-                    src={a.icon_data_url}
-                    alt={`${a.name} icon`}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-display font-semibold">{a.name}</span>
-                  {!a.is_active && (
-                    <span className="text-[10px] font-mono uppercase text-destructive border border-destructive/40 rounded px-1.5 py-0.5">
-                      disabled
-                    </span>
-                  )}
-                </div>
-                {isWebGame(a) ? (
-                  <div className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1.5 flex-wrap">
-                    <Github className="h-3 w-3 shrink-0" />
-                    <a
-                      href={`https://github.com/${a.github_owner}/${a.github_repo}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="hover:text-foreground hover:underline"
-                    >
-                      {a.github_owner}/{a.github_repo}
-                    </a>
-                    <span>· {a.default_ref}</span>
-                    {previewUrl.get(a.id) && (
-                      <a
-                        href={previewUrl.get(a.id)!}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-muted-foreground/70 hover:text-foreground hover:underline"
-                      >
-                        bgp-{a.github_repo}.pages.dev
-                      </a>
-                    )}
-                    {a.steam_app_id != null && <SteamLink appId={a.steam_app_id} />}
-                  </div>
-                ) : (
-                  <OtherEngineStores app={a} />
-                )}
-              </div>
-            </Link>
-            {/* Deploying starts from the game's own card, next to its icon and name, so
-              there is no doubt about which game is being sent to the stores. */}
-            {isWebGame(a) && a.is_active && (
-              <Button
-                asChild
-                size="sm"
-                variant="outline"
-                className="gap-2 shrink-0 self-start mx-4 mb-4 sm:self-auto sm:ml-0 sm:mb-0"
-              >
-                <Link to="/apps/$id" params={{ id: a.id }} search={{ tab: "deploy" }}>
-                  <Rocket className="h-4 w-4" /> Deploy
-                </Link>
-              </Button>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext
+          items={(q.data?.apps ?? []).map((a) => a.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div className="grid gap-3">
+            {q.data?.apps.map((a) => (
+              <AppCard key={a.id} app={a} previewUrl={previewUrl.get(a.id)} />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+    </div>
+  );
+}
+
+type ListedApp = Awaited<ReturnType<typeof listApps>>["apps"][number];
+
+/** One game in the list, moved up or down by dragging its grip. */
+function AppCard({ app: a, previewUrl }: { app: ListedApp; previewUrl?: string | null }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: a.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={cn(
+        "rounded-md border border-border bg-card hover:bg-accent/40 transition-colors flex flex-col sm:flex-row sm:items-center",
+        isDragging && "relative z-10 shadow-lg ring-1 ring-primary/40",
+      )}
+    >
+      <div className="flex items-center min-w-0 flex-1">
+        <button
+          type="button"
+          ref={setActivatorNodeRef}
+          {...attributes}
+          {...listeners}
+          aria-label={`Move ${a.name} up or down the list`}
+          title="Drag to change the order"
+          className="self-stretch pl-2 pr-1 flex items-center rounded-l-md text-muted-foreground/50 hover:text-foreground cursor-grab active:cursor-grabbing touch-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <Link
+          to="/apps/$id"
+          params={{ id: a.id }}
+          className="py-4 pr-4 pl-2 flex items-center gap-4 min-w-0 flex-1"
+        >
+          <div className="h-10 w-10 rounded-md border border-border bg-muted/40 flex items-center justify-center overflow-hidden shrink-0">
+            {a.icon_data_url ? (
+              <img
+                src={a.icon_data_url}
+                alt={`${a.name} icon`}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <ImageIcon className="h-4 w-4 text-muted-foreground" />
             )}
           </div>
-        ))}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="font-display font-semibold">{a.name}</span>
+              {!a.is_active && (
+                <span className="text-[10px] font-mono uppercase text-destructive border border-destructive/40 rounded px-1.5 py-0.5">
+                  disabled
+                </span>
+              )}
+            </div>
+            {isWebGame(a) ? (
+              <div className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1.5 flex-wrap">
+                <Github className="h-3 w-3 shrink-0" />
+                <a
+                  href={`https://github.com/${a.github_owner}/${a.github_repo}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="hover:text-foreground hover:underline"
+                >
+                  {a.github_owner}/{a.github_repo}
+                </a>
+                <span>· {a.default_ref}</span>
+                {previewUrl && (
+                  <a
+                    href={previewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-muted-foreground/70 hover:text-foreground hover:underline"
+                  >
+                    bgp-{a.github_repo}.pages.dev
+                  </a>
+                )}
+                {a.steam_app_id != null && <SteamLink appId={a.steam_app_id} />}
+              </div>
+            ) : (
+              <OtherEngineStores app={a} />
+            )}
+          </div>
+        </Link>
       </div>
+      {/* Deploying starts from the game's own card, next to its icon and name, so
+              there is no doubt about which game is being sent to the stores. */}
+      {isWebGame(a) && a.is_active && (
+        <Button
+          asChild
+          size="sm"
+          variant="outline"
+          className="gap-2 shrink-0 self-start mx-4 mb-4 sm:self-auto sm:ml-0 sm:mb-0"
+        >
+          <Link to="/apps/$id" params={{ id: a.id }} search={{ tab: "deploy" }}>
+            <Rocket className="h-4 w-4" /> Deploy
+          </Link>
+        </Button>
+      )}
     </div>
   );
 }

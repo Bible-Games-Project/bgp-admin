@@ -466,6 +466,7 @@ export type Database = {
           name: string
           notes: string | null
           slug: string
+          sort_order: number | null
           steam_app_id: number | null
           updated_at: string
         }
@@ -484,6 +485,7 @@ export type Database = {
           name: string
           notes?: string | null
           slug: string
+          sort_order?: number | null
           steam_app_id?: number | null
           updated_at?: string
         }
@@ -502,6 +504,7 @@ export type Database = {
           name?: string
           notes?: string | null
           slug?: string
+          sort_order?: number | null
           steam_app_id?: number | null
           updated_at?: string
         }
@@ -667,6 +670,7 @@ export type Database = {
     }
     Functions: {
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      reorder_apps: { Args: { _ids: string[] }; Returns: undefined }
     }
     Enums: {
       [_ in never]: never

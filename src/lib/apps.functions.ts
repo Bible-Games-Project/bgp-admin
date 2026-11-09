@@ -134,12 +134,25 @@ export const listApps = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     await assertAdmin(context.supabase, context.userId);
+    // The order admins set by dragging the cards; apps never placed come last, oldest first.
     const { data, error } = await context.supabase
       .from("apps")
       .select("*")
+      .order("sort_order", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
     return { apps: data ?? [] };
+  });
+
+/** Saves the order of the Apps list after a card is dragged: `ids` from first to last. */
+export const reorderApps = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i) => z.object({ ids: z.array(z.string().uuid()).min(1).max(500) }).parse(i))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { error } = await context.supabase.rpc("reorder_apps", { _ids: data.ids });
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 export const getApp = createServerFn({ method: "POST" })
