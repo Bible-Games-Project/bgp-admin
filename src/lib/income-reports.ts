@@ -7,8 +7,11 @@ import type { IncomeRow, ProductKind } from "./income";
 /* Report files                                                                          */
 /* ------------------------------------------------------------------------------------ */
 
-/** Header-keyed rows of a CSV (quoted fields allowed) or a TSV (Apple: never quoted). */
-export function parseTable(text: string, delimiter: "," | "\t"): Record<string, string>[] {
+/**
+ * Header-keyed rows of a CSV (quoted fields allowed; ";" for one a spreadsheet app saved
+ * with decimal commas) or a TSV (Apple: never quoted).
+ */
+export function parseTable(text: string, delimiter: "," | ";" | "\t"): Record<string, string>[] {
   const records: string[][] = [];
   let record: string[] = [];
   let field = "";
@@ -29,7 +32,7 @@ export function parseTable(text: string, delimiter: "," | "\t"): Record<string, 
       if (c !== '"') field += c;
       else if (body[i + 1] === '"') field += body[i++];
       else quoted = false;
-    } else if (c === '"' && delimiter === "," && field === "") quoted = true;
+    } else if (c === '"' && delimiter !== "\t" && field === "") quoted = true;
     else if (c === delimiter) endField();
     else if (c === "\n") endRecord();
     else if (c !== "\r") field += c;

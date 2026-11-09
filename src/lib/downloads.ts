@@ -3,12 +3,18 @@
 // Revenue skips them) and installs from Google Play's monthly statistics. Pure, so the
 // parsers can be tested with real report lines and the page can aggregate on the client.
 
-import { type IncomeRow, type IncomeSource, type Preset, presetMonths } from "./income";
+import {
+  type IncomeRow,
+  type IncomeSource,
+  type Preset,
+  type SyncedSource,
+  presetMonths,
+} from "./income";
 import { type AscCatalog, parseTable } from "./income-reports";
 import { supersededReports } from "./income-sync";
 
 export type DownloadRow = {
-  source: IncomeSource;
+  source: SyncedSource;
   /** "2026-08" for a month, or "2025" for a whole year of App Store history. */
   period: string;
   /** Bundle ID or package name. */
@@ -21,7 +27,7 @@ export type DownloadRow = {
 
 /** One report as the table download_reports keeps it. */
 export type StoredDownloads = {
-  source: IncomeSource;
+  source: SyncedSource;
   /** The App Store report it came from ("month:2026-08"…), or "installs:<package>:2026-08". */
   report: string;
   period: string;
@@ -198,13 +204,13 @@ export function gameDownloads(
   return games
     .map((g) => {
       const own = rowsOf(g);
-      const sum = (source: IncomeSource) =>
+      const sum = (source: SyncedSource) =>
         own.filter((r) => r.source === source).reduce((s, r) => s + r.downloads, 0);
       const app_store = sum("app_store");
       const google_play = sum("google_play");
       const total = app_store + google_play;
       // The latest month's count of devices, per store, added up.
-      const latest = (source: IncomeSource) =>
+      const latest = (source: SyncedSource) =>
         own
           .filter((r) => r.source === source && r.activeDevices != null)
           .sort((a, b) => b.period.localeCompare(a.period))[0]?.activeDevices ?? null;

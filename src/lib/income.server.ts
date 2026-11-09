@@ -141,15 +141,21 @@ export async function createAppStoreReports(): Promise<AppStoreReports | null> {
 /**
  * ECB reference rates (Frankfurter) for each day in the range, plus today's rates from
  * the fawazahmed0 currency API for the few currencies Apple pays in that the ECB does
- * not publish. Either can fail; the converter then falls back to the other.
+ * not publish. Either can fail; the converter then falls back to the other. `symbols`
+ * limits the ECB rates to those currencies, for long ranges.
  */
-export async function fetchEurRates(from: string, to: string): Promise<EurRates> {
+export async function fetchEurRates(
+  from: string,
+  to: string,
+  symbols?: string[],
+): Promise<EurRates> {
   const json = (url: string) =>
     fetch(url)
       .then((res) => (res.ok ? res.json() : null))
       .catch(() => null);
+  const only = symbols?.length ? `&symbols=${symbols.join(",")}` : "";
   const [ecb, latest] = await Promise.all([
-    json(`https://api.frankfurter.dev/v1/${from}..${to}?base=EUR`),
+    json(`https://api.frankfurter.dev/v1/${from}..${to}?base=EUR${only}`),
     json(
       "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.min.json",
     ),

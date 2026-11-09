@@ -231,6 +231,7 @@ describe("selecting and summing rows", () => {
       bucket: "2026-08",
       app_store: 10,
       google_play: 0,
+      steam: 0,
       estimated: false,
     });
     expect(buckets[8].estimated).toBe(true);

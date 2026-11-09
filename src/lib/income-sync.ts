@@ -2,7 +2,15 @@
 // ones the Revenue page counts. Pure (no fetch, no database), so it can be tested;
 // income.server.ts downloads the reports and income-sync.server.ts stores them.
 
-import { type IncomeRow, type IncomeSource, addMonths, mergeRows, monthKey } from "./income";
+import {
+  type IncomeRow,
+  type IncomeSource,
+  type SyncedSource,
+  INCOME_SOURCES,
+  addMonths,
+  mergeRows,
+  monthKey,
+} from "./income";
 import { pickEarningsFiles, reportMonth } from "./income-reports";
 
 /** How often the job runs. The cron in vite.config.ts has to match. */
@@ -17,12 +25,15 @@ export const FIRST_SALES_YEAR = 2025;
  * needs about 60 reports, so filling it takes a few runs. After that, a run reads one
  * or two new ones.
  */
-export const REPORTS_PER_RUN: Record<IncomeSource, number> = { app_store: 16, google_play: 8 };
+export const REPORTS_PER_RUN: Record<SyncedSource, number> = { app_store: 16, google_play: 8 };
 
 /** One report as the database keeps it (table income_reports). */
 export type StoredReport = {
   source: IncomeSource;
-  /** "month:2026-08", "year:2025", "day:2026-09-14", "earnings:2026-08", "sales:2026-09". */
+  /**
+   * "month:2026-08", "year:2025", "day:2026-09-14", "earnings:2026-08", "sales:2026-09";
+   * Steam: "day:2026-09-14 package:824731", from an uploaded sales file (steam-sales.ts).
+   */
   report: string;
   /** The month or year its rows count towards. */
   period: string;
@@ -203,21 +214,22 @@ export function takeFiles(requests: PlayRequest[], limit: number): PlayRequest[]
 /* ------------------------------------------------------------------------------------ */
 
 // A month read in pieces (Apple's days, Google's estimate) until the store closes it.
-const STAND_IN: Record<IncomeSource, { partial: string; closed: string }> = {
+// Steam's days are all there is: nothing replaces them.
+const STAND_IN: Partial<Record<IncomeSource, { partial: string; closed: string }>> = {
   app_store: { partial: "day:", closed: "month:" },
   google_play: { partial: "sales:", closed: "earnings:" },
 };
 
 /** Stand-in reports for a month the store has closed since: the closed report replaces them. */
 export function supersededReports<T extends ReportState>(reports: T[]): T[] {
+  const is = (r: T, kind: "partial" | "closed") => {
+    const prefix = STAND_IN[r.source]?.[kind];
+    return prefix != null && r.report.startsWith(prefix);
+  };
   const closed = new Set(
-    reports
-      .filter((r) => r.report.startsWith(STAND_IN[r.source].closed))
-      .map((r) => `${r.source}|${r.period}`),
+    reports.filter((r) => is(r, "closed")).map((r) => `${r.source}|${r.period}`),
   );
-  return reports.filter(
-    (r) => r.report.startsWith(STAND_IN[r.source].partial) && closed.has(`${r.source}|${r.period}`),
-  );
+  return reports.filter((r) => is(r, "partial") && closed.has(`${r.source}|${r.period}`));
 }
 
 /** What the Revenue page gets: every stored report counted once, and what's missing. */
@@ -232,6 +244,9 @@ export function storedIncome(reports: StoredReport[]): {
   ];
   return {
     rows: mergeRows(counted.flatMap((r) => r.rows)),
-    unconverted: { app_store: unconverted("app_store"), google_play: unconverted("google_play") },
+    unconverted: Object.fromEntries(INCOME_SOURCES.map((s) => [s, unconverted(s)])) as Record<
+      IncomeSource,
+      string[]
+    >,
   };
 }

@@ -234,6 +234,6 @@ describe("stored income", () => {
       report("month:2026-08", "2026-08", [], { unconverted: ["COP", "CLP"] }),
       report("day:2026-09-01", "2026-09", [], { unconverted: ["COP"] }),
     ]);
-    expect(unconverted).toEqual({ app_store: ["COP", "CLP"], google_play: [] });
+    expect(unconverted).toEqual({ app_store: ["COP", "CLP"], google_play: [], steam: [] });
   });
 });

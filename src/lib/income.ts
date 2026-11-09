@@ -1,13 +1,19 @@
 // Shared by the Revenue page and the server functions that read the stores' reports.
 // Pure: no server-only imports, so the page can aggregate on the client.
 
-export type IncomeSource = "app_store" | "google_play";
+/** The stores the hourly income job reads by itself. */
+export type SyncedSource = "app_store" | "google_play";
+/** Steam's income comes from the sales files admins upload (steam-sales.ts). */
+export type IncomeSource = SyncedSource | "steam";
 export type ProductKind = "paid_app" | "in_app" | "subscription" | "other";
 
 export const SOURCE_LABELS: Record<IncomeSource, string> = {
   app_store: "App Store",
   google_play: "Google Play",
+  steam: "Steam",
 };
+
+export const INCOME_SOURCES = Object.keys(SOURCE_LABELS) as IncomeSource[];
 
 export const KIND_LABELS: Record<ProductKind, string> = {
   paid_app: "Paid download",
@@ -21,7 +27,10 @@ export type IncomeRow = {
   source: IncomeSource;
   /** "2026-08" for a month, or "2025" for a whole year of App Store history. */
   period: string;
-  /** Bundle ID or package name; empty for account-level items such as Google's taxes. */
+  /**
+   * Bundle ID or package name ("steam:<App ID>" for Steam); empty for account-level items
+   * such as Google's taxes.
+   */
   appKey: string;
   appName: string;
   productId: string;
@@ -113,8 +122,13 @@ export type ChartBucket = {
   bucket: string;
   app_store: number;
   google_play: number;
+  steam: number;
   estimated: boolean;
 };
+
+/** What a bucket earned in every store together. */
+export const bucketIncome = (b: Pick<ChartBucket, IncomeSource>) =>
+  b.app_store + b.google_play + b.steam;
 
 /**
  * Income per month for the month-based presets, per year for all time. Every bucket in
@@ -135,7 +149,10 @@ export function chartBuckets(rows: IncomeRow[], preset: Preset, now: Date): Char
     bucketOf = (p) => p.slice(0, 4);
   }
   const byBucket = new Map<string, ChartBucket>(
-    buckets.map((b) => [b, { bucket: b, app_store: 0, google_play: 0, estimated: false }]),
+    buckets.map((b) => [
+      b,
+      { bucket: b, app_store: 0, google_play: 0, steam: 0, estimated: false },
+    ]),
   );
   for (const r of rows) {
     const b = byBucket.get(bucketOf(r.period));
@@ -151,6 +168,7 @@ export type AppTotal = {
   appName: string;
   app_store: number;
   google_play: number;
+  steam: number;
   netEur: number;
   units: number;
   estimated: boolean;
@@ -165,6 +183,7 @@ export function byApp(rows: IncomeRow[]): AppTotal[] {
       appName: r.appName,
       app_store: 0,
       google_play: 0,
+      steam: 0,
       netEur: 0,
       units: 0,
       estimated: false,

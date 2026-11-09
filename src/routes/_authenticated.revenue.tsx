@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -6,13 +6,16 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import {
   AlertTriangle,
   CalendarDays,
+  ChevronDown,
   Euro,
+  ExternalLink,
   Loader2,
   Receipt,
   RefreshCw,
   Scale,
   ShoppingBag,
   TrendingUp,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -54,10 +57,12 @@ import {
   type IncomeRow,
   type IncomeSource,
   type Preset,
+  INCOME_SOURCES,
   KIND_LABELS,
   PRESET_LABELS,
   SOURCE_LABELS,
   addMonths,
+  bucketIncome,
   byApp,
   byProduct,
   chartBuckets,
@@ -65,15 +70,18 @@ import {
   totals,
 } from "@/lib/income";
 import { getIncome, refreshIncome } from "@/lib/income.functions";
+import { decodeReportText } from "@/lib/income-reports";
 import { SYNC_EVERY_MINUTES } from "@/lib/income-sync";
-import { appStoreIds } from "@/lib/app-kind";
+import { appStoreIds, revenueKey } from "@/lib/app-kind";
+import { STEAM_DEVELOPER_SHARE, type SteamCoverage } from "@/lib/steam-sales";
+import { getSteamCoverage, uploadSteamSales } from "@/lib/steam-sales.functions";
 import { addCosts, periodProfit } from "@/lib/expenses";
 import { listExpenses } from "@/lib/expenses.functions";
 
 const searchSchema = z.object({
   preset: z.enum(["month", "12m", "year", "all"]).catch("12m"),
   app: z.string().nullable().catch(null),
-  store: z.enum(["app_store", "google_play"]).nullable().catch(null),
+  store: z.enum(["app_store", "google_play", "steam"]).nullable().catch(null),
 });
 
 export const Route = createFileRoute("/_authenticated/revenue")({
@@ -84,6 +92,7 @@ export const Route = createFileRoute("/_authenticated/revenue")({
 const SOURCE_COLORS: Record<IncomeSource, string> = {
   app_store: "var(--primary)",
   google_play: "var(--success)",
+  steam: "oklch(0.7 0.11 235)",
 };
 // Costs hang below zero in neutral grey, so they read as money going out rather than as
 // a third store.
@@ -97,6 +106,14 @@ const MAX_REFRESH_RUNS = 6;
 
 const fmtEUR = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "EUR" }).format(n);
+
+const dayLabel = (day: string) =>
+  new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 
 const monthLabel = (month: string, withYear = true) =>
   new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-US", {
@@ -158,6 +175,32 @@ function RevenuePage() {
     }
   }, [outdated, autoRefreshed, runRefresh]);
 
+  // Steam can't be read by the console: its income comes from files admins upload.
+  const steamCoverageFn = useServerFn(getSteamCoverage);
+  const steamQ = useQuery({
+    queryKey: ["steamCoverage"],
+    queryFn: () => steamCoverageFn(),
+    enabled,
+  });
+  const uploadSteamFn = useServerFn(uploadSteamSales);
+  const uploadSteam = useMutation({
+    mutationFn: async (file: File) => {
+      const text = decodeReportText(new Uint8Array(await file.arrayBuffer()));
+      if (!text.trim()) throw new Error("The file is empty.");
+      return uploadSteamFn({ data: { fileName: file.name, text } });
+    },
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ["income"] });
+      queryClient.invalidateQueries({ queryKey: ["steamCoverage"] });
+      toast.success(
+        `Steam sales added from ${dayLabel(r.firstDay)} to ${dayLabel(r.lastDay)}: ${r.units} sold, ${fmtEUR(r.netEur)} after Valve's share.`,
+        { duration: 10000 },
+      );
+    },
+    onError: (e: Error) =>
+      toast.error(`The Steam file couldn't be added: ${e.message}`, { duration: 20000 }),
+  });
+
   const listExpensesFn = useServerFn(listExpenses);
   const expensesQ = useQuery({
     queryKey: ["expenses"],
@@ -198,9 +241,12 @@ function RevenuePage() {
   const keyOfApp = new Map<string, string>();
   for (const a of appsQ.data?.apps ?? []) {
     const ids = appStoreIds(a);
-    const key = ids.ios ?? ids.android;
+    const key = revenueKey(ids);
     if (!key) continue;
-    for (const id of [ids.ios, ids.android]) if (id) consoleApps.set(id, { key, name: a.name });
+    const steamKey = ids.steam != null ? `steam:${ids.steam}` : null;
+    for (const id of [ids.ios, ids.android, steamKey]) {
+      if (id) consoleApps.set(id, { key, name: a.name });
+    }
     keyOfApp.set(a.id, key);
   }
   const rows: IncomeRow[] = (incomeQ.data?.rows ?? []).map((r) => {
@@ -261,7 +307,8 @@ function RevenuePage() {
   const expenseNames = new Map((expensesQ.data?.expenses ?? []).map((e) => [e.id, e.name]));
   const apps = byApp(selected);
   const products = byProduct(selected);
-  const sources: IncomeSource[] = search.store ? [search.store] : ["app_store", "google_play"];
+  const sources: IncomeSource[] = search.store ? [search.store] : INCOME_SOURCES;
+  const steamCoverage = steamQ.data ?? null;
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6">
@@ -270,8 +317,8 @@ function RevenuePage() {
           <span className="label-mono">analytics</span>
           <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">Revenue</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            What the App Store and Google Play pay for every game after their fees, what the project
-            spends, and what's left, in euros.
+            What the App Store, Google Play and Steam pay for every game after their fees, what the
+            project spends, and what's left, in euros.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -314,6 +361,7 @@ function RevenuePage() {
               <SelectItem value="all">All stores</SelectItem>
               <SelectItem value="app_store">App Store</SelectItem>
               <SelectItem value="google_play">Google Play</SelectItem>
+              <SelectItem value="steam">Steam</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -323,6 +371,13 @@ function RevenuePage() {
         checkedAt={checkedAt}
         refreshing={refresh.isPending}
         onRefresh={() => refresh.mutate()}
+      />
+      <SteamBar
+        coverage={steamCoverage}
+        loading={steamQ.isLoading}
+        error={steamQ.error?.message}
+        uploading={uploadSteam.isPending}
+        onUpload={(file) => uploadSteam.mutate(file)}
       />
 
       {incomeQ.error && (
@@ -521,8 +576,10 @@ function RevenuePage() {
             {yearly ? "Year by year" : "Month by month"}
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            What the games earned after store fees, what the project paid, and what was left. Steam
-            sales aren't counted yet.{" "}
+            What the games earned after store fees, what the project paid, and what was left.{" "}
+            {steamCoverage
+              ? `Steam counts up to ${dayLabel(steamCoverage.to)}.`
+              : "Steam isn't counted until its sales file is uploaded."}{" "}
             {!showCosts ? (
               <AllStoresHint onClick={() => setSearch({ store: null })} />
             ) : search.app ? (
@@ -563,7 +620,7 @@ function RevenuePage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right text-sm whitespace-nowrap">
-                      <Amount value={b.app_store + b.google_play} estimated={b.estimated} />
+                      <Amount value={bucketIncome(b)} estimated={b.estimated} />
                     </TableCell>
                     <TableCell className="text-right text-sm whitespace-nowrap">
                       {costsKnown ? fmtEUR(b.expenses) : "—"}
@@ -632,13 +689,14 @@ function RevenuePage() {
                 <TableHead>App</TableHead>
                 <TableHead className="text-right">App Store</TableHead>
                 <TableHead className="text-right">Google Play</TableHead>
+                <TableHead className="text-right">Steam</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Sales</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {apps.length === 0 ? (
-                <EmptyRow cols={5} loading={loading} />
+                <EmptyRow cols={6} loading={loading} />
               ) : (
                 apps.map((a) => (
                   <TableRow key={a.appKey || "account"}>
@@ -659,6 +717,9 @@ function RevenuePage() {
                       ) : (
                         "—"
                       )}
+                    </TableCell>
+                    <TableCell className="text-right text-sm">
+                      {a.steam ? fmtEUR(a.steam) : "—"}
                     </TableCell>
                     <TableCell className="text-right text-sm font-medium">
                       <Amount value={a.netEur} estimated={a.estimated} />
@@ -722,7 +783,9 @@ function RevenuePage() {
         Store sales are converted to euros at the European Central Bank's rate for each month. ≈
         marks Google Play months not closed yet (Google closes a month around the 5th of the next
         one); until then they're worked out from its sales minus its 15% fee. Today's sales show up
-        tomorrow. Expenses are the ones entered on the{" "}
+        tomorrow. Steam income is what the uploaded Steam files call net sales (after refunds and
+        VAT) minus Valve's {Math.round((1 - STEAM_DEVELOPER_SHARE) * 100)}% share, converted from
+        dollars the same way; Steam's days run on Pacific time. Expenses are the ones entered on the{" "}
         <Link to="/expenses" className="underline underline-offset-2 hover:text-foreground">
           Expenses
         </Link>{" "}
@@ -762,6 +825,119 @@ function SyncBar({
         <RefreshCw className={refreshing ? "animate-spin" : undefined} />
         {refreshing ? "Refreshing…" : "Refresh now"}
       </Button>
+    </div>
+  );
+}
+
+/**
+ * Steam's income: which days the uploaded files cover, a button to add a newer file, and
+ * how to get one. Steam has no way for the console to read its sales.
+ */
+function SteamBar({
+  coverage,
+  loading,
+  error,
+  uploading,
+  onUpload,
+}: {
+  coverage: SteamCoverage | null;
+  loading: boolean;
+  error?: string;
+  uploading: boolean;
+  onUpload: (file: File) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const none = !loading && !error && !coverage;
+  // Open until the first file is in; after that, on request.
+  const [showHow, setShowHow] = useState<boolean | null>(null);
+  const howOpen = showHow ?? none;
+  const status = uploading
+    ? "Adding the Steam sales in the file…"
+    : loading
+      ? "Checking which Steam sales are in…"
+      : error
+        ? `Couldn't check which Steam sales are in: ${error}`
+        : coverage
+          ? `Steam sales are in up to ${dayLabel(coverage.to)}, from the file added ${timeAgo(coverage.latest.uploaded_at)}. Add a newer one once a month.`
+          : "Steam sales aren't in yet. Steam doesn't let the console read them, so they come from a file you download from Steamworks.";
+
+  return (
+    <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground space-y-2">
+      <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
+        <span className="flex-1 min-w-[200px]">{status}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7"
+          onClick={() => setShowHow(!howOpen)}
+          aria-expanded={howOpen}
+        >
+          How to get the file
+          <ChevronDown className={howOpen ? "rotate-180" : undefined} />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7"
+          disabled={uploading}
+          onClick={() => input.current?.click()}
+        >
+          {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
+          {uploading ? "Adding…" : "Upload Steam file"}
+        </Button>
+        <input
+          ref={input}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            // The same file picked again still fires the next time.
+            e.target.value = "";
+            if (file) onUpload(file);
+          }}
+        />
+      </div>
+      {coverage?.gaps.map((g) => (
+        <div key={g.from} className="flex items-start gap-2 text-foreground">
+          <AlertTriangle className="h-3.5 w-3.5 mt-px shrink-0 text-warning" />
+          <span>
+            Steam sales from {dayLabel(g.from)} to {dayLabel(g.to)} are missing: no uploaded file
+            covers those days. Upload one that does.
+          </span>
+        </div>
+      ))}
+      {howOpen && (
+        <ol className="list-decimal pl-5 space-y-1 pb-1">
+          <li>
+            Open{" "}
+            <a
+              href="https://partner.steampowered.com/"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              Steam's sales reports (partner.steampowered.com)
+              <ExternalLink className="inline h-3 w-3 ml-0.5 align-[-1px]" />
+            </a>{" "}
+            and sign in with the Steamworks account.
+          </li>
+          <li>
+            At the top of the first page, set the dates:{" "}
+            {coverage
+              ? `from ${dayLabel(coverage.to)} or earlier, until today. Days that are already in are replaced, never counted twice.`
+              : "all of them, from the day the first game went on sale until today."}
+          </li>
+          <li>
+            Press <span className="text-foreground">view as .csv</span>, next to the dates. Your
+            browser saves a .csv file.
+          </li>
+          <li>
+            Press <span className="text-foreground">Upload Steam file</span> here and pick that
+            file, without opening it in Excel first.
+          </li>
+        </ol>
+      )}
     </div>
   );
 }

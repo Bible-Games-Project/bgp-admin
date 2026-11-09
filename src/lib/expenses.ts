@@ -5,6 +5,7 @@ import {
   type ChartBucket,
   type IncomeRow,
   type Preset,
+  bucketIncome,
   presetMonths,
   selectRows,
   totals,
@@ -200,6 +201,7 @@ export function addCosts(
           bucket: year,
           app_store: 0,
           google_play: 0,
+          steam: 0,
           estimated: false,
           expenses: 0,
           profit: 0,
@@ -222,7 +224,7 @@ export function addCosts(
     .sort((a, b) => a.bucket.localeCompare(b.bucket))
     .map((b) => ({
       ...b,
-      profit: b.app_store + b.google_play - b.expenses,
+      profit: bucketIncome(b) - b.expenses,
       paid: [...(paidIn.get(b.bucket) ?? [])].sort((x, y) => y[1] - x[1]).map(([id]) => id),
     }));
 }

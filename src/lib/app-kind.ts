@@ -56,6 +56,15 @@ export function appStoreIds(app: StoreFields): AppStoreIds {
   };
 }
 
+/**
+ * The key the Revenue page adds a game's income up under, whichever stores it sells in:
+ * its iOS bundle ID, else its Play package, else "steam:<App ID>" (the key Steam's rows
+ * carry, see steam-sales.ts). Null for a game in no store.
+ */
+export function revenueKey(ids: AppStoreIds): string | null {
+  return ids.ios ?? ids.android ?? (ids.steam != null ? `steam:${ids.steam}` : null);
+}
+
 export function isOnAnyStore(ids: AppStoreIds) {
   return Boolean(ids.ios || ids.android || ids.steam);
 }

@@ -154,6 +154,7 @@ describe("Revenue chart", () => {
         bucket: "2026-09",
         app_store: 0,
         google_play: 0,
+        steam: 0,
         estimated: false,
         expenses: 116,
         profit: -116,
@@ -185,7 +186,7 @@ describe("Revenue chart", () => {
 
   test("per year, years with costs before the first sale get a bucket", () => {
     const buckets = addCosts(
-      [{ bucket: "2026", app_store: 50, google_play: 10, estimated: false }],
+      [{ bucket: "2026", app_store: 50, google_play: 10, steam: 0, estimated: false }],
       [payment("2024-03-12", 99), payment("2026-03-12", 99)],
       true,
     );

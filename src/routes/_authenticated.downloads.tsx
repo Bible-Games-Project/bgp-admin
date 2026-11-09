@@ -50,7 +50,13 @@ import {
   selectDownloadRows,
 } from "@/lib/downloads";
 import { getDownloads, setFullGame } from "@/lib/downloads.functions";
-import { type IncomeSource, type Preset, SOURCE_LABELS, selectRows } from "@/lib/income";
+import {
+  type IncomeSource,
+  type Preset,
+  type SyncedSource,
+  SOURCE_LABELS,
+  selectRows,
+} from "@/lib/income";
 import { refreshIncome } from "@/lib/income.functions";
 
 const searchSchema = z.object({
@@ -72,7 +78,7 @@ const PRESET_LABELS: Record<Preset, string> = {
   all: "All time",
 };
 
-const SOURCE_COLORS: Record<IncomeSource, string> = {
+const SOURCE_COLORS: Record<SyncedSource, string> = {
   app_store: "var(--primary)",
   google_play: "var(--success)",
 };
@@ -176,12 +182,12 @@ function DownloadsPage() {
     (g) => !picked || g.id === picked.id,
   );
   const total = rows.reduce((s, r) => s + r.downloads, 0);
-  const byStore = (source: IncomeSource) =>
+  const byStore = (source: SyncedSource) =>
     rows.filter((r) => r.source === source).reduce((s, r) => s + r.downloads, 0);
   const devices = perGame.reduce((s, g) => s + (g.activeDevices ?? 0), 0);
   const hasDevices = perGame.some((g) => g.activeDevices != null);
   const chart = downloadBuckets(rows, search.preset, now);
-  const sources: IncomeSource[] = search.store ? [search.store] : ["app_store", "google_play"];
+  const sources: SyncedSource[] = search.store ? [search.store] : ["app_store", "google_play"];
   const loading = q.isLoading;
   const empty = !loading && !(data?.rows ?? []).length;
 
@@ -227,7 +233,7 @@ function DownloadsPage() {
           </Select>
           <Select
             value={search.store ?? "all"}
-            onValueChange={(v) => setSearch({ store: v === "all" ? null : (v as IncomeSource) })}
+            onValueChange={(v) => setSearch({ store: v === "all" ? null : (v as SyncedSource) })}
           >
             <SelectTrigger className="w-[150px]">
               <SelectValue />

@@ -664,6 +664,42 @@ export type Database = {
         }
         Relationships: []
       }
+      steam_uploads: {
+        Row: {
+          file_name: string
+          first_day: string
+          id: string
+          last_day: string
+          net_eur: number
+          sales_days: number
+          units: number
+          uploaded_at: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          file_name: string
+          first_day: string
+          id?: string
+          last_day: string
+          net_eur: number
+          sales_days: number
+          units: number
+          uploaded_at?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          file_name?: string
+          first_day?: string
+          id?: string
+          last_day?: string
+          net_eur?: number
+          sales_days?: number
+          units?: number
+          uploaded_at?: string
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

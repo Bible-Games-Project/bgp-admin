@@ -139,10 +139,15 @@ export function weeklySummary(input: {
     thisMonth: {
       label: monthName(current),
       eur: sum(inMonth),
-      byStore: (["app_store", "google_play"] as const).map((source) => ({
-        label: SOURCE_LABELS[source],
-        eur: sum(inMonth.filter((r) => r.source === source)),
-      })),
+      // Steam only once an uploaded file reaches this month.
+      byStore: (["app_store", "google_play", "steam"] as const)
+        .map((source) => ({
+          source,
+          label: SOURCE_LABELS[source],
+          eur: sum(inMonth.filter((r) => r.source === source)),
+        }))
+        .filter((s) => s.source !== "steam" || inMonth.some((r) => r.source === "steam"))
+        .map(({ label, eur }) => ({ label, eur })),
     },
     lastMonth: {
       label: monthName(previous),

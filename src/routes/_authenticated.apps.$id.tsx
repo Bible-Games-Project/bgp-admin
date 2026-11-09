@@ -14,7 +14,14 @@ import { getApp, updateApp, deleteApp } from "@/lib/apps.functions";
 import { checkPreviewDeployWorkflow } from "@/lib/capacitor.functions";
 import { Button } from "@/components/ui/button";
 import { AppForm, parseSteamAppId, type AppFormValues } from "@/components/AppForm";
-import { appStoreIds, isOnAnyStore, isWebGame, playStoreUrl, steamStoreUrl } from "@/lib/app-kind";
+import {
+  appStoreIds,
+  isOnAnyStore,
+  isWebGame,
+  playStoreUrl,
+  revenueKey as revenueKeyOf,
+  steamStoreUrl,
+} from "@/lib/app-kind";
 import { isSelfRepo } from "@/lib/self-repo";
 import { AppAssetUpload } from "@/components/AppAssetUpload";
 import { AppEnvironmentEditor } from "@/components/AppEnvironmentEditor";
@@ -117,7 +124,7 @@ function AppDetailPage() {
   const external = !isWebGame(app);
   const storeIds = appStoreIds(app);
   // The Revenue page knows a game by its App Store bundle ID, or else its Play package name.
-  const revenueKey = storeIds.ios ?? storeIds.android;
+  const revenueKey = revenueKeyOf(storeIds);
   // Testers needs the game on a store; a link to it for one that isn't opens General.
   const hasTesters = Boolean(storeIds.ios || storeIds.android);
   // The console itself is built with Claude Code, not from its own chat.
