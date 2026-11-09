@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -34,7 +35,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import * as lib from "./lib.mjs";
 
-const VERSION = "6";
+const VERSION = "7";
 const env = process.env;
 const CONFIG = {
   console: (env.CONSOLE_URL ?? "https://bgp-admin-preview.biblegamesproject.workers.dev").replace(
@@ -563,24 +564,54 @@ async function installDependencies(job, repo, reporter) {
 
   reporter.step("Installing the game's dependencies");
   const container = lib.installContainer(job.id);
-  const result =
-    CONFIG.sandbox === "docker"
-      ? await (async () => {
-          await run("docker", ["rm", "-f", container], { allowFail: true });
-          return run(
-            "docker",
-            dockerArgs({ name: container, ...repo, command: ["bun", "install"] }),
-            {
-              allowFail: true,
-              timeoutMs: 15 * 60_000,
-            },
-          );
-        })()
-      : await run("bun", ["install"], {
-          cwd: repo.repoDir,
-          allowFail: true,
-          timeoutMs: 15 * 60_000,
-        });
+  // Games first made in Lovable lock part of their packages to Lovable's copy of npm, which
+  // the egress proxy doesn't reach. The install reads a bun.lock that takes those from npm
+  // itself (same files: bun checks each one's sha512), and the game's own bun.lock is put
+  // back as soon as it ends, before Claude starts: the repo, Claude and the push never see
+  // the change, and the proxy needs no other site.
+  const lockfile = join(repo.repoDir, "bun.lock");
+  // Only a plain file: the server never writes through a link the repo could point anywhere
+  const original = lstatSync(lockfile, { throwIfNoEntry: false })?.isFile()
+    ? readFileSync(lockfile)
+    : null;
+  const forNpm = lib.lockfileForNpm(original?.toString("utf8") ?? "");
+  if (forNpm.count) {
+    writeFileSync(lockfile, forNpm.text);
+    log(
+      `bun install in ${job.repo.name}: ${forNpm.count} packages locked to an npm mirror come from registry.npmjs.org`,
+    );
+  }
+  let result;
+  try {
+    result =
+      CONFIG.sandbox === "docker"
+        ? await (async () => {
+            await run("docker", ["rm", "-f", container], { allowFail: true });
+            return run(
+              "docker",
+              dockerArgs({ name: container, ...repo, command: ["bun", "install"] }),
+              {
+                allowFail: true,
+                timeoutMs: 15 * 60_000,
+              },
+            );
+          })()
+        : await run("bun", ["install"], {
+            cwd: repo.repoDir,
+            allowFail: true,
+            timeoutMs: 15 * 60_000,
+          });
+  } finally {
+    if (forNpm.count) {
+      // A timeout kills the docker client, not the container, which could still write it
+      if (CONFIG.sandbox === "docker" && result?.code !== 0)
+        await run("docker", ["rm", "-f", container], { allowFail: true }).catch(() => {});
+      // A new file where it was: the packages' scripts ran with the repo writable, and one could
+      // have left a link there to a file of the server's.
+      rmSync(lockfile, { force: true });
+      writeFileSync(lockfile, original, { flag: "wx" });
+    }
+  }
   if (result.code === 0) writeFileSync(stamp, digest);
   else {
     log(

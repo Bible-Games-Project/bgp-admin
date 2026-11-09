@@ -24,7 +24,7 @@ Settings → Claude open, and every 10 seconds otherwise. The answer is one of t
   1. Makes sure it has a deploy key for the game's repo. If it doesn't, it creates one, and the console adds
      it on GitHub (`/api/agent/repo-key`, with `GITHUB_PAT`). See "How it pushes" below.
   2. Clones the repo, or resets it to exactly what GitHub has. It runs `bun install` inside the container
-     when `package.json` or the lockfile changed.
+     when `package.json` or the lockfile changed (see "Games first made in Lovable" below).
   3. Runs `claude -p` in a container: Opus 5.5 at medium effort unless Settings → Claude says
      otherwise. It resumes the chat's Claude session (`--resume`), so Claude remembers the conversation.
      What Claude says and does streams to the chat (`/api/agent/turn`), about once a second. The answer
@@ -70,6 +70,29 @@ the server fetches them into `/var/lib/bgp-agent/attachments/<chat id>/`, which 
 sees as `/attachments` (read-only), and the message ends with the list of them. Claude Code's Read
 tool shows it images and PDFs. Files from earlier messages of the same chat stay in the folder; a
 chat's folder untouched for two months is dropped.
+
+### Games first made in Lovable
+
+Lovable's sandbox installs packages from its own copy of npm, so part of the `bun.lock` of a game it
+made points there (`https://europe-west4-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache/…`, a few at
+`europe-west1`) instead of npm (`""`). The egress proxy doesn't reach that host, and bun downloads
+each package from the URL in the lockfile whatever registry it's given (`--registry` doesn't change
+it), so the install failed with `ProxyConnectFailed (403) downloading tarball …` and Claude worked
+without `node_modules`.
+
+So, for the install only, the server hands bun the same lockfile with those packages taken from npm
+itself (`https://registry.npmjs.org/<package>/-/<file>.tgz`; `lockfileForNpm` in `lib.mjs`), and puts
+the game's own `bun.lock` back as soon as `bun install` ends, failed or not, before Claude starts. The
+repo, Claude and the push never see the change, and the log says how many packages it moved.
+Lovable's copy is a plain copy of npm: each package keeps its sha512, which bun checks on what npm
+sends, so the install gets byte for byte what the game locked or fails (on 2026-11-09 all 82 of
+exodus-serpent-saga's and 150 of eden-choice-chronicles' were on npm with the same hash). A package
+that only existed on Lovable's copy would fail the install as before, and Claude would see why.
+Afterwards Claude's own `bun add` works as usual: bun finds the packages in `node_modules` or in its
+cache in the game's home folder, and saves the lockfile with Lovable's URLs as they were.
+
+The proxy isn't opened to Lovable's host instead: `*-npm.pkg.dev` serves the packages of every Google
+Cloud project, not only Lovable's, and the install runs the packages' scripts.
 
 ### The weekly share
 

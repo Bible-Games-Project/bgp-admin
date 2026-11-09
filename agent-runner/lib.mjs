@@ -643,6 +643,34 @@ export function budgetBaseline(usage, others = []) {
   return earlier && earlier.weekly.percent < usage.weekly.percent ? earlier : usage;
 }
 
+// --- Installing a game's dependencies --------------------------------------------------------
+
+/**
+ * A package tarball in Google Artifact Registry's npm layout,
+ * `https://<region>-npm.pkg.dev/<project>/<repository>/<package>/-/<file>.tgz`, which is
+ * npm's own layout under a prefix. Games first made in Lovable lock part of their packages
+ * to Lovable's copy of npm there (`europe-west4-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache/…`,
+ * and europe-west1), which the egress proxy doesn't reach.
+ */
+const MIRROR_TARBALL =
+  /"https:\/\/[a-z0-9-]+-npm\.pkg\.dev\/[\w.~-]+\/[\w.~-]+\/((?:@[\w.~-]+\/)?[\w.~-]+)\/-\/([\w.~+-]+\.tgz)"/g;
+
+/**
+ * The game's bun.lock with the packages locked to such a copy of npm fetched from npm itself
+ * (registry.npmjs.org, same path), for `bun install` and nothing else: the runner puts the
+ * game's own file back right after. Each package keeps its sha512, which bun checks on what
+ * npm sends, so the install gets byte for byte what the game locked or fails.
+ * `count` is how many were moved; 0 means the text is the same.
+ */
+export function lockfileForNpm(text) {
+  let count = 0;
+  const rewritten = String(text ?? "").replace(MIRROR_TARBALL, (_match, name, file) => {
+    count++;
+    return `"https://registry.npmjs.org/${name}/-/${file}"`;
+  });
+  return { text: rewritten, count };
+}
+
 // --- Linking an account: `claude setup-token` in a pseudo-terminal ---------------------
 
 // What a terminal shows, without colour or cursor codes (the CLI writes spaces by moving

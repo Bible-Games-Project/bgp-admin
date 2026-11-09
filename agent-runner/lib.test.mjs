@@ -15,6 +15,7 @@ import {
   installContainer,
   isClaudeToken,
   isLeftoverContainer,
+  lockfileForNpm,
   loginError,
   loginToken,
   loginUrl,
@@ -598,5 +599,91 @@ describe("several messages at once", () => {
     expect(budgetBaseline(at(53), [])).toEqual(at(53));
     expect(budgetBaseline(at(53), [at(50, "2026-10-30T06:00:00.000Z")])).toEqual(at(53));
     expect(budgetBaseline(at(53), [at(55)])).toEqual(at(53));
+  });
+});
+
+describe("installing a game made in Lovable", () => {
+  // Lines of exodus-serpent-saga's bun.lock (2026-11-08): most packages come from the default
+  // registry (""), some from Lovable's copy of npm in two regions.
+  const mirror = "lovable-core-prod/sandbox-npm-cache";
+  const lockfile = `{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "tanstack_start_ts",
+      "dependencies": {
+        "@lovable.dev/vite-tanstack-config": "^2.26.5",
+        "zod": "^4.6.5",
+      },
+    },
+  },
+  "packages": {
+    "@babel/code-frame": ["@babel/code-frame@7.29.0", "", { "dependencies": { "js-tokens": "^4.0.0" } }, "sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw=="],
+
+    "@babel/template": ["@babel/template@7.29.7", "https://europe-west4-npm.pkg.dev/${mirror}/@babel/template/-/template-7.29.7.tgz", { "dependencies": { "@babel/code-frame": "^7.29.7" } }, "sha512-puq+Gf35oI24FeN11LkoUQFqv9uwNeWpxXZi/Ji3rRIoKAzKnxRaZ+Gkj0vKS9ZCiTESfng1N9LyOyXvo+m+Gg=="],
+
+    "@lovable.dev/vite-tanstack-config": ["@lovable.dev/vite-tanstack-config@2.26.5", "https://europe-west1-npm.pkg.dev/${mirror}/@lovable.dev/vite-tanstack-config/-/vite-tanstack-config-2.26.5.tgz", { "peerDependencies": { "vite": ">=5.0.0 <9.0.0" } }, "sha512-nRaztSS5BDM/d6oW/h2ev9l7RcjULxvWZtmrAwvI7rVQ9dPfNCBjNGmtiy8/THyYfFlcq+R2oLb4yaUBfneB6w=="],
+
+    "@tanstack/router-generator/zod": ["zod@4.6.5", "https://europe-west4-npm.pkg.dev/${mirror}/zod/-/zod-4.6.5.tgz", {}, "sha512-AAAAexample"],
+
+    "js-tokens": ["js-tokens@4.0.0", "https://registry.npmjs.org/js-tokens/-/js-tokens-4.0.0.tgz", {}, "sha512-BBBBexample"],
+  }
+}
+`;
+
+  test("the packages locked to Lovable's copy of npm come from npm itself, same files", () => {
+    const { text, count } = lockfileForNpm(lockfile);
+    expect(count).toBe(3);
+    expect(text).not.toContain("pkg.dev");
+    expect(text).toContain(
+      `["@babel/template@7.29.7", "https://registry.npmjs.org/@babel/template/-/template-7.29.7.tgz", {`,
+    );
+    expect(text).toContain(
+      `"https://registry.npmjs.org/@lovable.dev/vite-tanstack-config/-/vite-tanstack-config-2.26.5.tgz"`,
+    );
+    expect(text).toContain(
+      `["zod@4.6.5", "https://registry.npmjs.org/zod/-/zod-4.6.5.tgz", {}, "sha512-AAAAexample"]`,
+    );
+    // Only those URLs change: every version, dependency and sha512 bun checks stays
+    const before = lockfile.split("\n");
+    const after = text.split("\n");
+    expect(after.length).toBe(before.length);
+    after.forEach((line, i) => {
+      if (before[i].includes("pkg.dev"))
+        expect(line.replace(/"https:\/\/[^"]+"/, "URL")).toBe(
+          before[i].replace(/"https:\/\/[^"]+"/, "URL"),
+        );
+      else expect(line).toBe(before[i]);
+    });
+  });
+
+  test("a lockfile with nothing on a mirror stays as it is", () => {
+    const plain = lockfile.replace(/"https:\/\/[a-z0-9-]+-npm\.pkg\.dev\/[^"]+"/g, '""');
+    expect(lockfileForNpm(plain)).toEqual({ text: plain, count: 0 });
+    expect(lockfileForNpm("")).toEqual({ text: "", count: 0 });
+    expect(lockfileForNpm(undefined)).toEqual({ text: "", count: 0 });
+  });
+
+  test("only package tarballs in npm's layout on Artifact Registry are moved", () => {
+    const untouched = [
+      // Other hosts, and names that only look like Artifact Registry
+      `"https://npm.pkg.github.com/download/@acme/ui/1.0.0/ui-1.0.0.tgz"`,
+      `"https://europe-west4-npm.pkg.dev.example.com/${mirror}/zod/-/zod-4.6.5.tgz"`,
+      `"https://europe-west4-docker.pkg.dev/${mirror}/zod/-/zod-4.6.5.tgz"`,
+      `"http://europe-west4-npm.pkg.dev/${mirror}/zod/-/zod-4.6.5.tgz"`,
+      // Not a package's tarball: the registry itself, a package page, no project and repository
+      `"https://europe-west4-npm.pkg.dev/${mirror}/"`,
+      `"https://europe-west4-npm.pkg.dev/${mirror}/zod"`,
+      `"https://europe-west4-npm.pkg.dev/zod/-/zod-4.6.5.tgz"`,
+      `"https://europe-west4-npm.pkg.dev/${mirror}/zod/-/zod-4.6.5.tgz?token=x"`,
+    ].join("\n");
+    expect(lockfileForNpm(untouched)).toEqual({ text: untouched, count: 0 });
+    // Any region or project in that layout, since Lovable's copy is a plain copy of npm
+    expect(
+      lockfileForNpm(
+        `"https://us-central1-npm.pkg.dev/other-proj/npm-cache/is-odd/-/is-odd-3.0.1.tgz"`,
+      ),
+    ).toEqual({ text: `"https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz"`, count: 1 });
   });
 });
