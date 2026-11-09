@@ -7,6 +7,10 @@ const ORG = "Bible-Games-Project";
 
 export const PREVIEW_WORKFLOW_PATH = ".github/workflows/preview-deploy.yml";
 
+/** The index.html generator the preview fetches for TanStack Start games (bgp-admin is public). */
+const GENERATE_INDEX_HTML_URL =
+  "https://raw.githubusercontent.com/Bible-Games-Project/bgp-admin/main/scripts/generate-capacitor-html.js";
+
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
     .from("admins")
@@ -127,6 +131,21 @@ export function buildPreviewDeployWorkflowYaml(): string {
     "            fi",
     "          done",
     '          echo "found=false" >> "$GITHUB_OUTPUT"',
+    "",
+    // TanStack Start games (Lovable's newer template) render their pages on a server,
+    // so the build leaves no index.html and a Pages site of only the assets is blank.
+    // The preview runs them client-side instead, with the same shell the iOS and
+    // Android builds use (scripts/generate-capacitor-html.js); a game that already
+    // has an index.html, like a plain Vite one, is left alone.
+    "      - name: Add index.html for TanStack Start builds",
+    "        if: steps.outdir.outputs.found == 'true'",
+    "        env:",
+    "          OUT_DIR: ${{ steps.outdir.outputs.dir }}",
+    "        run: |",
+    '          if [ -f "$OUT_DIR/index.html" ]; then exit 0; fi',
+    "          if [ ! -d .output/server ] && [ ! -d dist/server ]; then exit 0; fi",
+    `          curl -fsSL ${GENERATE_INDEX_HTML_URL} -o "$RUNNER_TEMP/generate-index-html.mjs"`,
+    '          CAPACITOR_BUILD=1 node "$RUNNER_TEMP/generate-index-html.mjs"',
     "",
     // Calls wrangler directly: cloudflare/pages-action was deleted from GitHub in
     // September 2026 and took every generated preview workflow down with it.
