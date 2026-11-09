@@ -114,6 +114,15 @@ share is approximate by a percent or two.
   GitHub keys stay outside, and so does the service's own token.
 - **It can't run anything on the server.** The service runs git with the repo's hooks and fsmonitor off,
   and puts `.git/config` back after each session.
+- **It can't make the server write over its files.** Claude has the clone writable, `.git` included, and so
+  do the packages' install scripts. Before the server runs git there again, it checks that `.git` is what git
+  makes (`gitDirProblem` in `lib.mjs`): plain files and folders only, and no `commondir` or
+  `objects/info/alternates`, which would have git take its config from a folder Claude chose. A link there
+  would have git or the server write over whatever it points to, like the Claude token (a fetch writes
+  `FETCH_HEAD` through one, `git add` the index). If something's off, nothing is pushed, the chat says why,
+  and the next message clones the game again. `.git/config` goes back as a new file, never written through
+  what's there (`replaceFile`), and a copy waits in `STATE_DIR/unchecked/<game>` until then: if the server
+  stops in the middle of a message, the next one puts it back first.
 - **It can't change the native boundary.** Commits that touch `capacitor.config.*`, `ios/`, `android/` or
   the deploy and preview workflows aren't pushed, and the chat says why (`protectedPaths` in `lib.mjs`).
 - **Several messages at once, one per game.** Up to `AGENT_PARALLEL` (3) messages of different games (or

@@ -155,7 +155,7 @@ function cleanEnv() {
 
 // git on the host never runs anything from the repo: Claude can write to .git from inside
 // the container, so no hooks and no fsmonitor, and its config is put back after each
-// session (prepareRepo).
+// session (takeBackRepo).
 const git = (repoDir, args, options = {}) =>
   run("git", ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", ...args], {
     cwd: repoDir,
@@ -408,7 +408,8 @@ function prepareAssistant(job) {
     CONFIG.sandbox === "docker"
       ? "/opt/bgp-agent/console-mcp.mjs"
       : new URL("console-mcp.mjs", import.meta.url).pathname;
-  writeFileSync(
+  // A new file each time: the last turn's container had this folder writable
+  lib.replaceFile(
     join(homeDir, "mcp.json"),
     JSON.stringify({ mcpServers: { console: { command: "node", args: [server] } } }),
     { mode: 0o600 },
@@ -513,9 +514,24 @@ async function prepareRepo(job, reporter) {
   const repoDir = join(CONFIG.state, "repos", slug);
   const homeDir = join(CONFIG.state, "homes", slug);
   const keyFile = join(CONFIG.state, "keys", slug);
-  for (const dir of ["repos", "homes", "keys", "installed"])
+  const unchecked = join(CONFIG.state, "unchecked", slug);
+  for (const dir of ["repos", "homes", "keys", "installed", "unchecked"])
     mkdirSync(join(CONFIG.state, dir), { recursive: true, mode: 0o700 });
   mkdirSync(homeDir, { recursive: true, mode: 0o700 });
+
+  // Before git runs in the clone again: a .git that isn't what git makes means a new clone,
+  // and a config the last message didn't get to put back (the server stopped, or the message
+  // failed half way) is put back now.
+  if (existsSync(repoDir)) {
+    const problem = lib.gitDirProblem(repoDir);
+    if (problem) {
+      log(`${job.repo.owner}/${job.repo.name}: ${problem}, cloning the game again`);
+      rmSync(repoDir, { recursive: true, force: true });
+    } else if (existsSync(unchecked)) {
+      lib.replaceFile(join(repoDir, ".git", "config"), readFileSync(unchecked));
+    }
+  }
+  rmSync(unchecked, { force: true });
 
   await ensureDeployKey(job, keyFile);
   const gitEnv = sshEnv(keyFile);
@@ -537,10 +553,39 @@ async function prepareRepo(job, reporter) {
   await git(repoDir, ["checkout", "--quiet", "--force", "-B", job.branch, `origin/${job.branch}`]);
   await git(repoDir, ["reset", "--quiet", "--hard", `origin/${job.branch}`]);
   await git(repoDir, ["clean", "-fdxq", "-e", "node_modules"]);
-  const gitConfig = readFileSync(join(repoDir, ".git", "config"));
-  await installDependencies(job, { repoDir, homeDir }, reporter);
   const base = (await git(repoDir, ["rev-parse", "HEAD"])).stdout.trim();
-  return { repoDir, homeDir, gitEnv, gitConfig, base };
+  const gitConfig = readFileSync(join(repoDir, ".git", "config"));
+  // From here a container has the clone writable (the packages' install scripts, then
+  // Claude), and git doesn't run in it until takeBackRepo has checked it. The config to put
+  // back is kept outside the clone too, in case that never happens.
+  writeFileSync(unchecked, gitConfig, { mode: 0o600 });
+  await installDependencies(job, { repoDir, homeDir }, reporter);
+  return { repoDir, homeDir, gitEnv, gitConfig, unchecked, base };
+}
+
+/**
+ * The clone back from the containers that had it writable, before the server runs git there
+ * and pushes. Its .git has to be what git makes (lib.gitDirProblem): if not, the turn fails,
+ * nothing is pushed, and the next message clones the game again (prepareRepo). Its config
+ * is put back as it was before them, as a new file, never written through what's there.
+ */
+async function takeBackRepo(job, repo) {
+  // Gone for sure first: a docker client that died early leaves its container running
+  if (CONFIG.sandbox === "docker")
+    await run("docker", ["rm", "-f", lib.turnContainer(job.id), lib.installContainer(job.id)], {
+      allowFail: true,
+    });
+  const problem = lib.gitDirProblem(repo.repoDir);
+  if (problem) {
+    log(
+      `turn ${job.id}: ${problem} in ${job.repo.owner}/${job.repo.name} after the session, not pushing`,
+    );
+    throw new Said(
+      `Claude left the game's .git folder in a state the build server doesn't trust (${problem}), so its changes weren't saved. Send the message again: Claude will start from a fresh copy of the game.`,
+    );
+  }
+  lib.replaceFile(join(repo.repoDir, ".git", "config"), repo.gitConfig);
+  rmSync(repo.unchecked, { force: true });
 }
 
 // bun install, inside the container (it runs the packages' install scripts), and only when
@@ -1055,9 +1100,9 @@ async function doTurn(job) {
           attachments,
         });
       }
-      if (!assistant) writeFileSync(join(repo.repoDir, ".git", "config"), repo.gitConfig);
       if (outcome.rejected) markRejected();
     }
+    if (!assistant) await takeBackRepo(job, repo);
     report = assistant
       ? {
           status: reporter.cancelled ? "cancelled" : outcome.ok ? "done" : "failed",
