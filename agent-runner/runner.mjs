@@ -156,9 +156,25 @@ function cleanEnv() {
 
 // git on the host never runs anything from the repo: Claude can write to .git from inside
 // the container, so no hooks and no fsmonitor, and its config is put back after each
-// session (prepareRepo).
+// session (takeBackRepo). Nor from a repo Claude nests in the game (a submodule), whose
+// config is Claude's too: git doesn't go into it for a fetch, a push or a status, and what
+// does go into it (`git add`) only runs in the sandbox (commitLeftovers).
+const GIT_SAFE = [
+  "-c",
+  "core.hooksPath=/dev/null",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "submodule.recurse=false",
+  "-c",
+  "fetch.recurseSubmodules=false",
+  "-c",
+  "push.recurseSubmodules=no",
+  "-c",
+  "diff.ignoreSubmodules=all",
+];
 const git = (repoDir, args, options = {}) =>
-  run("git", ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", ...args], {
+  run("git", [...GIT_SAFE, ...args], {
     cwd: repoDir,
     ...options,
   });
@@ -409,7 +425,8 @@ function prepareAssistant(job) {
     CONFIG.sandbox === "docker"
       ? "/opt/bgp-agent/console-mcp.mjs"
       : new URL("console-mcp.mjs", import.meta.url).pathname;
-  writeFileSync(
+  // A new file each time: the last turn's container had this folder writable
+  lib.replaceFile(
     join(homeDir, "mcp.json"),
     JSON.stringify({ mcpServers: { console: { command: "node", args: [server] } } }),
     { mode: 0o600 },
@@ -514,9 +531,24 @@ async function prepareRepo(job, reporter) {
   const repoDir = join(CONFIG.state, "repos", slug);
   const homeDir = join(CONFIG.state, "homes", slug);
   const keyFile = join(CONFIG.state, "keys", slug);
-  for (const dir of ["repos", "homes", "keys", "installed"])
+  const unchecked = join(CONFIG.state, "unchecked", slug);
+  for (const dir of ["repos", "homes", "keys", "installed", "unchecked"])
     mkdirSync(join(CONFIG.state, dir), { recursive: true, mode: 0o700 });
   mkdirSync(homeDir, { recursive: true, mode: 0o700 });
+
+  // Before git runs in the clone again: a .git that isn't what git makes means a new clone,
+  // and a config the last message didn't get to put back (the server stopped, or the message
+  // failed half way) is put back now.
+  if (existsSync(repoDir)) {
+    const problem = lib.gitDirProblem(repoDir);
+    if (problem) {
+      log(`${job.repo.owner}/${job.repo.name}: ${problem}, cloning the game again`);
+      rmSync(repoDir, { recursive: true, force: true });
+    } else if (existsSync(unchecked)) {
+      lib.replaceFile(join(repoDir, ".git", "config"), readFileSync(unchecked));
+    }
+  }
+  rmSync(unchecked, { force: true });
 
   await ensureDeployKey(job, keyFile);
   const gitEnv = sshEnv(keyFile);
@@ -538,10 +570,51 @@ async function prepareRepo(job, reporter) {
   await git(repoDir, ["checkout", "--quiet", "--force", "-B", job.branch, `origin/${job.branch}`]);
   await git(repoDir, ["reset", "--quiet", "--hard", `origin/${job.branch}`]);
   await git(repoDir, ["clean", "-fdxq", "-e", "node_modules"]);
-  const gitConfig = readFileSync(join(repoDir, ".git", "config"));
-  await installDependencies(job, { repoDir, homeDir }, reporter);
   const base = (await git(repoDir, ["rev-parse", "HEAD"])).stdout.trim();
-  return { repoDir, homeDir, gitEnv, gitConfig, base };
+  const gitConfig = readFileSync(join(repoDir, ".git", "config"));
+  // From here a container has the clone writable (the packages' install scripts, then
+  // Claude), and git doesn't run in it until takeBackRepo has checked it. The config to put
+  // back is kept outside the clone too, in case that never happens.
+  writeFileSync(unchecked, gitConfig, { mode: 0o600 });
+  await installDependencies(job, { repoDir, homeDir }, reporter);
+  return { repoDir, homeDir, gitEnv, gitConfig, unchecked, base };
+}
+
+/**
+ * The clone back from the containers that had it writable (the install's scripts, Claude),
+ * before the server runs git there and pushes. If Claude finished, what it left uncommitted
+ * is committed in the sandbox in between (commitLeftovers), and the clone taken back again.
+ */
+async function takeBackRepo(job, repo, { commit }) {
+  await checkRepo(job, repo);
+  if (commit) {
+    await commitLeftovers(job, repo);
+    await checkRepo(job, repo);
+  }
+  rmSync(repo.unchecked, { force: true });
+}
+
+/**
+ * Its .git has to be what git makes (lib.gitDirProblem): if not, the turn fails, nothing is
+ * pushed, and the next message clones the game again (prepareRepo). Its config is put back
+ * as it was before the containers, as a new file, never written through what's there.
+ */
+async function checkRepo(job, repo) {
+  // Gone for sure first: a docker client that died early leaves its container running
+  if (CONFIG.sandbox === "docker")
+    await run("docker", ["rm", "-f", lib.turnContainer(job.id), lib.installContainer(job.id)], {
+      allowFail: true,
+    });
+  const problem = lib.gitDirProblem(repo.repoDir);
+  if (problem) {
+    log(
+      `turn ${job.id}: ${problem} in ${job.repo.owner}/${job.repo.name} after the session, not pushing`,
+    );
+    throw new Said(
+      `Claude left the game's .git folder in a state the build server doesn't trust (${problem}), so its changes weren't saved. Send the message again: Claude will start from a fresh copy of the game.`,
+    );
+  }
+  lib.replaceFile(join(repo.repoDir, ".git", "config"), repo.gitConfig);
 }
 
 // bun install, inside the container (it runs the packages' install scripts), and only when
@@ -890,19 +963,7 @@ async function leakedSecrets(repo, range) {
   await new Promise((resolve, reject) => {
     const child = spawn(
       "git",
-      [
-        "-c",
-        "core.hooksPath=/dev/null",
-        "-c",
-        "core.fsmonitor=false",
-        "log",
-        "-p",
-        "--text",
-        "--no-color",
-        "--no-ext-diff",
-        "--format=%H %s",
-        range,
-      ],
+      [...GIT_SAFE, "log", "-p", "--text", "--no-color", "--no-ext-diff", "--format=%H %s", range],
       { cwd: repo.repoDir, env: cleanEnv(), stdio: ["ignore", "pipe", "ignore"] },
     );
     let tail = "";
@@ -918,22 +979,42 @@ async function leakedSecrets(repo, range) {
   return [...found].sort();
 }
 
+/**
+ * What a finished session left uncommitted becomes a commit of its own, made in the sandbox
+ * like the install (lib.commitLeftoversCommand), between two checks of the repo (takeBackRepo).
+ */
+async function commitLeftovers(job, repo) {
+  const command = lib.commitLeftoversCommand();
+  const container = lib.turnContainer(job.id);
+  const result =
+    CONFIG.sandbox === "docker"
+      ? await (async () => {
+          await run("docker", ["rm", "-f", container], { allowFail: true });
+          return run(
+            "docker",
+            dockerArgs({ name: container, ...repo, extraEnv: authorEnv(job), command }),
+            { allowFail: true, timeoutMs: 5 * 60_000 },
+          );
+        })()
+      : await run(command[0], command.slice(1), {
+          cwd: repo.repoDir,
+          extraEnv: authorEnv(job),
+          allowFail: true,
+          timeoutMs: 5 * 60_000,
+        });
+  if (result.code !== 0) {
+    const tail = result.stderr.trim().split("\n").slice(-2).join(" ").slice(-300);
+    log(`turn ${job.id}: committing what Claude left failed (${result.code}): ${tail}`);
+    throw new Said(
+      `Claude's last changes couldn't be committed (${tail || `exit ${result.code}`}), so nothing was saved. Send the message again.`,
+    );
+  }
+}
+
 // What the session left in the repo becomes the turn's result: commits pushed, or why not.
 async function settle(job, repo, outcome, reporter) {
-  const dirty = (await git(repo.repoDir, ["status", "--porcelain"])).stdout.trim();
-  if (dirty && outcome.ok) {
-    await git(repo.repoDir, ["add", "-A"]);
-    await git(
-      repo.repoDir,
-      ["commit", "--quiet", "--no-verify", "-m", lib.LEFTOVER_COMMIT_MESSAGE],
-      {
-        extraEnv: authorEnv(job),
-      },
-    );
-  } else if (dirty) {
-    // A stopped or failed session may have left a change half done: only its commits count.
-    await git(repo.repoDir, ["reset", "--quiet", "--hard", "HEAD"]);
-  }
+  // A stopped or failed session may have left a change half done: only its commits count.
+  if (!outcome.ok) await git(repo.repoDir, ["reset", "--quiet", "--hard", "HEAD"]);
 
   const commits = Number(
     (await git(repo.repoDir, ["rev-list", "--count", `origin/${job.branch}..HEAD`])).stdout.trim(),
@@ -1086,9 +1167,9 @@ async function doTurn(job) {
           attachments,
         });
       }
-      if (!assistant) writeFileSync(join(repo.repoDir, ".git", "config"), repo.gitConfig);
       if (outcome.rejected) markRejected();
     }
+    if (!assistant) await takeBackRepo(job, repo, { commit: outcome.ok });
     report = assistant
       ? {
           status: reporter.cancelled ? "cancelled" : outcome.ok ? "done" : "failed",

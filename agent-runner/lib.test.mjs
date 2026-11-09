@@ -1,5 +1,18 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   applyEnvironmentChange,
   assistantArgs,
@@ -7,11 +20,13 @@ import {
   budgetBaseline,
   budgetStopMessage,
   claudeArgs,
+  commitLeftoversCommand,
   containerMemory,
   dockerMegabytes,
   domainRule,
   environmentSummary,
   eventsFrom,
+  gitDirProblem,
   installContainer,
   isClaudeToken,
   isLeftoverContainer,
@@ -28,6 +43,7 @@ import {
   promptWithAttachments,
   protectedPaths,
   readResult,
+  replaceFile,
   roomForAnotherTurn,
   safeFileName,
   secretsIn,
@@ -332,6 +348,123 @@ test("protectedPaths is the native boundary", () => {
     ".github/workflows/preview-deploy.yml",
     ".github/workflows/deploy.yml",
   ]);
+});
+
+describe("what a session may leave in .git", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "bgp-agent-test-"));
+  afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+  // A file of the server's, like STATE_DIR/claude.json, that a link in the clone points to
+  const token = join(scratch, "claude.json");
+  writeFileSync(token, '{"token":"sk-ant-oat-example"}');
+  let count = 0;
+  const clone = () => {
+    const dir = join(scratch, `repo-${++count}`);
+    execFileSync("git", ["init", "-q", dir]);
+    writeFileSync(join(dir, ".git", "FETCH_HEAD"), "");
+    return dir;
+  };
+
+  test("a clone as git makes it is fine", () => {
+    expect(gitDirProblem(clone())).toBeNull();
+  });
+
+  test("a link anywhere in .git is not", () => {
+    let dir = clone();
+    rmSync(join(dir, ".git", "config"));
+    symlinkSync(token, join(dir, ".git", "config"));
+    expect(gitDirProblem(dir)).toBe(".git/config is a link");
+
+    dir = clone();
+    symlinkSync(join(scratch, "missing"), join(dir, ".git", "refs", "heads", "main"));
+    expect(gitDirProblem(dir)).toBe(".git/refs/heads/main is a link");
+
+    dir = clone();
+    rmSync(join(dir, ".git", "FETCH_HEAD"));
+    symlinkSync(token, join(dir, ".git", "FETCH_HEAD"));
+    expect(gitDirProblem(dir)).toBe(".git/FETCH_HEAD is a link");
+  });
+
+  test(".git itself has to be a folder", () => {
+    let dir = clone();
+    rmSync(join(dir, ".git"), { recursive: true });
+    expect(gitDirProblem(dir)).toBe(".git is missing");
+    symlinkSync(join(clone(), ".git"), join(dir, ".git"));
+    expect(gitDirProblem(dir)).toBe(".git is a link");
+
+    dir = clone();
+    rmSync(join(dir, ".git"), { recursive: true });
+    writeFileSync(join(dir, ".git"), `gitdir: ${join(scratch, "elsewhere")}\n`);
+    expect(gitDirProblem(dir)).toBe(".git isn't a folder");
+  });
+
+  test("nothing that has git read from another folder, and only plain files", () => {
+    let dir = clone();
+    writeFileSync(join(dir, ".git", "commondir"), "../somewhere\n");
+    expect(gitDirProblem(dir)).toBe(".git/commondir is there");
+
+    dir = clone();
+    writeFileSync(join(dir, ".git", "objects", "info", "alternates"), "/elsewhere/objects\n");
+    expect(gitDirProblem(dir)).toBe(".git/objects/info/alternates is there");
+
+    dir = clone();
+    execFileSync("mkfifo", [join(dir, ".git", "ORIG_HEAD")]);
+    expect(gitDirProblem(dir)).toBe(".git/ORIG_HEAD isn't a plain file");
+  });
+
+  // Root reads any folder, so this only means something as another user (the server's is)
+  test.skipIf(process.getuid?.() === 0)("a folder it can't read counts as a problem", () => {
+    const dir = clone();
+    const objects = join(dir, ".git", "objects");
+    chmodSync(objects, 0o000);
+    try {
+      expect(gitDirProblem(dir)).toBe(".git/objects can't be read");
+    } finally {
+      chmodSync(objects, 0o755);
+    }
+  });
+
+  test("replaceFile never writes through what's there", () => {
+    const dir = clone();
+    const config = join(dir, ".git", "config");
+    rmSync(config);
+    symlinkSync(token, config);
+    replaceFile(config, "[core]\n");
+    expect(readFileSync(token, "utf8")).toBe('{"token":"sk-ant-oat-example"}');
+    expect(lstatSync(config).isFile()).toBe(true);
+    expect(readFileSync(config, "utf8")).toBe("[core]\n");
+
+    const folder = join(dir, "mcp.json");
+    mkdirSync(join(folder, "inside"), { recursive: true });
+    replaceFile(folder, "{}", { mode: 0o600 });
+    expect(readFileSync(folder, "utf8")).toBe("{}");
+    expect(statSync(folder).mode & 0o777).toBe(0o600);
+  });
+
+  test("what Claude left uncommitted becomes one commit, and nothing else does", () => {
+    const dir = clone();
+    const env = {
+      PATH: process.env.PATH,
+      HOME: scratch,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_AUTHOR_NAME: "Build chat",
+      GIT_AUTHOR_EMAIL: "build-chat@localhost",
+      GIT_COMMITTER_NAME: "Build chat",
+      GIT_COMMITTER_EMAIL: "build-chat@localhost",
+    };
+    const [command, ...args] = commitLeftoversCommand();
+    const commit = () => execFileSync(command, args, { cwd: dir, env });
+    const log = () =>
+      execFileSync("git", ["log", "--format=%s"], { cwd: dir, env, encoding: "utf8" }).trim();
+    writeFileSync(join(dir, "game.txt"), "v1\n");
+    commit();
+    expect(log()).toBe("Apply changes requested in the Build chat");
+    // Nothing left: no empty commit, and it doesn't fail
+    commit();
+    expect(log()).toBe("Apply changes requested in the Build chat");
+    writeFileSync(join(dir, "game.txt"), "v2\n");
+    commit();
+    expect(log().split("\n")).toHaveLength(2);
+  });
 });
 
 describe("setup-token output", () => {

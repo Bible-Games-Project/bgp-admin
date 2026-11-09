@@ -29,7 +29,8 @@ Settings → Claude open, and every 10 seconds otherwise. The answer is one of t
      otherwise. It resumes the chat's Claude session (`--resume`), so Claude remembers the conversation.
      What Claude says and does streams to the chat (`/api/agent/turn`), about once a second. The answer
      to each call also says whether someone pressed **Stop**.
-  4. Commits what Claude left uncommitted (only when it finished well) and pushes to the game's branch.
+  4. Commits what Claude left uncommitted (only when it finished well, in a container like the install)
+     and pushes to the game's branch.
      That deploys the Cloudflare preview, and the page reloads it once the deploy is live. If someone else
      pushed meanwhile, it rebases. If the changes clash, it saves them to a `build-chat/<id>` branch and
      says so in the chat.
@@ -136,7 +137,20 @@ share is approximate by a percent or two.
   the keys of Internet and keys. The
   GitHub keys stay outside, and so does the service's own token.
 - **It can't run anything on the server.** The service runs git with the repo's hooks and fsmonitor off,
-  and puts `.git/config` back after each session.
+  and puts `.git/config` back after each session. A repo Claude nests in the game (a submodule) has a
+  config of Claude's own, so the service's git never goes into one: no submodule recursion for fetch,
+  push, status or diff (`GIT_SAFE` in `runner.mjs`), and `git add`, which does go into them, only runs in
+  a container (`commitLeftovers`). Checked with a submodule whose own config runs a filter: on the server,
+  the old `git status`, `git add -A` and a `git fetch` that moved the submodule all ran it.
+- **It can't make the server write over its files.** Claude has the clone writable, `.git` included, and so
+  do the packages' install scripts. Before the server runs git there again, it checks that `.git` is what git
+  makes (`gitDirProblem` in `lib.mjs`): plain files and folders only, and no `commondir` or
+  `objects/info/alternates`, which would have git take its config from a folder Claude chose. A link there
+  would have git or the server write over whatever it points to, like the Claude token (a fetch writes
+  `FETCH_HEAD` through one, `git add` the index). If something's off, nothing is pushed, the chat says why,
+  and the next message clones the game again. `.git/config` goes back as a new file, never written through
+  what's there (`replaceFile`), and a copy waits in `STATE_DIR/unchecked/<game>` until then: if the server
+  stops in the middle of a message, the next one puts it back first.
 - **It can't change the native boundary.** Commits that touch `capacitor.config.*`, `ios/`, `android/` or
   the deploy and preview workflows aren't pushed, and the chat says why (`protectedPaths` in `lib.mjs`).
 - **Several messages at once, one per game.** Up to `AGENT_PARALLEL` (3) messages of different games (or

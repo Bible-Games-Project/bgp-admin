@@ -3,6 +3,9 @@
 // what a finished session means, and what a turn may not change. Kept apart from
 // runner.mjs so it can be tested (lib.test.mjs).
 
+import { lstatSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 const oneLine = (text, max) => {
   const line = String(text ?? "")
     .replace(/\s+/g, " ")
@@ -432,6 +435,73 @@ export function protectedPaths(files) {
 
 /** For changes Claude left uncommitted when it finished. */
 export const LEFTOVER_COMMIT_MESSAGE = "Apply changes requested in the Build chat";
+
+/**
+ * Commits what Claude left uncommitted, if anything, in the game's folder. It runs in the
+ * sandbox, not on the server: `git add` goes into any repo nested in the game (a submodule)
+ * and runs what that repo's config says, and that config is Claude's.
+ */
+export function commitLeftoversCommand(message = LEFTOVER_COMMIT_MESSAGE) {
+  const git = "git -c core.hooksPath=/dev/null";
+  return [
+    "sh",
+    "-c",
+    `${git} add -A && { ${git} diff --cached --quiet || ${git} commit --quiet --no-verify -m "$0"; }`,
+    message,
+  ];
+}
+
+// --- What a session may leave in .git ----------------------------------------------------
+//
+// Claude's container, and the dependency install's, have the game's clone writable, .git
+// included, as the same user as the server. The server runs git there afterwards and puts
+// the config back, so it first checks that .git is what git itself makes.
+
+/** Files git reads from somewhere else: the config, refs or objects of a folder they name. */
+const ELSEWHERE = ["commondir", "objects/info/alternates"];
+
+/**
+ * Why a clone's .git can't be trusted, or null. It must be a folder of plain files and
+ * folders. A link anywhere in it has git, or the server, write over whatever it points to,
+ * like the Claude token (a fetch writes FETCH_HEAD through one, `git add` the index), and
+ * `commondir` or `objects/info/alternates` would have git take its config from a folder the
+ * session chose, where a filter runs any command.
+ */
+export function gitDirProblem(repoDir) {
+  const gitDir = join(repoDir, ".git");
+  const top = lstatSync(gitDir, { throwIfNoEntry: false });
+  if (!top) return ".git is missing";
+  if (top.isSymbolicLink()) return ".git is a link";
+  if (!top.isDirectory()) return ".git isn't a folder";
+  const folders = [""];
+  while (folders.length) {
+    const folder = folders.pop();
+    let entries;
+    try {
+      entries = readdirSync(join(gitDir, folder), { withFileTypes: true });
+    } catch {
+      return `${folder ? `.git/${folder}` : ".git"} can't be read`;
+    }
+    for (const entry of entries) {
+      const path = folder ? `${folder}/${entry.name}` : entry.name;
+      if (entry.isSymbolicLink()) return `.git/${path} is a link`;
+      if (ELSEWHERE.includes(path)) return `.git/${path} is there`;
+      if (entry.isDirectory()) folders.push(path);
+      else if (!entry.isFile()) return `.git/${path} isn't a plain file`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Writes a new file where a container may have left anything: what's there (a file, a link,
+ * a folder) is removed, and the new file can only be created, so nothing is written through
+ * a link, not even one that appears in between. `writeFileSync` alone follows a link.
+ */
+export function replaceFile(path, content, options = {}) {
+  rmSync(path, { recursive: true, force: true });
+  writeFileSync(path, content, { ...options, flag: "wx" });
+}
 
 // --- Internet and keys (Settings → Claude) ----------------------------------------------
 //
