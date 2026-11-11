@@ -11,7 +11,9 @@ import {
   Rocket,
   TriangleAlert,
 } from "lucide-react";
+import type { RunTarget } from "@/lib/deploy-run-target";
 import {
+  getRunTarget,
   listRepoRuns,
   triggerDeploy,
   getRepoMarketingVersion,
@@ -864,6 +866,50 @@ function DeployPanel({
 
 const FAILED_CONCLUSIONS = ["failure", "timed_out", "startup_failure"];
 
+const TARGET_LABEL: Record<RunTarget, string> = {
+  testing: "Testing",
+  production: "Production",
+  aab: "AAB only",
+};
+
+// Same colours as the Deploy to Testing and Release to Production buttons.
+const TARGET_TONE: Record<RunTarget, string> = {
+  testing: "border-primary/50 text-primary",
+  production: "border-destructive/50 text-destructive",
+  aab: "border-border text-muted-foreground",
+};
+
+/** Says whether a run went to testing or to production, and to which stores. */
+function RunTargetLabel({
+  appId,
+  run,
+}: {
+  appId: string;
+  run: { id: number; status: string; event: string };
+}) {
+  const targetFn = useServerFn(getRunTarget);
+  const done = run.status === "completed";
+  const q = useQuery({
+    // A finished run's jobs never change, so it is read once more when it finishes and
+    // then kept; a running one is read again with the list.
+    queryKey: ["run-target", appId, run.id, done],
+    queryFn: () => targetFn({ data: { appId, runId: run.id, event: run.event } }),
+    staleTime: done ? Infinity : 0,
+    refetchInterval: done ? false : 8000,
+  });
+  const info = q.data;
+  if (!info?.target) return null;
+  const stores = info.platforms.length > 0 ? ` · ${info.platforms.join(" + ")}` : "";
+  return (
+    <span
+      className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-mono leading-none ${TARGET_TONE[info.target]}`}
+    >
+      {TARGET_LABEL[info.target]}
+      {stores}
+    </span>
+  );
+}
+
 function RunsHistory({ appId, game }: { appId: string; game: string }) {
   const runsFn = useServerFn(listRepoRuns);
   // Which failed runs show why they failed. The newest run starts open when it failed.
@@ -910,6 +956,7 @@ function RunsHistory({ appId, game }: { appId: string; game: string }) {
                   #{r.run_number}
                 </span>
                 <StatusDot status={r.status} conclusion={r.conclusion} />
+                <RunTargetLabel appId={appId} run={r} />
                 <span className="text-xs text-muted-foreground font-mono truncate hidden sm:inline">
                   {r.workflow_name ?? r.event} · {r.head_branch} · {r.actor}
                 </span>

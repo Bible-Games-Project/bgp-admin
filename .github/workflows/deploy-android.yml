@@ -59,7 +59,9 @@ on:
 
 jobs:
   deploy-android:
-    name: Build & Deploy Android
+    # The console's Recent runs reads testing, production or AAB only from the end of this
+    # name (src/lib/deploy-run-target.ts).
+    name: ${{ inputs.skip-upload && 'Build Android (AAB only)' || inputs.play-track == 'production' && 'Build & Deploy Android (production)' || 'Build & Deploy Android (testing)' }}
     runs-on: ubuntu-latest
 
     steps:

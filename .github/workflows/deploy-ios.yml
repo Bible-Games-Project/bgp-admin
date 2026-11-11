@@ -80,7 +80,9 @@ on:
 
 jobs:
   deploy-ios:
-    name: Build & Deploy iOS
+    # The console's Recent runs reads testing or production from the end of this name
+    # (src/lib/deploy-run-target.ts).
+    name: ${{ inputs.submit-for-review && 'Build & Deploy iOS (production)' || 'Build & Deploy iOS (testing)' }}
     runs-on: ${{ inputs.runner }}
 
     env:

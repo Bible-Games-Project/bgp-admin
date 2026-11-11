@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { requireWebGame } from "@/lib/app-kind";
 import { type FailedJob, explainFailure, failureExcerpt } from "@/lib/deploy-failure";
+import { type RunJob, type RunTargetInfo, runTarget } from "@/lib/deploy-run-target";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -203,6 +204,44 @@ export const listRepoRuns = createServerFn({ method: "POST" })
       })),
       error: null as string | null,
     };
+  });
+
+/**
+ * Where a deploy run sent its build (testing, production, an AAB only) and to which
+ * stores, read from its jobs because GitHub doesn't list a run's inputs.
+ */
+export const getRunTarget = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        appId: z.string().uuid(),
+        runId: z.number().int().positive(),
+        event: z.string().max(64),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const app = await loadApp(context.supabase, data.appId);
+    const res = await fetch(
+      `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/runs/${data.runId}/jobs?per_page=30`,
+      { headers: githubHeaders() },
+    );
+    if (!res.ok) return { target: null, platforms: [] } as RunTargetInfo;
+    type GitHubStep = { name?: string; status: string; conclusion?: string | null };
+    const json = (await res.json()) as { jobs?: (GitHubStep & { steps?: GitHubStep[] })[] };
+    const jobs: RunJob[] = (json.jobs ?? []).map((j) => ({
+      name: j.name ?? "",
+      status: j.status,
+      conclusion: j.conclusion ?? null,
+      steps: (j.steps ?? []).map((s) => ({
+        name: s.name ?? "",
+        status: s.status,
+        conclusion: s.conclusion ?? null,
+      })),
+    }));
+    return runTarget(data.event, jobs);
   });
 
 /**
