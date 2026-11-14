@@ -10,6 +10,7 @@ import {
   getBuildAttachmentUrl,
   getBuildChat,
   getPreviewDeploy,
+  retryPreviewDeploy,
   getStrayBranches,
   newBuildChat,
   sendBuildMessage,
@@ -46,6 +47,8 @@ export const Route = createFileRoute("/_authenticated/apps/$id_/build")({
 
 /** A preview build that hasn't started this long after the push isn't coming. */
 const STALLED_AFTER_MS = 10 * 60_000;
+/** After "Try again", GitHub can still report the failed run for a few seconds. */
+const RETRY_GRACE_MS = 30_000;
 
 /**
  * Realtime tells the page as soon as Claude does something, so the chat moves as it works.
@@ -89,6 +92,7 @@ function BuildPage() {
   const getFn = useServerFn(getBuildChat);
   const checkPreviewFn = useServerFn(checkPreviewDeployWorkflow);
   const deployFn = useServerFn(getPreviewDeploy);
+  const retryFn = useServerFn(retryPreviewDeploy);
   const sendFn = useServerFn(sendBuildMessage);
   const stopFn = useServerFn(stopBuildTurn);
   const newChatFn = useServerFn(newBuildChat);
@@ -107,6 +111,8 @@ function BuildPage() {
   // A push made from this page (turning the preview on, bringing a branch over).
   const [pagePush, setPagePush] = useState<PagePush | null>(null);
   const [conflicts, setConflicts] = useState<string[]>([]);
+  // When "Try again" last ran a failed preview build again.
+  const [retriedAt, setRetriedAt] = useState<number | null>(null);
 
   const chatKey = ["build-chat", id];
   const q = useQuery({
@@ -146,7 +152,8 @@ function BuildPage() {
     enabled: Boolean(sha && previewUrl),
     refetchInterval: (query) => {
       const state = query.state.data?.state;
-      if (state === "live" || state === "failed") return false;
+      const justRetried = retriedAt !== null && Date.now() - retriedAt < RETRY_GRACE_MS;
+      if (state === "live" || (state === "failed" && !justRetried)) return false;
       if (since && Date.now() - since > STALLED_AFTER_MS) return false;
       return 4000;
     },
@@ -222,6 +229,26 @@ function BuildPage() {
     },
     onError: (e: Error) => toast.error(e.message, { duration: 10_000 }),
   });
+  // Same commit, so the page follows it from now: polled again, and reloaded once live.
+  const retry = useMutation({
+    mutationFn: (commit: string) => retryFn({ data: { appId: id, sha: commit } }),
+    onSuccess: (_, commit) => {
+      setRetriedAt(Date.now());
+      setPagePush({
+        sha: commit,
+        at: Date.now(),
+        firstPreview: Boolean(followed?.page?.firstPreview),
+      });
+      qc.invalidateQueries({ queryKey: ["preview-deploy", id, commit] });
+    },
+    onError: (e: Error) => toast.error(e.message, { duration: 10_000 }),
+  });
+  const retrying =
+    retry.isPending ||
+    (deployQ.data?.state === "failed" &&
+      retriedAt !== null &&
+      Date.now() - retriedAt < RETRY_GRACE_MS);
+
   const bring = useMutation({
     mutationFn: (branch: StrayBranch) => bringFn({ data: { appId: id, branch: branch.name } }),
     onSuccess: (result, branch) => {
@@ -435,6 +462,8 @@ function BuildPage() {
               setTab("chat");
               send.mutate({ prompt: fixPreviewPrompt(error) });
             }}
+            onRetry={() => sha && retry.mutate(sha)}
+            retrying={retrying}
           />
         </section>
       </div>

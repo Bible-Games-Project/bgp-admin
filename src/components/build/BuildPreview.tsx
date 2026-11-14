@@ -14,16 +14,23 @@ import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
-export type PreviewDeploy = (PreviewDeployState & { error?: string }) | { state: "stalled" } | null;
+export type PreviewDeploy =
+  | (PreviewDeployState & { error?: string; cloudflare?: boolean })
+  | { state: "stalled" }
+  | null;
 
 function DeployStatus({
   deploy,
   onAskFix,
   canAsk,
+  onRetry,
+  retrying,
 }: {
   deploy: PreviewDeploy;
   onAskFix: () => void;
   canAsk: boolean;
+  onRetry: () => void;
+  retrying: boolean;
 }) {
   if (!deploy) return null;
   switch (deploy.state) {
@@ -54,6 +61,39 @@ function DeployStatus({
         </span>
       );
     case "failed":
+      // Cloudflare failed to publish a game that built: the same build again is the cure.
+      if (deploy.cloudflare) {
+        return (
+          <span className="inline-flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 flex-wrap">
+            <span className="inline-flex items-center gap-1">
+              <TriangleAlert className="h-3.5 w-3.5" />
+              Cloudflare couldn't publish the last change. The game is fine.
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1.5"
+              onClick={onRetry}
+              disabled={retrying}
+            >
+              {retrying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Try again
+            </Button>
+            <a
+              href={deploy.runUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
+              details
+            </a>
+          </span>
+        );
+      }
       return (
         <span className="inline-flex items-center gap-2 text-xs text-destructive flex-wrap">
           <span className="inline-flex items-center gap-1">
@@ -103,6 +143,8 @@ export function BuildPreview({
   onReload,
   onAskFix,
   canAsk,
+  onRetry,
+  retrying,
 }: {
   previewUrl: string | null;
   checking: boolean;
@@ -117,6 +159,9 @@ export function BuildPreview({
   onReload: () => void;
   onAskFix: () => void;
   canAsk: boolean;
+  /** Runs the failed preview build again, when Cloudflare is what failed. */
+  onRetry: () => void;
+  retrying: boolean;
 }) {
   // Most games are phone games, so they open the way players see them.
   const [device, setDevice] = useState<"phone" | "desktop">("phone");
@@ -173,7 +218,13 @@ export function BuildPreview({
           </ToggleGroupItem>
         </ToggleGroup>
         <div className="flex-1 min-w-0">
-          <DeployStatus deploy={deploy} onAskFix={onAskFix} canAsk={canAsk} />
+          <DeployStatus
+            deploy={deploy}
+            onAskFix={onAskFix}
+            canAsk={canAsk}
+            onRetry={onRetry}
+            retrying={retrying}
+          />
         </div>
         <Button
           size="icon"
@@ -193,7 +244,12 @@ export function BuildPreview({
       {waitingForFirstBuild ? (
         <div className="flex-1 min-h-0">
           <Placeholder>
-            {deploy?.state === "failed" ? (
+            {deploy?.state === "failed" && deploy.cloudflare ? (
+              <p className="max-w-sm">
+                The game built, but Cloudflare couldn't publish its first preview. Press "Try again"
+                above in a few minutes.
+              </p>
+            ) : deploy?.state === "failed" ? (
               <p className="max-w-sm">
                 The game's first preview didn't build. Claude can find out why: press "Ask Claude to
                 fix it" above.

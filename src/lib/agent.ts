@@ -714,6 +714,24 @@ export function fixPreviewPrompt(error: string) {
   return `The preview build on GitHub failed after your last change, so the preview didn't update. Find out why, fix it, and check that \`bun run build\` passes.${excerpt}`;
 }
 
+/** What wrangler prints when Cloudflare's own servers fail, not the game. */
+const CLOUDFLARE_TROUBLE = [
+  /-> 5\d\d\b/,
+  /\b(502 Bad Gateway|503 Service Unavailable|504 Gateway Time-?out)\b/i,
+  /no healthy upstream/i,
+  /malformed response from the API/i,
+  /Unknown internal error occurred/i,
+];
+
+/**
+ * Whether a preview failed on Cloudflare's side: the game built, and publishing it failed
+ * with a server error from Cloudflare (as in its outage of 13 November 2026). Claude can't
+ * fix that from the game's code; running the same build again once Cloudflare is back can.
+ */
+export function isCloudflareTrouble(step: string | null, error: string) {
+  return step === PREVIEW_DEPLOY_STEP && CLOUDFLARE_TROUBLE.some((p) => p.test(error));
+}
+
 /** The page reloads the preview with this so the browser doesn't show a cached copy. */
 export function previewSrc(url: string, version: string | number) {
   const u = new URL(url);

@@ -38,6 +38,7 @@ import {
   environmentFrom,
   isActiveTurn,
   isClaudeToken,
+  isCloudflareTrouble,
   isStrayBranchName,
   parseDomains,
   parseVariables,
@@ -905,28 +906,42 @@ export const newBuildChat = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** The preview-deploy.yml run for a pushed commit, the latest attempt; null before GitHub has one. */
+async function previewRunFor(base: string, sha: string) {
+  const runsRes = await fetch(
+    `${base}/actions/workflows/preview-deploy.yml/runs?head_sha=${sha}&per_page=1`,
+    { headers: githubHeaders() },
+  );
+  if (!runsRes.ok)
+    throw new Error(`GitHub didn't answer about the preview deploy (${runsRes.status}).`);
+  return (((await runsRes.json()).workflow_runs ?? [])[0] ?? null) as {
+    id: number;
+    status: string;
+    conclusion: string | null;
+    html_url: string;
+  } | null;
+}
+
+type PreviewDeployAnswer = PreviewDeployState & { error?: string; cloudflare?: boolean };
+
+const previewInput = (input: unknown) =>
+  z.object({ appId: z.string().uuid(), sha: z.string().regex(/^[0-9a-f]{40}$/) }).parse(input);
+
 /**
  * Where the preview deploy of a pushed commit stands. When it failed, also the error lines
- * from the build's log, for "Ask Claude to fix it".
+ * from the build's log, for "Ask Claude to fix it", and whether Cloudflare failed rather
+ * than the game, for "Try again".
  */
 export const getPreviewDeploy = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input) =>
-    z.object({ appId: z.string().uuid(), sha: z.string().regex(/^[0-9a-f]{40}$/) }).parse(input),
-  )
-  .handler(async ({ data, context }): Promise<PreviewDeployState & { error?: string }> => {
+  .inputValidator(previewInput)
+  .handler(async ({ data, context }): Promise<PreviewDeployAnswer> => {
     await assertAdmin(context.supabase, context.userId);
     const { app, blocked } = await loadBuildApp(context.supabase, data.appId);
     if (blocked) throw new Error(blocked);
     const base = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}`;
     const headers = githubHeaders();
-    const runsRes = await fetch(
-      `${base}/actions/workflows/preview-deploy.yml/runs?head_sha=${data.sha}&per_page=1`,
-      { headers },
-    );
-    if (!runsRes.ok)
-      throw new Error(`GitHub didn't answer about the preview deploy (${runsRes.status}).`);
-    const run = ((await runsRes.json()).workflow_runs ?? [])[0] ?? null;
+    const run = await previewRunFor(base, data.sha);
     if (!run || run.status !== "completed") return previewDeployState(run, []);
 
     const jobsRes = await fetch(`${base}/actions/runs/${run.id}/jobs?per_page=10`, { headers });
@@ -941,7 +956,35 @@ export const getPreviewDeploy = createServerFn({ method: "POST" })
     });
     const location = logRes.headers.get("location");
     const log = location ? await fetch(location) : logRes;
-    return { ...state, error: log.ok ? failureExcerpt(await log.text()) : "" };
+    const error = log.ok ? failureExcerpt(await log.text()) : "";
+    return { ...state, error, cloudflare: isCloudflareTrouble(state.step, error) };
+  });
+
+/**
+ * "Try again" when Cloudflare, not the game, made the preview deploy fail: GitHub runs the
+ * commit's failed preview build again. A run that's already going again, or that has since
+ * passed, is left alone.
+ */
+export const retryPreviewDeploy = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(previewInput)
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
+    await assertAdmin(context.supabase, context.userId);
+    const { app, blocked } = await loadBuildApp(context.supabase, data.appId);
+    if (blocked) throw new Error(blocked);
+    const base = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}`;
+    const run = await previewRunFor(base, data.sha);
+    if (!run) throw new Error("GitHub has no preview build for this change to run again.");
+    if (run.status !== "completed" || run.conclusion !== "failure") return { ok: true };
+    const res = await fetch(`${base}/actions/runs/${run.id}/rerun-failed-jobs`, {
+      method: "POST",
+      headers: githubHeaders(),
+    });
+    if (!res.ok)
+      throw new Error(
+        `GitHub didn't start the preview build again (${res.status}). Try again in a minute.`,
+      );
+    return { ok: true };
   });
 
 // --- Turning the preview on, and work left on other branches -----------------------------

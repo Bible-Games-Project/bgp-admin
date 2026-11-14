@@ -17,6 +17,7 @@ import {
   environmentFrom,
   fixPreviewPrompt,
   isClaudeToken,
+  isCloudflareTrouble,
   isDeployKey,
   parseDomains,
   parseVariables,
@@ -302,6 +303,46 @@ describe("previewDeployState", () => {
     expect(
       previewDeployState(run("completed", "failure"), steps("skipped", "failure")),
     ).toMatchObject({ step: "Build" });
+  });
+});
+
+describe("a preview Cloudflare failed to publish", () => {
+  const deployStep = "Deploy to Cloudflare Pages";
+  // From exodus-serpent-saga's preview runs during Cloudflare's outage of 13 November 2026.
+  const unavailable = [
+    "Creating the Cloudflare Pages project bgp-exodus-serpent-saga",
+    "✘ [ERROR] Received a malformed response from the API",
+    "  no healthy upstream",
+    "  POST /accounts/***/pages/projects -> 503 Service Unavailable",
+    "Error: Process completed with exit code 1.",
+  ].join("\n");
+  const functionFailed = [
+    "🌎 Deploying...",
+    "✘ [ERROR] Deployment failed!",
+    "  \tFailed to publish your Function. Got error: Unknown internal error occurred.",
+    "Error: Process completed with exit code 1.",
+  ].join("\n");
+
+  test("is Cloudflare's trouble when its servers fail the deploy step", () => {
+    expect(isCloudflareTrouble(deployStep, unavailable)).toBe(true);
+    expect(isCloudflareTrouble(deployStep, functionFailed)).toBe(true);
+  });
+
+  test("is the game's when the build failed or Cloudflare refused it", () => {
+    expect(isCloudflareTrouble("Build", unavailable)).toBe(false);
+    expect(isCloudflareTrouble(null, "")).toBe(false);
+    expect(
+      isCloudflareTrouble(
+        deployStep,
+        "✘ [ERROR] A request to the Cloudflare API (/accounts/***/pages/projects) failed.\n  Authentication error [code: 10000]",
+      ),
+    ).toBe(false);
+    expect(
+      isCloudflareTrouble(
+        deployStep,
+        "✘ [ERROR] Error: Pages only supports files up to 25 MiB in size",
+      ),
+    ).toBe(false);
   });
 });
 
