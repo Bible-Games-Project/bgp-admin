@@ -288,6 +288,13 @@ describe("attachments", () => {
       "Attached file (read it with the Read tool):\n- /tmp/a/logo.png",
     );
     expect(promptWithAttachments("x", [])).toBe("x");
+    expect(
+      promptWithAttachments("Put this music in", [
+        { name: "theme.mp3", contentType: "audio/mpeg", size: 3 * 1024 * 1024 },
+      ]),
+    ).toContain(
+      "- /attachments/theme.mp3 (sound: you can't listen to it; copy it into the repository",
+    );
   });
 
   test("file names are safe and unique", () => {

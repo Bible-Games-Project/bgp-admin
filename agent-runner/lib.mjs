@@ -71,7 +71,13 @@ export function formatBytes(bytes) {
 export function promptWithAttachments(prompt, files, dir = "/attachments") {
   if (!files?.length) return prompt;
   const kind = (type) =>
-    type?.startsWith("image/") ? "image" : type === "application/pdf" ? "PDF" : "text file";
+    type?.startsWith("image/")
+      ? "image"
+      : type === "application/pdf"
+        ? "PDF"
+        : type?.startsWith("audio/")
+          ? "sound: you can't listen to it; copy it into the repository to use it in the game"
+          : "text file";
   return [
     prompt,
     "",

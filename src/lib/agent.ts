@@ -222,7 +222,8 @@ export function budgetExhaustedMessage(budget: WeeklyBudget) {
 // --- Attachments ----------------------------------------------------------------------------
 //
 // A message can carry files for Claude to look at: images and PDFs (which Claude Code's Read
-// tool shows Claude) and plain text. They go to Storage (bucket agent-attachments) and the
+// tool shows Claude) and plain text, and sounds for the game (Claude can't listen to them,
+// but copies them into the repository). They go to Storage (bucket agent-attachments) and the
 // build server fetches them before Claude starts, into /attachments in Claude's container.
 
 export const ATTACHMENTS_BUCKET = "agent-attachments";
@@ -240,6 +241,10 @@ const ATTACHMENT_TYPES: Record<string, string> = {
   md: "text/markdown",
   csv: "text/csv",
   json: "application/json",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  m4a: "audio/mp4",
 };
 
 /** For the file picker. */
@@ -256,8 +261,9 @@ export function attachmentType(name: string): string | null {
   return (ext && ATTACHMENT_TYPES[ext]) || null;
 }
 
-export function attachmentKind(contentType: string): "image" | "pdf" | "text" {
+export function attachmentKind(contentType: string): "image" | "pdf" | "audio" | "text" {
   if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("audio/")) return "audio";
   if (contentType === "application/pdf") return "pdf";
   return "text";
 }
@@ -265,7 +271,7 @@ export function attachmentKind(contentType: string): "image" | "pdf" | "text" {
 /** Why a file can't be attached, in words for the person, or null when it can. */
 export function attachmentProblem(file: { name: string; size: number }): string | null {
   if (!attachmentType(file.name)) {
-    return `${file.name}: only images (PNG, JPEG, GIF, WebP), PDFs and text files (TXT, MD, CSV, JSON) can be attached.`;
+    return `${file.name}: only images (PNG, JPEG, GIF, WebP), PDFs, text files (TXT, MD, CSV, JSON) and sounds (MP3, WAV, OGG, M4A) can be attached.`;
   }
   if (file.size > ATTACHMENT_MAX_BYTES) {
     return `${file.name} is ${formatBytes(file.size)}; the most is ${formatBytes(ATTACHMENT_MAX_BYTES)}.`;

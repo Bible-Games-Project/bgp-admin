@@ -19,7 +19,7 @@ export type PendingAttachment = {
   key: string;
   name: string;
   size: number;
-  kind: "image" | "pdf" | "text";
+  kind: "image" | "pdf" | "audio" | "text";
   /** An object URL of the image, for the chip. */
   preview: string | null;
   status: "uploading" | "ready" | "failed";

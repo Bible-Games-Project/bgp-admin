@@ -9,6 +9,7 @@ import {
   sortStrayBranches,
   strayBranchFrom,
   agentSettingsFrom,
+  attachmentKind,
   attachmentProblem,
   attachmentType,
   budgetExhaustedMessage,
@@ -193,6 +194,10 @@ describe("attachments", () => {
     expect(attachmentType("Captura de pantalla.PNG")).toBe("image/png");
     expect(attachmentType("brief.pdf")).toBe("application/pdf");
     expect(attachmentType("notes.md")).toBe("text/markdown");
+    expect(attachmentType("Animal Puzzle Fun 2.txt.mp3")).toBe("audio/mpeg");
+    expect(attachmentType("jump.WAV")).toBe("audio/wav");
+    expect(attachmentKind("audio/mpeg")).toBe("audio");
+    expect(attachmentKind("image/png")).toBe("image");
     expect(attachmentType("photo.heic")).toBeNull();
     expect(attachmentType("archive.zip")).toBeNull();
     expect(attachmentType("noext")).toBeNull();
