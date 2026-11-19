@@ -62,6 +62,7 @@ const PAGES: [RegExp, string][] = [
   [/^\/downloads$/, "Downloads"],
   [/^\/expenses$/, "Expenses"],
   [/^\/reviews$/, "Reviews"],
+  [/^\/videos$/, "Videos (a conversation with Claude about each game's videos)"],
   [/^\/settings\/claude$/, "Settings → Claude"],
   [/^\/settings\/security$/, "Settings → Security"],
 ];

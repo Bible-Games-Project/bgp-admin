@@ -31,6 +31,7 @@ import {
 } from "@/lib/agent";
 import { assistantSystemPrompt, cleanContext, describeContext } from "@/lib/assistant";
 import { TRANSLATE_EFFORT, translateSystemPrompt } from "@/lib/store-translate";
+import { describeVideoContext, videoSystemPrompt } from "@/lib/videos";
 
 // The tables are typed, but the nested selects below read more easily untyped.
 const db = () => supabaseAdmin as any;
@@ -391,6 +392,27 @@ async function claimTurn(turn: any, now: Date) {
       budget,
       toolToken,
       systemPrompt: translateSystemPrompt(),
+    };
+  }
+
+  // A game's Videos chat (videos.ts): run like Ruben's messages (no repository, the
+  // console's read-only tools), resuming the game's conversation, as its video producer.
+  if (chat?.kind === "video") {
+    const toolToken = `ast_${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, "");
+    await db().from("agent_turns").update({ tool_token: toolToken }).eq("id", turn.id);
+    const context = cleanContext(turn.context);
+    return {
+      kind: "assistant",
+      id: turn.id,
+      chatId: turn.chat_id,
+      prompt: `${describeVideoContext(context)}\n\n${turn.prompt}`,
+      sessionId: chat?.session_id ?? null,
+      author: { email: turn.created_by_email },
+      model: settings.model,
+      effort: settings.effort,
+      budget,
+      toolToken,
+      systemPrompt: videoSystemPrompt(),
     };
   }
 

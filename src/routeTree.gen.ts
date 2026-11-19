@@ -16,6 +16,7 @@ import { Route as ForbiddenRouteImport } from './routes/forbidden'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated.index'
+import { Route as AuthenticatedVideosRouteImport } from './routes/_authenticated.videos'
 import { Route as AuthenticatedReviewsRouteImport } from './routes/_authenticated.reviews'
 import { Route as AuthenticatedRevenueRouteImport } from './routes/_authenticated.revenue'
 import { Route as AuthenticatedExpensesRouteImport } from './routes/_authenticated.expenses'
@@ -61,6 +62,11 @@ const AuthenticatedRoute = AuthenticatedRouteImport.update({
 const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedVideosRoute = AuthenticatedVideosRouteImport.update({
+  id: '/videos',
+  path: '/videos',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedReviewsRoute = AuthenticatedReviewsRouteImport.update({
@@ -138,6 +144,7 @@ export interface FileRoutesByFullPath {
   '/expenses': typeof AuthenticatedExpensesRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/reviews': typeof AuthenticatedReviewsRoute
+  '/videos': typeof AuthenticatedVideosRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/apps/setup': typeof AuthenticatedAppsSetupRoute
   '/settings/claude': typeof AuthenticatedSettingsClaudeRoute
@@ -157,6 +164,7 @@ export interface FileRoutesByTo {
   '/expenses': typeof AuthenticatedExpensesRoute
   '/revenue': typeof AuthenticatedRevenueRoute
   '/reviews': typeof AuthenticatedReviewsRoute
+  '/videos': typeof AuthenticatedVideosRoute
   '/': typeof AuthenticatedIndexRoute
   '/apps/$id': typeof AuthenticatedAppsIdRoute
   '/apps/setup': typeof AuthenticatedAppsSetupRoute
@@ -179,6 +187,7 @@ export interface FileRoutesById {
   '/_authenticated/expenses': typeof AuthenticatedExpensesRoute
   '/_authenticated/revenue': typeof AuthenticatedRevenueRoute
   '/_authenticated/reviews': typeof AuthenticatedReviewsRoute
+  '/_authenticated/videos': typeof AuthenticatedVideosRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/apps/$id': typeof AuthenticatedAppsIdRoute
   '/_authenticated/apps/setup': typeof AuthenticatedAppsSetupRoute
@@ -202,6 +211,7 @@ export interface FileRouteTypes {
     | '/expenses'
     | '/revenue'
     | '/reviews'
+    | '/videos'
     | '/apps/$id'
     | '/apps/setup'
     | '/settings/claude'
@@ -221,6 +231,7 @@ export interface FileRouteTypes {
     | '/expenses'
     | '/revenue'
     | '/reviews'
+    | '/videos'
     | '/'
     | '/apps/$id'
     | '/apps/setup'
@@ -242,6 +253,7 @@ export interface FileRouteTypes {
     | '/_authenticated/expenses'
     | '/_authenticated/revenue'
     | '/_authenticated/reviews'
+    | '/_authenticated/videos'
     | '/_authenticated/'
     | '/_authenticated/apps/$id'
     | '/_authenticated/apps/setup'
@@ -313,6 +325,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/videos': {
+      id: '/_authenticated/videos'
+      path: '/videos'
+      fullPath: '/videos'
+      preLoaderRoute: typeof AuthenticatedVideosRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/reviews': {
@@ -407,6 +426,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedExpensesRoute: typeof AuthenticatedExpensesRoute
   AuthenticatedRevenueRoute: typeof AuthenticatedRevenueRoute
   AuthenticatedReviewsRoute: typeof AuthenticatedReviewsRoute
+  AuthenticatedVideosRoute: typeof AuthenticatedVideosRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAppsIdRoute: typeof AuthenticatedAppsIdRoute
   AuthenticatedAppsSetupRoute: typeof AuthenticatedAppsSetupRoute
@@ -421,6 +441,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedExpensesRoute: AuthenticatedExpensesRoute,
   AuthenticatedRevenueRoute: AuthenticatedRevenueRoute,
   AuthenticatedReviewsRoute: AuthenticatedReviewsRoute,
+  AuthenticatedVideosRoute: AuthenticatedVideosRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedAppsIdRoute: AuthenticatedAppsIdRoute,
   AuthenticatedAppsSetupRoute: AuthenticatedAppsSetupRoute,

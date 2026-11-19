@@ -75,16 +75,20 @@ function Reply({ text, onRan }: { text: string; onRan: (label: string, outcome: 
   );
 }
 
-function TurnView({
+/** One message and what Claude did with it. Also used by the Videos page's chats. */
+export function TurnView({
   turn,
   waitingFor,
   runnerOnline,
   onRan,
+  showPlace = true,
 }: {
   turn: AssistantTurn;
   waitingFor: string | null;
   runnerOnline: boolean;
   onRan: (label: string, outcome: string) => void;
+  /** Under the message, the page it was sent from. */
+  showPlace?: boolean;
 }) {
   const parts = segments(turn.events);
   const hasText = turn.events.some((e) => e.kind === "text");
@@ -95,7 +99,7 @@ function TurnView({
         <div className="max-w-[88%] rounded-2xl rounded-br-sm bg-primary/10 px-3 py-1.5 text-sm whitespace-pre-wrap break-words">
           {turn.prompt}
         </div>
-        {turn.context?.path && (
+        {showPlace && turn.context?.path && (
           <span className="text-[10px] text-muted-foreground">
             on {pageName(turn.context.path)}
             {turn.context.appName ? ` · ${turn.context.appName}` : ""}

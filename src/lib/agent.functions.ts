@@ -17,6 +17,7 @@ import { isSelfRepo } from "@/lib/self-repo";
 import { keepRunnerWatching, weeklyBudgetNow } from "@/lib/agent.server";
 import { ASSISTANT_NAME } from "@/lib/assistant";
 import { isTranslationContext } from "@/lib/store-translate";
+import { isVideoContext, videoQueueLabel } from "@/lib/videos";
 import {
   AGENT_EFFORTS,
   AGENT_EFFORT_SETTING,
@@ -572,6 +573,7 @@ export function aheadOf(
   );
   if (!ahead || Date.parse(ahead.created_at) > Date.parse(active.createdAt)) return null;
   if (isTranslationContext(ahead.context)) return "a store translation";
+  if (isVideoContext(ahead.context)) return videoQueueLabel(ahead.context);
   return ahead.apps?.name ?? (ahead.app_id ? "another game" : ASSISTANT_NAME);
 }
 
@@ -814,6 +816,7 @@ export const sendBuildMessage = createServerFn({ method: "POST" })
       .from("agent_chats")
       .select("id")
       .eq("app_id", app.id)
+      .eq("kind", "build")
       .is("archived_at", null)
       .maybeSingle();
     if (!chat) {
@@ -830,6 +833,7 @@ export const sendBuildMessage = createServerFn({ method: "POST" })
             .from("agent_chats")
             .select("id")
             .eq("app_id", app.id)
+            .eq("kind", "build")
             .is("archived_at", null)
             .single()
         ).data;
@@ -905,6 +909,7 @@ export const newBuildChat = createServerFn({ method: "POST" })
       .from("agent_chats")
       .update({ archived_at: nowIso() })
       .eq("app_id", data.appId)
+      .eq("kind", "build")
       .is("archived_at", null);
     return { ok: true };
   });
