@@ -31,6 +31,8 @@ import {
   type PlayTextField,
 } from "@/lib/store-listing";
 import { PlayGraphicsEditor } from "@/components/StoreImagesEditor";
+import { TranslateWithClaude, useStoreTranslations } from "@/components/StoreTranslate";
+import { fieldsToTranslate } from "@/lib/store-translate";
 import {
   AddLanguageDialog,
   LanguageSelect,
@@ -107,6 +109,24 @@ export function PlayListingPanel({ appId }: { appId: string }) {
   const detailChanges = listing?.details ? changedFields(listing.details, details) : {};
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["store-listing", "play", appId] });
+
+  const translations = useStoreTranslations({
+    appId,
+    store: "play",
+    onDone: (to, fields) =>
+      setDrafts((d) => {
+        const base =
+          d[to] ??
+          listings.find((l) => l.language === to)?.fields ??
+          (to === newLanguage ? defaultFields : null);
+        return base ? { ...d, [to]: { ...base, ...fields } } : d;
+      }),
+  });
+  const translationSource = defaultLanguage ? fieldsToTranslate("play", defaultFields) : {};
+  const translate = (to: string) => {
+    if (defaultLanguage && to !== defaultLanguage && Object.keys(translationSource).length)
+      void translations.start(defaultLanguage, to, translationSource);
+  };
   const dropDraft = (code: string) =>
     setDrafts((d) => {
       const { [code]: _, ...rest } = d;
@@ -236,6 +256,19 @@ export function PlayListingPanel({ appId }: { appId: string }) {
             >
               <Plus className="h-4 w-4" /> Add language
             </Button>
+            {selected !== defaultLanguage && defaultLanguage && (
+              <TranslateWithClaude
+                from={defaultLanguage}
+                to={selected}
+                translations={translations}
+                disabledReason={
+                  Object.keys(translationSource).length
+                    ? null
+                    : `${localeLabel(defaultLanguage)} has no texts to translate yet.`
+                }
+                onStart={() => translate(selected)}
+              />
+            )}
             {selected !== defaultLanguage && (
               <Button
                 variant="ghost"
@@ -258,7 +291,8 @@ export function PlayListingPanel({ appId }: { appId: string }) {
           {isNew && (
             <Notice tone="warn" title={`${localeLabel(selected)} is not on Google Play yet.`}>
               It was filled in from {defaultLanguage ? localeLabel(defaultLanguage) : "the default"}
-              . Translate it, then save to send it to Google.
+              {translations.busy(selected) ? " and Claude is translating it" : ""}. Check the texts,
+              then save to send it to Google.
             </Notice>
           )}
 
@@ -381,12 +415,13 @@ export function PlayListingPanel({ appId }: { appId: string }) {
         open={adding}
         onOpenChange={setAdding}
         options={PLAY_LANGUAGES.filter((c) => !codes.includes(c))}
-        description={`The new language starts as a copy of ${defaultLanguage ? localeLabel(defaultLanguage) : "the default language"}. Nothing is sent to Google until you save it.`}
+        description={`The new language starts as a copy of ${defaultLanguage ? localeLabel(defaultLanguage) : "the default language"}, and Claude then translates its texts — all but the app's name. Nothing is sent to Google until you save it.`}
         onAdd={(code) => {
           setNewLanguage(code);
           setDrafts((d) => ({ ...d, [code]: { ...defaultFields } }));
           setLanguage(code);
           setAdding(false);
+          translate(code);
         }}
       />
 

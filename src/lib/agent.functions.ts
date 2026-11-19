@@ -16,6 +16,7 @@ import { isWebGame, NOT_A_WEB_GAME_MESSAGE } from "@/lib/app-kind";
 import { isSelfRepo } from "@/lib/self-repo";
 import { keepRunnerWatching, weeklyBudgetNow } from "@/lib/agent.server";
 import { ASSISTANT_NAME } from "@/lib/assistant";
+import { isTranslationContext } from "@/lib/store-translate";
 import {
   AGENT_EFFORTS,
   AGENT_EFFORT_SETTING,
@@ -561,6 +562,7 @@ export function aheadOf(
     id: string;
     app_id: string | null;
     created_at: string;
+    context?: unknown;
     apps?: { name: string } | null;
   }[],
   ownAppId: string | null,
@@ -569,6 +571,7 @@ export function aheadOf(
     (t) => t.id !== active.id && (ownAppId === null || t.app_id !== ownAppId),
   );
   if (!ahead || Date.parse(ahead.created_at) > Date.parse(active.createdAt)) return null;
+  if (isTranslationContext(ahead.context)) return "a store translation";
   return ahead.apps?.name ?? (ahead.app_id ? "another game" : ASSISTANT_NAME);
 }
 
@@ -594,7 +597,7 @@ export const getBuildChat = createServerFn({ method: "GET" })
       readSettings(supabase),
       supabase
         .from("agent_turns")
-        .select("id, app_id, status, created_at, apps(name)")
+        .select("id, app_id, status, created_at, context, apps(name)")
         .in("status", ["queued", "running"])
         .order("created_at", { ascending: true })
         .limit(20),

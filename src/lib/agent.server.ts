@@ -30,6 +30,7 @@ import {
   type WeeklyBudget,
 } from "@/lib/agent";
 import { assistantSystemPrompt, cleanContext, describeContext } from "@/lib/assistant";
+import { TRANSLATE_EFFORT, translateSystemPrompt } from "@/lib/store-translate";
 
 // The tables are typed, but the nested selects below read more easily untyped.
 const db = () => supabaseAdmin as any;
@@ -371,6 +372,27 @@ async function claimTurn(turn: any, now: Date) {
   // Queued before the share ran out (another game's message used the rest): not started.
   const budget = await weeklyBudgetNow(settings.weeklyBudgetPercent, runner?.usage ?? null, now);
   if (budget.exhausted) return fail(budgetExhaustedMessage(budget));
+
+  // A Store tab translation (store-translate.ts): the server runs it like one of Ruben's
+  // messages (no repository), but in a new session each time, with the translator's
+  // instructions and a lighter effort. It answers with JSON and needs no tools.
+  if (chat?.kind === "translate") {
+    const toolToken = `ast_${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, "");
+    await db().from("agent_turns").update({ tool_token: toolToken }).eq("id", turn.id);
+    return {
+      kind: "assistant",
+      id: turn.id,
+      chatId: turn.chat_id,
+      prompt: turn.prompt,
+      sessionId: null,
+      author: { email: turn.created_by_email },
+      model: settings.model,
+      effort: TRANSLATE_EFFORT,
+      budget,
+      toolToken,
+      systemPrompt: translateSystemPrompt(),
+    };
+  }
 
   // The assistant (Ruben): no repository; Claude reads the console through its tools, with
   // a token that only works while this turn runs (assistant.server.ts).

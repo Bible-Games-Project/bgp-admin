@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -35,6 +35,8 @@ import {
   type AscTextField,
 } from "@/lib/store-listing";
 import { AscScreenshotsEditor } from "@/components/StoreImagesEditor";
+import { TranslateWithClaude, useStoreTranslations } from "@/components/StoreTranslate";
+import { fieldsToTranslate } from "@/lib/store-translate";
 import {
   AddLanguageDialog,
   LanguageSelect,
@@ -98,6 +100,8 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
   const [drafts, setDrafts] = useState<Record<string, AscFields>>({});
   const [adding, setAdding] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  // A language just added: Claude translates it as soon as it shows up in the listing.
+  const [autoTranslate, setAutoTranslate] = useState<string | null>(null);
 
   const listing = q.data;
   const views = listing?.views ?? [];
@@ -115,6 +119,40 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
   const tooLong = draft ? overLimit(draft, ASC_LIMITS) : [];
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["store-listing", "ios", appId] });
+
+  // Translations only go to the version being prepared, the one whose texts can change.
+  const nextView = views.find((v) => v.kind === "next" && v.versionEditable) ?? null;
+  const translations = useStoreTranslations({
+    appId,
+    store: "ios",
+    onDone: (to, fields) =>
+      setDrafts((d) => {
+        const key = `next:${to}`;
+        const base = d[key] ?? nextView?.locales.find((l) => l.locale === to)?.fields;
+        return base ? { ...d, [key]: { ...base, ...fields } } : d;
+      }),
+  });
+  /** The primary language's texts Claude can translate into `to` on the version being prepared. */
+  const translationSource = (to: string) => {
+    if (!nextView || to === primary) return null;
+    const source = nextView.locales.find((l) => l.locale === primary)?.fields;
+    if (!source) return null;
+    const editable = Object.fromEntries(
+      Object.entries(source).filter(([key]) => fieldEditable(nextView, key as AscTextField)),
+    );
+    return fieldsToTranslate("ios", editable);
+  };
+  const translate = (to: string) => {
+    const fields = translationSource(to);
+    if (fields && Object.keys(fields).length) void translations.start(primary, to, fields);
+  };
+  const addedShown = !!autoTranslate && !!nextView?.locales.some((l) => l.locale === autoTranslate);
+  useEffect(() => {
+    if (!autoTranslate || !addedShown) return;
+    setAutoTranslate(null);
+    translate(autoTranslate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoTranslate, addedShown]);
   const dropDraft = (key: string) =>
     setDrafts((d) => {
       const { [key]: _, ...rest } = d;
@@ -152,6 +190,7 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
       setAdding(false);
       setViewKind("next");
       setLocale(code);
+      setAutoTranslate(code);
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message, { duration: 15000 }),
@@ -284,6 +323,19 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
                 >
                   <Plus className="h-4 w-4" /> Add language
                 </Button>
+                {current.locale !== primary && view.versionEditable && (
+                  <TranslateWithClaude
+                    from={primary}
+                    to={current.locale}
+                    translations={translations}
+                    disabledReason={
+                      Object.keys(translationSource(current.locale) ?? {}).length
+                        ? null
+                        : `${localeLabel(primary)} has no texts to translate yet.`
+                    }
+                    onStart={() => translate(current.locale)}
+                  />
+                )}
                 {current.locale !== primary && (
                   <Button
                     variant="ghost"
@@ -379,7 +431,7 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
         onOpenChange={setAdding}
         options={ASC_LOCALES.filter((c) => !localeCodes.includes(c))}
         pending={addM.isPending}
-        description={`The new language starts as a copy of ${localeLabel(primary)}. Translate it here before the next release.`}
+        description={`The new language starts as a copy of ${localeLabel(primary)}, and Claude then translates its texts — all but the app's name. Check them and save before the next release.`}
         onAdd={(code) => addM.mutate(code)}
       />
 

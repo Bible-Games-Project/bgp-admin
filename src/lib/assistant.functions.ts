@@ -51,7 +51,7 @@ export const getAssistantChat = createServerFn({ method: "GET" })
       readSettings(supabase),
       supabase
         .from("agent_turns")
-        .select("id, app_id, status, created_at, apps(name)")
+        .select("id, app_id, status, created_at, context, apps(name)")
         .in("status", ["queued", "running"])
         .order("created_at", { ascending: true })
         .limit(20),
