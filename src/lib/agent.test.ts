@@ -171,6 +171,16 @@ describe("the weekly share", () => {
     expect(windowSpent([turn(0, 50), turn(null, 51)], window)).toBe(0);
   });
 
+  test("a message still running counts what it has used so far, and goes up with it", () => {
+    const turn = (spent: number, endedAt: number) => ({
+      weekly_spent: spent,
+      usage: usage(endedAt),
+    });
+    // A finished 50 → 53; B is running and the server has reported 53 → 54, then 53 → 56
+    expect(windowSpent([turn(3, 53), turn(1, 54)], window)).toBe(4);
+    expect(windowSpent([turn(3, 53), turn(3, 56)], window)).toBe(6);
+  });
+
   test("says when it resets, in Madrid time", () => {
     expect(resetLabel(window)).toBe("Friday at 07:00");
     expect(resetLabel(null)).toBe("when the limit resets");

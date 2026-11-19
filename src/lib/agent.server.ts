@@ -65,14 +65,20 @@ export async function weeklyBudgetNow(
   percent: number,
   usage: AgentUsage | null,
   now = new Date(),
+  { finishedOnly = false } = {},
 ): Promise<WeeklyBudget> {
   const resetsAt = currentWeeklyWindow(usage, now);
   let spends: number[] = [];
   if (resetsAt) {
-    const { data, error } = await db()
+    let query = db()
       .from("agent_turns")
       .select("weekly_spent, usage")
       .eq("weekly_resets_at", resetsAt);
+    // Running messages count what they've used so far (turnProgress), but the budget a new
+    // message takes to the build server leaves them out: the server measures from where the
+    // running ones started (lib.budgetBaseline), so counting them here would count it twice.
+    if (finishedOnly) query = query.not("finished_at", "is", null);
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
     // Messages that ran at the same time count what they shared once (windowSpent)
     spends = [windowSpent(data ?? [], resetsAt)];
@@ -371,7 +377,9 @@ async function claimTurn(turn: any, now: Date) {
     ]);
   const settings = agentSettingsFrom(settingRows ?? []);
   // Queued before the share ran out (another game's message used the rest): not started.
-  const budget = await weeklyBudgetNow(settings.weeklyBudgetPercent, runner?.usage ?? null, now);
+  const budget = await weeklyBudgetNow(settings.weeklyBudgetPercent, runner?.usage ?? null, now, {
+    finishedOnly: true,
+  });
   if (budget.exhausted) return fail(budgetExhaustedMessage(budget));
 
   // A Store tab translation (store-translate.ts): the server runs it like one of Ruben's
@@ -520,14 +528,34 @@ async function turnProgress(body: Record<string, unknown>) {
     .filter(Boolean)
     .map((e) => ({ turn_id: turn.id, app_id: turn.app_id, ...e }));
   const sessionId = str(body.sessionId, 100);
+  // The account's usage rose during the turn: what the turn has used so far counts towards
+  // the chat's weekly share now, so the percent goes up as it happens (finishTurn sets the
+  // final figure).
+  const usage = body.usage && typeof body.usage === "object" ? (body.usage as AgentUsage) : null;
+  const usageBefore =
+    body.usageBefore && typeof body.usageBefore === "object"
+      ? (body.usageBefore as AgentUsage)
+      : null;
+  const spend = usage ? turnWeeklySpend(usageBefore, usage) : null;
   await Promise.all([
     events.length ? db().from("agent_events").insert(events) : null,
+    usage && turn.status === "running"
+      ? db()
+          .from("agent_turns")
+          .update({
+            usage,
+            weekly_spent: spend?.spent ?? null,
+            weekly_resets_at: spend?.resetsAt ?? null,
+          })
+          .eq("id", turn.id)
+          .eq("status", "running")
+      : null,
     sessionId && sessionId !== turn.agent_chats?.session_id
       ? db().from("agent_chats").update({ session_id: sessionId }).eq("id", turn.chat_id)
       : null,
     db()
       .from("agent_runner")
-      .update({ last_seen_at: iso(new Date()), busy: true })
+      .update({ last_seen_at: iso(new Date()), busy: true, ...(usage ? { usage } : {}) })
       .eq("id", "main"),
   ]);
   return { cancel: Boolean(turn.cancel_requested_at) || turn.status !== "running" };

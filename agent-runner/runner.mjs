@@ -35,7 +35,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import * as lib from "./lib.mjs";
 
-const VERSION = "8";
+const VERSION = "9";
 const env = process.env;
 const CONFIG = {
   console: (env.CONSOLE_URL ?? "https://bgp-admin-preview.biblegamesproject.workers.dev").replace(
@@ -716,6 +716,9 @@ class TurnReporter {
     // Where the share is measured from while it runs: the earliest start of the messages
     // running alongside it (lib.budgetBaseline), so together they stop at the share.
     this.budgetFrom = null;
+    // The usage the console last heard of: it hears of every rise while the turn runs,
+    // so the chat's weekly share goes up with it, not only when the turn ends.
+    this.usageSent = null;
     this.budgetStop = false;
     this.cancelled = false;
     this.onCancel = null;
@@ -735,12 +738,19 @@ class TurnReporter {
 
   async flush(force = false) {
     if (this.sending) return;
-    if (!force && !this.pending.length && Date.now() - this.lastSent < 5000) return;
+    const usage = this.usage !== this.usageSent ? this.usage : null;
+    if (!force && !usage && !this.pending.length && Date.now() - this.lastSent < 5000) return;
     this.sending = true;
     const events = this.pending.splice(0, 100);
     try {
-      const answer = await api("turn", { id: this.id, events, sessionId: this.sessionId });
+      const answer = await api("turn", {
+        id: this.id,
+        events,
+        sessionId: this.sessionId,
+        ...(usage ? { usage, usageBefore: this.usageBefore } : {}),
+      });
       this.lastSent = Date.now();
+      if (usage) this.usageSent = usage;
       if (answer.cancel && !this.cancelled) {
         this.cancelled = true;
         log(`turn ${this.id}: stopped from the chat`);

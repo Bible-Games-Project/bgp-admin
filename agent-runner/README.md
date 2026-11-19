@@ -100,7 +100,9 @@ Cloud project, not only Lovable's, and the install runs the packages' scripts.
 Settings → Claude says how much of the Claude account's weekly limit the Build chat may use (10% by
 default; 0 for no limit). Claude reports the account's usage at every call it makes, so each turn
 knows the usage when it started and when it ended, and the difference is what the turn used. The
-console adds those up over the current week (`weekly_spent` on `agent_turns`), refuses new messages
+console adds those up over the current week (`weekly_spent` on `agent_turns`; a running turn's
+figure is updated with every rise the server reports, so the percent in the chat and in Settings →
+Claude goes up as it happens), refuses new messages
 once the share is used, and tells the server the share and what is used so far with each turn
 (`job.budget`). If the share runs out during a turn, the server stops Claude after the call that
 crossed it, like Stop: the commits it had made are pushed, the rest waits until the limit resets. The
