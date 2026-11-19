@@ -33,6 +33,7 @@ import { assistantSystemPrompt, cleanContext, describeContext } from "@/lib/assi
 import { TRANSLATE_EFFORT, translateSystemPrompt } from "@/lib/store-translate";
 import { isScreenshotsContext, screenshotsSystemPrompt } from "@/lib/store-screenshots";
 import { describeVideoContext, videoSystemPrompt } from "@/lib/videos";
+import { saveReelPlan } from "@/lib/video-reels.server";
 
 // The tables are typed, but the nested selects below read more easily untyped.
 const db = () => supabaseAdmin as any;
@@ -572,7 +573,7 @@ async function finishTurn(body: Record<string, unknown>) {
     : "failed";
   const { data: turn } = await db()
     .from("agent_turns")
-    .select("id, chat_id, status")
+    .select("id, chat_id, status, agent_chats(kind, app_id)")
     .eq("id", id)
     .maybeSingle();
   if (!turn) throw new AgentApiError("No such turn", 404);
@@ -612,6 +613,19 @@ async function finishTurn(body: Record<string, unknown>) {
       .update({ last_seen_at: now, ...(usage ? { usage } : {}) })
       .eq("id", "main"),
   ]);
+  // A Videos message that planned reels (the weekly brief, or asked for): keep the plan for
+  // the Videos page. A plan that can't be saved doesn't fail the message.
+  const chat = turn.agent_chats;
+  if (
+    status === "done" &&
+    chat?.kind === "video" &&
+    chat.app_id &&
+    ["queued", "running"].includes(turn.status)
+  ) {
+    await saveReelPlan({ id: turn.id, appId: chat.app_id }, str(body.reply, 40_000)).catch((e) =>
+      console.error("Couldn't save the reel plan", e),
+    );
+  }
   return { ok: true };
 }
 

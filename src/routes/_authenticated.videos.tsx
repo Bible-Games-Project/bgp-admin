@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { TurnView } from "@/components/assistant/Ruben";
+import { WeeklyReels } from "@/components/videos/WeeklyReels";
 import { useDictation } from "@/components/build/useDictation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -93,8 +94,9 @@ function VideosPage() {
         <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">Videos</h1>
         <p className="text-sm text-muted-foreground mt-1">
           A conversation with Claude about each game's videos: the weekly plan, scripts, captions
-          and titles for reels, shorts and YouTube. Claude writes them; for now you record and post
-          them. Publishing on each game's channels and the weekly brief come next.
+          and titles for reels, shorts and YouTube. Turn on the weekly reels and Claude plans next
+          week's every Sunday night for you to review. For now you record and post them; recording
+          with the voice and scheduling in Metricool come next.
         </p>
       </div>
 
@@ -122,7 +124,10 @@ function VideosPage() {
       </div>
 
       {app ? (
-        <VideoChat key={app.id} appId={app.id} appName={app.name} />
+        <>
+          <VideoChat key={app.id} appId={app.id} appName={app.name} />
+          <WeeklyReels key={`reels-${app.id}`} appId={app.id} appName={app.name} />
+        </>
       ) : (
         <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           <Clapperboard className="h-8 w-8 mx-auto mb-3 text-primary" />

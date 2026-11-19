@@ -19,6 +19,9 @@ const nitro: NitroPluginConfig = {
     "monitor:run": {
       handler: fileURLToPath(new URL("./src/tasks/monitor.ts", import.meta.url)),
     },
+    "videos:brief": {
+      handler: fileURLToPath(new URL("./src/tasks/video-brief.ts", import.meta.url)),
+    },
   },
   // Each cron is a run of its own, with its own 50 requests on Cloudflare's free plan.
   scheduledTasks: {
@@ -28,6 +31,10 @@ const nitro: NitroPluginConfig = {
     // Every 15 minutes, off the income job's minute. MONITOR_EVERY_MINUTES in
     // src/lib/monitor.ts has to match.
     "2,17,32,47 * * * *": ["monitor:run"],
+    // Sunday night (UTC; 21:00 and 23:00 in Madrid in winter): the weekly reels brief. The
+    // second run only sends to games whose first brief didn't leave a plan for next week.
+    // WEEKLY_BRIEF_LABEL in src/lib/video-reels.ts tells people when: change both together.
+    "0 20,22 * * 0": ["videos:brief"],
   },
 };
 

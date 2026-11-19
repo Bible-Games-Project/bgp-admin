@@ -19,6 +19,8 @@ import { MAX_PROMPT_CHARS, budgetExhaustedMessage, isActiveTurn } from "@/lib/ag
 import { cleanContext } from "@/lib/assistant";
 import type { AssistantTurn } from "@/lib/assistant.functions";
 import { videoContext } from "@/lib/videos";
+import { MAX_FORMAT_CHARS, mondayOf, nextWeekOf } from "@/lib/video-reels";
+import { sendWeeklyBrief } from "@/lib/video-brief.server";
 
 const admin = () => supabaseAdmin as any;
 const nowIso = () => new Date().toISOString();
@@ -174,4 +176,117 @@ export const newVideoChat = createServerFn({ method: "POST" })
       throw new Error("Claude is still working. Wait for it, or press Stop first.");
     await admin().from("agent_chats").update({ archived_at: nowIso() }).eq("id", chat.id);
     return { ok: true };
+  });
+
+// --- Weekly reels (video-reels.ts) ------------------------------------------------------------
+
+/** A game's reel settings and the reels planned from this week on. */
+export const getVideoReels = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => appInput.parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const [{ data: settings, error: settingsError }, { data: reels, error }] = await Promise.all([
+      admin()
+        .from("video_settings")
+        .select("weekly_reels, format, updated_at")
+        .eq("app_id", data.appId)
+        .maybeSingle(),
+      admin()
+        .from("video_reels")
+        .select(
+          "id, week_of, publish_on, title, hook, script, voiceover, caption, hashtags, status, created_at",
+        )
+        .eq("app_id", data.appId)
+        .gte("week_of", mondayOf(new Date()))
+        .order("publish_on", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(40),
+    ]);
+    if (settingsError) throw new Error(settingsError.message);
+    if (error) throw new Error(error.message);
+    return {
+      settings: {
+        weeklyReels: Boolean(settings?.weekly_reels),
+        format: (settings?.format as string | undefined) ?? "",
+      },
+      nextWeekOf: nextWeekOf(new Date()),
+      reels: (reels ?? []) as VideoReel[],
+    };
+  });
+
+export type VideoReel = {
+  id: string;
+  week_of: string;
+  publish_on: string;
+  title: string;
+  hook: string;
+  script: string;
+  voiceover: string;
+  caption: string;
+  hashtags: string[];
+  status: "planned" | "discarded";
+  created_at: string;
+};
+
+/** Turns a game's weekly reels on or off, and sets the format Claude follows. */
+export const saveVideoSettings = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    appInput
+      .extend({
+        weeklyReels: z.boolean(),
+        format: z
+          .string()
+          .trim()
+          .max(
+            MAX_FORMAT_CHARS,
+            `Keep it under ${MAX_FORMAT_CHARS.toLocaleString("en")} characters.`,
+          ),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { error } = await admin().from("video_settings").upsert(
+      {
+        app_id: data.appId,
+        weekly_reels: data.weeklyReels,
+        format: data.format,
+        updated_by: context.userId,
+        updated_at: nowIso(),
+      },
+      { onConflict: "app_id" },
+    );
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Discards a planned reel, or brings it back. */
+export const setReelStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z.object({ id: z.string().uuid(), status: z.enum(["planned", "discarded"]) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { error } = await admin()
+      .from("video_reels")
+      .update({ status: data.status, updated_at: nowIso() })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Sends one game's weekly brief now, without waiting for Sunday. */
+export const planNextWeekNow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => appInput.parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    return sendWeeklyBrief(data.appId, {
+      force: true,
+      userId: context.userId,
+      email: (context.claims.email as string | undefined) ?? null,
+    });
   });

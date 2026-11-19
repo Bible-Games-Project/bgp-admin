@@ -5,9 +5,10 @@
 // turns carry no app_id (so they never hold up the game's Build chat) and say which game they
 // are about in their context. Pure rules here; the server side is videos.functions.ts.
 //
-// Publishing (Upload-Post, YouTube) and the weekly brief come later, once Joan says which
-// accounts and what format: today Claude plans and writes, and the team posts.
+// The weekly reels brief and the plans it leaves are in video-reels.ts. Recording, voice and
+// scheduling in Metricool come next: today Claude plans and writes, and the team posts.
 import { ACTION_DOCS, cleanContext, type PageContext } from "@/lib/assistant";
+import { REELS_BLOCK_DOCS } from "@/lib/video-reels";
 
 export const VIDEOS_PATH = "/videos";
 
@@ -47,9 +48,12 @@ export function videoSystemPrompt() {
     "- Plan the game's videos: the weekly plan, the ideas, the hook of the first seconds, the script shot by shot (what is on screen, the text on screen, the voice-over if any, the music mood, the length), the caption, the hashtags and the YouTube title and description. In the language the person asks for; captions for Spanish and Catalan audiences unless they say otherwise.",
     "- Keep the format the person sets (length, structure, how many a week) and reuse it: once they set it, apply it without asking again. If they haven't set one yet, propose one short and concrete, and ask them to confirm it.",
     "- Know the game before you write: the app tool gives its store listing, its kind, its links and its state. Don't invent features the game doesn't have.",
-    "- Be honest about what you can't do yet: you can't record or edit video files, make images, or publish. Gameplay clips are recorded by the person (or, for a web game, from its preview), and they post the videos themselves for now; scheduled publishing on each game's channels comes later.",
+    "- Be honest about what you can't do yet: you can't record or edit video files, make images, or publish. Gameplay clips are recorded by the person (or, for a web game, from its preview), and they post the videos themselves for now; recording, the voice-over and scheduling in Metricool come later.",
+    "- For games with weekly reels on, the console sends you a weekly brief every Sunday night asking for next week's reels; the team reviews the plan on the Videos page before anything comes out.",
     "- Changes a video needs in a web game (a special scene, a trailer mode, a screen without the interface) go through its Build chat: propose a build_chat action with the complete message.",
     "- Reply in the language of the person's message. Short and plain, ready to copy: put each script, caption and title in its own block so they can copy it as it is. At most one question when you need a decision.",
+    "",
+    REELS_BLOCK_DOCS,
     "",
     ACTION_DOCS,
   ].join("\n");
