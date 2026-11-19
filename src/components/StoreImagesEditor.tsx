@@ -39,6 +39,7 @@ import {
 } from "@/lib/store-listing";
 import { prepareStoreImage, readImageSize, type PreparedImage } from "@/lib/store-image-file";
 import { cn } from "@/lib/utils";
+import { ScreenshotsWithClaude, type ScreenshotSlot } from "@/components/StoreScreenshotsClaude";
 
 /** One image with its controls underneath, so they also work on a phone. */
 function Thumb({
@@ -155,12 +156,15 @@ export function AscScreenshotsEditor({
   locale,
   editable,
   readOnlyNote,
+  about = "",
 }: {
   appId: string;
   viewKind: "live" | "next";
   locale: string;
   editable: boolean;
   readOnlyNote: ReactNode;
+  /** The language's description, for Claude's screenshot captions. */
+  about?: string;
 }) {
   const qc = useQueryClient();
   const listFn = useServerFn(getAppStoreScreenshots);
@@ -249,9 +253,30 @@ export function AscScreenshotsEditor({
   }
   if (q.error) return <p className="text-xs text-destructive">{(q.error as Error).message}</p>;
 
+  const claudeSlots: ScreenshotSlot[] = rows
+    .filter((type) => ASC_UPLOAD_SLOTS.some((s) => s.type === type))
+    .map((type) => ({
+      type,
+      label: ascDisplayTypeLabel(type),
+      room: ASC_MAX_SCREENSHOTS - (groups.find((g) => g.key === type)?.images.length ?? 0),
+    }));
+
   return (
     <div className="space-y-4">
       {!editable && <p className="text-xs text-muted-foreground">{readOnlyNote}</p>}
+      {editable && claudeSlots.length > 0 && (
+        <ScreenshotsWithClaude
+          appId={appId}
+          store="ios"
+          locale={locale}
+          about={about}
+          slots={claudeSlots}
+          disabled={!!busy}
+          onAdd={(type, files) =>
+            upload(type, files, claudeSlots.find((s) => s.type === type)?.room ?? 0)
+          }
+        />
+      )}
       {rows.length === 0 && (
         <p className="text-xs text-muted-foreground">No screenshots for this language.</p>
       )}
@@ -348,7 +373,16 @@ export function AscScreenshotsEditor({
 type Pending = { removed: string[]; added: Record<string, PreparedImage[]> };
 const NO_PENDING: Pending = { removed: [], added: {} };
 
-export function PlayGraphicsEditor({ appId, language }: { appId: string; language: string }) {
+export function PlayGraphicsEditor({
+  appId,
+  language,
+  about = "",
+}: {
+  appId: string;
+  language: string;
+  /** The language's full description, for Claude's screenshot captions. */
+  about?: string;
+}) {
   const qc = useQueryClient();
   const imagesFn = useServerFn(getPlayImages);
   const startFn = useServerFn(startPlayImageEdit);
@@ -481,8 +515,32 @@ export function PlayGraphicsEditor({ appId, language }: { appId: string; languag
   }
   if (q.error) return <p className="text-xs text-destructive">{(q.error as Error).message}</p>;
 
+  const claudeSlots: ScreenshotSlot[] = PLAY_IMAGE_TYPES.filter(([type]) =>
+    type.endsWith("Screenshots"),
+  ).map(([type, label]) => {
+    const kept = (q.data?.groups.find((g) => g.key === type)?.images ?? []).filter(
+      (i) => !pending.removed.includes(i.id),
+    ).length;
+    return {
+      type,
+      label,
+      room: PLAY_IMAGE_RULES[type].max - kept - (pending.added[type]?.length ?? 0),
+    };
+  });
+
   return (
     <div className="space-y-4">
+      <ScreenshotsWithClaude
+        appId={appId}
+        store="play"
+        locale={language}
+        about={about}
+        slots={claudeSlots}
+        disabled={!!progress}
+        onAdd={(type, files) =>
+          add(type, files, claudeSlots.find((s) => s.type === type)?.room ?? 0)
+        }
+      />
       {PLAY_IMAGE_TYPES.map(([type, label]) => {
         const rule = PLAY_IMAGE_RULES[type];
         const existing = (q.data?.groups.find((g) => g.key === type)?.images ?? []).filter(

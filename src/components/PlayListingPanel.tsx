@@ -357,7 +357,11 @@ export function PlayListingPanel({ appId }: { appId: string }) {
           {!isNew && (
             <div className="space-y-2 pt-2">
               <h3 className="text-sm font-medium">Graphics · {localeLabel(selected)}</h3>
-              <PlayGraphicsEditor appId={appId} language={selected} />
+              <PlayGraphicsEditor
+                appId={appId}
+                language={selected}
+                about={draft.fullDescription ?? ""}
+              />
             </div>
           )}
         </>

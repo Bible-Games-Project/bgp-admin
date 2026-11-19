@@ -414,6 +414,7 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
               viewKind={view.kind}
               locale={current.locale}
               editable={view.versionEditable}
+              about={current.fields.description ?? ""}
               readOnlyNote={
                 view.kind === "next"
                   ? "Apple is reviewing this version; its screenshots can change once the review ends."

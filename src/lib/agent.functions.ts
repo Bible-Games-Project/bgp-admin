@@ -17,6 +17,7 @@ import { isSelfRepo } from "@/lib/self-repo";
 import { keepRunnerWatching, weeklyBudgetNow } from "@/lib/agent.server";
 import { ASSISTANT_NAME } from "@/lib/assistant";
 import { isTranslationContext } from "@/lib/store-translate";
+import { isScreenshotsContext } from "@/lib/store-screenshots";
 import { isVideoContext, videoQueueLabel } from "@/lib/videos";
 import {
   AGENT_EFFORTS,
@@ -573,6 +574,7 @@ export function aheadOf(
   );
   if (!ahead || Date.parse(ahead.created_at) > Date.parse(active.createdAt)) return null;
   if (isTranslationContext(ahead.context)) return "a store translation";
+  if (isScreenshotsContext(ahead.context)) return "store screenshots";
   if (isVideoContext(ahead.context)) return videoQueueLabel(ahead.context);
   return ahead.apps?.name ?? (ahead.app_id ? "another game" : ASSISTANT_NAME);
 }

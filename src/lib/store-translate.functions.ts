@@ -22,7 +22,8 @@ const admin = () => supabaseAdmin as any;
 export const limitsFor = (store: TranslateStore): Record<string, number> =>
   store === "ios" ? ASC_LIMITS : PLAY_LIMITS;
 
-async function translateChat(userId: string) {
+/** The person's chat for Store tab jobs (translations and screenshot designs). */
+export async function translateChat(userId: string) {
   const find = () =>
     admin()
       .from("agent_chats")
