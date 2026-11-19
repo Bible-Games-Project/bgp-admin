@@ -122,17 +122,23 @@ function drawCaption(
 ) {
   if (!text.trim()) return;
   const font = FONTS[design.font];
-  // The biggest size at which it fits in three lines inside the band.
+  // The biggest size at which the text (at most three lines) and the accent bar fit
+  // inside the band, so neither touches the phone.
+  const extra = (s: number) => s * 0.25 + Math.max(4, s * 0.16);
   let size = Math.round(box.h * 0.36);
   let lines: string[] = [];
   for (; size > 12; size -= 2) {
     ctx.font = `${font.weight} ${size}px ${font.family}`;
     lines = wrap(ctx, text, box.w);
     const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
-    if (lines.length <= 3 && lines.length * size * 1.15 <= box.h && widest <= box.w) break;
+    if (lines.length <= 3 && lines.length * size * 1.15 + extra(size) <= box.h && widest <= box.w)
+      break;
   }
   const lineH = size * 1.15;
-  const top = box.y + (box.h - lines.length * lineH) / 2;
+  const block = lines.length * lineH + extra(size);
+  const blockTop = box.y + (box.h - block) / 2;
+  // The bar sits on the side away from the phone.
+  const top = design.captionPosition === "top" ? blockTop : blockTop + extra(size);
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -142,13 +148,10 @@ function drawCaption(
   ctx.shadowOffsetY = size * 0.05;
   lines.forEach((l, i) => ctx.fillText(l, box.x + box.w / 2, top + lineH * (i + 0.5)));
   ctx.restore();
-  // A short accent bar under (or over) the caption.
+  // A short accent bar under (or, at the bottom, over) the caption.
   const bar: Rect = {
     x: box.x + box.w / 2 - size * 0.9,
-    y:
-      design.captionPosition === "top"
-        ? top + lines.length * lineH + size * 0.25
-        : top - size * 0.45,
+    y: design.captionPosition === "top" ? top + lines.length * lineH + size * 0.25 : blockTop,
     w: size * 1.8,
     h: Math.max(4, size * 0.16),
   };
