@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { TurnView } from "@/components/assistant/Ruben";
 import { WeeklyReels } from "@/components/videos/WeeklyReels";
+import { ScheduledReels } from "@/components/videos/ScheduledReels";
 import { useDictation } from "@/components/build/useDictation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -106,7 +107,7 @@ function VideosPage() {
           A conversation with Claude about each game's videos: reels, shorts and YouTube. For a web
           game it's the game's Build chat, so Claude can record the game, add the voice and use the
           game's own tools from here. Turn on the weekly reels and Claude makes next week's every
-          Sunday night for you to review.
+          Sunday night for you to review, and see the reels already scheduled at Upload-Post.
         </p>
       </div>
 
@@ -136,6 +137,7 @@ function VideosPage() {
       {app ? (
         <>
           <GameVideoChat key={app.id} appId={app.id} appName={app.name} />
+          <ScheduledReels key={`scheduled-${app.id}`} appId={app.id} appName={app.name} />
           <WeeklyReels key={`reels-${app.id}`} appId={app.id} appName={app.name} />
         </>
       ) : (

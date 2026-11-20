@@ -14,7 +14,9 @@ import {
   requestUsageRefresh,
   turnView,
 } from "@/lib/agent.functions";
-import { keepRunnerWatching, weeklyBudgetNow } from "@/lib/agent.server";
+import { keepRunnerWatching, previewUrlFor, weeklyBudgetNow } from "@/lib/agent.server";
+import { githubHeaders } from "@/lib/github.functions";
+import { CHANNEL_PATH, PUBLISHED_PATH, scheduledReels } from "@/lib/scheduled-reels";
 import { MAX_PROMPT_CHARS, budgetExhaustedMessage, isActiveTurn } from "@/lib/agent";
 import { cleanContext } from "@/lib/assistant";
 import type { AssistantTurn } from "@/lib/assistant.functions";
@@ -296,4 +298,52 @@ export const planNextWeekNow = createServerFn({ method: "POST" })
       userId: context.userId,
       email: (context.claims.email as string | undefined) ?? null,
     });
+  });
+
+// --- Scheduled at Upload-Post (scheduled-reels.ts) ---------------------------------------------
+
+/** A file of the game's repo as JSON, or undefined when it isn't there or isn't JSON. */
+async function repoJson(
+  app: { github_owner: string; github_repo: string; default_ref: string | null },
+  path: string,
+) {
+  const ref = encodeURIComponent(app.default_ref || "main");
+  const res = await fetch(
+    `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/contents/${path}?ref=${ref}`,
+    { headers: { ...githubHeaders(), Accept: "application/vnd.github.raw+json" } },
+  );
+  if (res.status === 404) return undefined;
+  if (!res.ok)
+    throw new Error(`GitHub didn't answer for ${path} (${res.status}). Try again in a minute.`);
+  try {
+    return JSON.parse(await res.text()) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The reels a web game's Build chat has scheduled at Upload-Post, from its repo's log. */
+export const getScheduledReels = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => appInput.parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { data: app, error } = await admin()
+      .from("apps")
+      .select("id, github_owner, github_repo, default_ref")
+      .eq("id", data.appId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!app || !isWebGame(app) || isSelfRepo(app.github_owner, app.github_repo))
+      return { hasRepo: false as const };
+    const [published, channel, previewUrl] = await Promise.all([
+      repoJson(app, PUBLISHED_PATH),
+      repoJson(app, CHANNEL_PATH),
+      previewUrlFor(app).catch(() => null),
+    ]);
+    return {
+      hasRepo: true as const,
+      hasLog: published !== undefined,
+      ...scheduledReels(published, channel, previewUrl, new Date()),
+    };
   });
