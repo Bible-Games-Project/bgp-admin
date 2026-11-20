@@ -19,15 +19,25 @@ import { WeeklyReels } from "@/components/videos/WeeklyReels";
 import { useDictation } from "@/components/build/useDictation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { stopBuildTurn } from "@/lib/agent.functions";
-import { MAX_PROMPT_CHARS, isActiveTurn, resetLabel } from "@/lib/agent";
+import {
+  getBuildAttachmentUrl,
+  getBuildChat,
+  sendBuildMessage,
+  stopBuildTurn,
+  uploadBuildAttachment,
+} from "@/lib/agent.functions";
+import { MAX_PROMPT_CHARS, isActiveTurn, resetLabel, type BuildAttachment } from "@/lib/agent";
+import { BuildChat } from "@/components/build/BuildChat";
 import { listApps } from "@/lib/apps.functions";
 import { isCurrentUserAdmin } from "@/lib/deploy.functions";
 import { getVideoChat, newVideoChat, sendVideoMessage } from "@/lib/videos.functions";
 import { cn } from "@/lib/utils";
 
-// The Videos page: pick a game, and talk with Claude about its videos (src/lib/videos.ts).
-// One conversation per game, shared by the team, kept until someone starts a new one.
+// The Videos page: pick a game, and talk with Claude about its videos. A web game's
+// conversation here is its Build chat, the same one as on its Build page: Claude has the
+// game's code, its tools (recording, voice) and its keys, so it can do everything from here.
+// A game without a repo gets a conversation of its own (src/lib/videos.ts), which plans and
+// writes. Either way it's shared by the team and kept until someone starts a new one.
 
 export const Route = createFileRoute("/_authenticated/videos")({
   validateSearch: (search: Record<string, unknown>): { app?: string } => ({
@@ -93,10 +103,10 @@ function VideosPage() {
         <span className="label-mono">marketing</span>
         <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">Videos</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          A conversation with Claude about each game's videos: the weekly plan, scripts, captions
-          and titles for reels, shorts and YouTube. Turn on the weekly reels and Claude plans next
-          week's every Sunday night for you to review. For now you record and post them; recording
-          with the voice and scheduling in Metricool come next.
+          A conversation with Claude about each game's videos: reels, shorts and YouTube. For a web
+          game it's the game's Build chat, so Claude can record the game, add the voice and use the
+          game's own tools from here. Turn on the weekly reels and Claude makes next week's every
+          Sunday night for you to review.
         </p>
       </div>
 
@@ -125,7 +135,7 @@ function VideosPage() {
 
       {app ? (
         <>
-          <VideoChat key={app.id} appId={app.id} appName={app.name} />
+          <GameVideoChat key={app.id} appId={app.id} appName={app.name} />
           <WeeklyReels key={`reels-${app.id}`} appId={app.id} appName={app.name} />
         </>
       ) : (
@@ -134,6 +144,114 @@ function VideosPage() {
           Pick a game to talk with Claude about its videos.
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A web game's conversation is its Build chat: the same messages as on its Build page, with
+ * the game's code and keys. Other games (no repo, or the console itself) get the Videos chat.
+ */
+function GameVideoChat({ appId, appName }: { appId: string; appName: string }) {
+  const getFn = useServerFn(getBuildChat);
+  const q = useQuery({
+    queryKey: ["build-chat", appId],
+    queryFn: () => getFn({ data: { appId } }),
+    refetchInterval: (query) =>
+      query.state.data?.turns.some((t) => isActiveTurn(t.status)) ? 3000 : 10_000,
+  });
+  if (q.isLoading) {
+    return (
+      <div className="rounded-xl border border-border h-[420px] flex items-center justify-center">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (q.error || !q.data || q.data.blocked) return <VideoChat appId={appId} appName={appName} />;
+  return <BuildVideoChat appId={appId} appName={appName} data={q.data} />;
+}
+
+type BuildChatData = NonNullable<Awaited<ReturnType<typeof getBuildChat>>>;
+
+function BuildVideoChat({
+  appId,
+  appName,
+  data,
+}: {
+  appId: string;
+  appName: string;
+  data: BuildChatData;
+}) {
+  const [draft, setDraft] = useState("");
+  const qc = useQueryClient();
+  const sendFn = useServerFn(sendBuildMessage);
+  const stopFn = useServerFn(stopBuildTurn);
+  const uploadFn = useServerFn(uploadBuildAttachment);
+  const attachmentUrlFn = useServerFn(getBuildAttachmentUrl);
+  const chatKey = ["build-chat", appId];
+
+  const send = useMutation({
+    mutationFn: ({ prompt, attachmentIds }: { prompt: string; attachmentIds: string[] }) =>
+      sendFn({ data: { appId, prompt, attachmentIds } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: chatKey }),
+    onError: (e: Error) => toast.error(e.message, { duration: 10_000 }),
+  });
+  const stop = useMutation({
+    mutationFn: (turnId: string) => stopFn({ data: { turnId } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: chatKey }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const upload = (file: File, thumbnail: string | null) => {
+    const form = new FormData();
+    form.set("appId", appId);
+    form.set("file", file);
+    if (thumbnail) form.set("thumbnail", thumbnail);
+    return uploadFn({ data: form });
+  };
+  // The tab opens from the click and gets the link when it arrives (no pop-up block).
+  const openAttachment = async (attachment: BuildAttachment) => {
+    const tab = window.open("", "_blank");
+    try {
+      const { url } = await attachmentUrlFn({ data: { id: attachment.id } });
+      if (tab) tab.location.href = url;
+      else window.location.assign(url);
+    } catch (e) {
+      tab?.close();
+      toast.error((e as Error).message);
+    }
+  };
+
+  return (
+    <div className="flex flex-col rounded-xl border border-border bg-background h-[min(720px,calc(100dvh-16rem))] min-h-[420px] overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <Clapperboard className="h-4 w-4 text-primary" />
+        <span className="font-display font-semibold text-sm truncate">{appName} · Build chat</span>
+        <div className="flex-1" />
+        <Button asChild size="sm" variant="ghost" className="h-8 text-xs">
+          <Link to="/apps/$id/build" params={{ id: appId }} title="The same chat, with the preview">
+            Open with the preview
+          </Link>
+        </Button>
+      </div>
+      <div className="flex-1 min-h-0">
+        <BuildChat
+          appName={data.app.name}
+          appIcon={data.app.icon}
+          repo={data.app.repo}
+          turns={data.turns}
+          waitingFor={data.waitingFor}
+          runner={data.runner}
+          account={data.account}
+          budget={data.budget}
+          sending={send.isPending}
+          onSend={(prompt, attachmentIds) => send.mutateAsync({ prompt, attachmentIds })}
+          onStop={(turnId) => stop.mutate(turnId)}
+          onUpload={upload}
+          onOpenAttachment={openAttachment}
+          draft={draft}
+          setDraft={setDraft}
+        />
+      </div>
     </div>
   );
 }

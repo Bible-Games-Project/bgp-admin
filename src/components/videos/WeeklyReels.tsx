@@ -70,11 +70,12 @@ export function WeeklyReels({ appId, appName }: { appId: string; appName: string
     onSuccess: () => {
       toast.success(
         inBuild
-          ? `Sent to ${appName}'s Build chat. Claude is making next week's videos there; they'll show here when it ends.`
+          ? `Sent to ${appName}'s Build chat, above. Claude is making next week's videos; they'll show here when it ends.`
           : "Sent. Claude is planning next week's reels in the conversation above.",
         { duration: 8_000 },
       );
       qc.invalidateQueries({ queryKey: ["video-chat", appId] });
+      qc.invalidateQueries({ queryKey: ["build-chat", appId] });
     },
     onError: (e: Error) => toast.error(e.message, { duration: 10_000 }),
   });
