@@ -21,6 +21,8 @@ import type { AssistantTurn } from "@/lib/assistant.functions";
 import { videoContext } from "@/lib/videos";
 import { MAX_FORMAT_CHARS, mondayOf, nextWeekOf } from "@/lib/video-reels";
 import { sendWeeklyBrief } from "@/lib/video-brief.server";
+import { isWebGame } from "@/lib/app-kind";
+import { isSelfRepo } from "@/lib/self-repo";
 
 const admin = () => supabaseAdmin as any;
 const nowIso = () => new Date().toISOString();
@@ -186,23 +188,25 @@ export const getVideoReels = createServerFn({ method: "GET" })
   .inputValidator((input) => appInput.parse(input))
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
-    const [{ data: settings, error: settingsError }, { data: reels, error }] = await Promise.all([
-      admin()
-        .from("video_settings")
-        .select("weekly_reels, format, updated_at")
-        .eq("app_id", data.appId)
-        .maybeSingle(),
-      admin()
-        .from("video_reels")
-        .select(
-          "id, week_of, publish_on, title, hook, script, voiceover, caption, hashtags, status, created_at",
-        )
-        .eq("app_id", data.appId)
-        .gte("week_of", mondayOf(new Date()))
-        .order("publish_on", { ascending: true })
-        .order("created_at", { ascending: true })
-        .limit(40),
-    ]);
+    const [{ data: settings, error: settingsError }, { data: reels, error }, { data: app }] =
+      await Promise.all([
+        admin()
+          .from("video_settings")
+          .select("weekly_reels, format, updated_at")
+          .eq("app_id", data.appId)
+          .maybeSingle(),
+        admin()
+          .from("video_reels")
+          .select(
+            "id, week_of, publish_on, title, hook, script, voiceover, caption, hashtags, video_url, status, created_at",
+          )
+          .eq("app_id", data.appId)
+          .gte("week_of", mondayOf(new Date()))
+          .order("publish_on", { ascending: true })
+          .order("created_at", { ascending: true })
+          .limit(40),
+        admin().from("apps").select("github_owner, github_repo").eq("id", data.appId).maybeSingle(),
+      ]);
     if (settingsError) throw new Error(settingsError.message);
     if (error) throw new Error(error.message);
     return {
@@ -211,6 +215,8 @@ export const getVideoReels = createServerFn({ method: "GET" })
         format: (settings?.format as string | undefined) ?? "",
       },
       nextWeekOf: nextWeekOf(new Date()),
+      // A web game's brief goes to its Build chat, which makes the videos (video-brief.server.ts).
+      inBuildChat: Boolean(app && isWebGame(app) && !isSelfRepo(app.github_owner, app.github_repo)),
       reels: (reels ?? []) as VideoReel[],
     };
   });
@@ -225,6 +231,7 @@ export type VideoReel = {
   voiceover: string;
   caption: string;
   hashtags: string[];
+  video_url: string | null;
   status: "planned" | "discarded";
   created_at: string;
 };

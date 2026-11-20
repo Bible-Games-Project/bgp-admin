@@ -1,12 +1,21 @@
 // The weekly brief (video-reels.ts): on Sunday night, for each game with weekly reels on and
-// no plan yet for next week, a message in its Videos conversation asks Claude for next week's
-// reels. Run by the Cron Trigger in src/tasks/video-brief.ts, and by the Videos page's
-// "Plan next week now" button for one game.
+// no reels yet for next week, a message asks Claude for next week's reels. A web game gets it
+// in its Build chat, which makes the videos in the repo; a game with no repo (or the
+// console's own) in its Videos conversation, which only plans them. Run by the Cron Trigger
+// in src/tasks/video-brief.ts, and by the Videos page's "Make next week now" button.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { AGENT_SETTING_KEYS, accountFrom, agentSettingsFrom } from "@/lib/agent";
-import { keepRunnerWatching, weeklyBudgetNow } from "@/lib/agent.server";
+import { isSelfRepo } from "@/lib/self-repo";
+import { keepRunnerWatching, previewUrlFor, weeklyBudgetNow } from "@/lib/agent.server";
+import { isWebGame } from "@/lib/app-kind";
 import { videoContext } from "@/lib/videos";
-import { briefIsDue, nextWeekOf, weeklyBriefPrompt } from "@/lib/video-reels";
+import {
+  REELS_BRIEF_PURPOSE,
+  briefIsDue,
+  buildBriefPrompt,
+  nextWeekOf,
+  weeklyBriefPrompt,
+} from "@/lib/video-reels";
 
 const db = () => supabaseAdmin as any;
 
@@ -36,6 +45,31 @@ export async function ensureVideoChat(appId: string, userId: string | null) {
   return chat as { id: string; created_at: string };
 }
 
+/** The game's open Build chat, started if it has none (as sendBuildMessage does). */
+export async function ensureBuildChat(appId: string, userId: string | null) {
+  const find = async () => {
+    const { data, error } = await db()
+      .from("agent_chats")
+      .select("id")
+      .eq("kind", "build")
+      .eq("app_id", appId)
+      .is("archived_at", null)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data as { id: string } | null;
+  };
+  const open = await find();
+  if (open) return open;
+  const created = await db()
+    .from("agent_chats")
+    .insert({ kind: "build", app_id: appId, created_by: userId })
+    .select("id")
+    .single();
+  const chat = created.data ?? (await find());
+  if (!chat) throw new Error(created.error?.message ?? "Couldn't start the chat.");
+  return chat as { id: string };
+}
+
 export async function chatIsBusy(chatId: string) {
   const { data } = await db()
     .from("agent_turns")
@@ -63,7 +97,11 @@ export async function sendWeeklyBrief(
 ): Promise<BriefOutcome> {
   const weekOf = nextWeekOf(now);
   const [{ data: app }, { data: settings }, { count }] = await Promise.all([
-    db().from("apps").select("id, name, is_active").eq("id", appId).maybeSingle(),
+    db()
+      .from("apps")
+      .select("id, name, is_active, github_owner, github_repo, default_ref")
+      .eq("id", appId)
+      .maybeSingle(),
     db().from("video_settings").select("weekly_reels, format").eq("app_id", appId).maybeSingle(),
     db()
       .from("video_reels")
@@ -94,6 +132,31 @@ export async function sendWeeklyBrief(
   );
   if (budget.exhausted) throw new Error("The weekly share of Claude is used up.");
 
+  const format = settings?.format ?? "";
+  // A web game: its Build chat makes the videos. Its turn carries the game, so it waits
+  // behind the game's other Build messages and never runs beside them.
+  if (isWebGame(app) && !isSelfRepo(app.github_owner, app.github_repo)) {
+    const chat = await ensureBuildChat(app.id, userId);
+    if (await chatIsBusy(chat.id))
+      throw new Error(
+        "This game's Build chat is still on a message. Try again when it ends (the Sunday brief tries again two hours later).",
+      );
+    const previewUrl = await previewUrlFor(app).catch(() => null);
+    const { error } = await db()
+      .from("agent_turns")
+      .insert({
+        chat_id: chat.id,
+        app_id: app.id,
+        prompt: buildBriefPrompt(weekOf, format, previewUrl),
+        context: { purpose: REELS_BRIEF_PURPOSE, weekOf },
+        created_by: userId,
+        created_by_email: email,
+      });
+    if (error) throw new Error(error.message);
+    await keepRunnerWatching();
+    return result("brief sent to the Build chat");
+  }
+
   const chat = await ensureVideoChat(app.id, userId);
   if (await chatIsBusy(chat.id))
     throw new Error(
@@ -104,7 +167,7 @@ export async function sendWeeklyBrief(
     .insert({
       chat_id: chat.id,
       app_id: null,
-      prompt: weeklyBriefPrompt(weekOf, settings?.format ?? ""),
+      prompt: weeklyBriefPrompt(weekOf, format),
       context: videoContext(app.id, app.name),
       created_by: userId,
       created_by_email: email,

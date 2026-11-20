@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   REELS_BLOCK_DOCS,
+  REELS_BRIEF_PURPOSE,
   briefIsDue,
+  buildBriefPrompt,
+  isReelsBrief,
+  videoUrl,
   mondayOf,
   nextWeekOf,
   parseReelPlan,
@@ -61,6 +65,7 @@ describe("weekly reels", () => {
       voiceover: "Can you cross the sea?",
       caption: "Play now",
       hashtags: ["#bible", "#games"],
+      video: "",
     });
     // An object with a reels list, hashtags as one string
     expect(
@@ -95,5 +100,53 @@ describe("weekly reels", () => {
   test("Claude is told how to hand over a plan", () => {
     expect(videoSystemPrompt()).toContain(REELS_BLOCK_DOCS);
     expect(videoSystemPrompt()).toContain("weekly brief");
+  });
+});
+
+describe("weekly reels in the Build chat", () => {
+  test("the brief asks for finished videos in the repo, posted nowhere, and a reels block", () => {
+    const prompt = buildBriefPrompt(
+      "2026-11-23",
+      " 15 s, Catalan voice ",
+      "https://bgp-exodus.pages.dev",
+    );
+    expect(prompt).toContain("Monday 23 November");
+    expect(prompt).toContain("Our reel format:\n15 s, Catalan voice");
+    expect(prompt).toContain("public/shorts/");
+    expect(prompt).toContain("Don't post or schedule anything");
+    expect(prompt).toContain("https://bgp-exodus.pages.dev");
+    expect(prompt).toContain("language `reels`");
+    expect(prompt).toContain('"video"');
+    expect(prompt).not.toContain("\n\n\n");
+    expect(buildBriefPrompt("2026-11-23", "", null)).toContain("already follows for its shorts");
+  });
+
+  test("only the brief's own Build messages keep reels", () => {
+    expect(isReelsBrief({ purpose: REELS_BRIEF_PURPOSE, weekOf: "2026-11-23" })).toBe(true);
+    expect(isReelsBrief({ purpose: "screenshots" })).toBe(false);
+    expect(isReelsBrief(null)).toBe(false);
+    expect(isReelsBrief("reels")).toBe(false);
+  });
+
+  test("a reel's video is put on the game's preview", () => {
+    const preview = "https://bgp-bible-rpg.pages.dev";
+    expect(videoUrl("shorts/eden-naming.mp4", preview)).toBe(`${preview}/shorts/eden-naming.mp4`);
+    expect(videoUrl("public/shorts/eden naming.mp4", preview)).toBe(
+      `${preview}/shorts/eden%20naming.mp4`,
+    );
+    expect(videoUrl("/shorts/a.mp4", `${preview}/`)).toBe(`${preview}/shorts/a.mp4`);
+    expect(videoUrl(`${preview}/shorts/a.mp4`, null)).toBe(`${preview}/shorts/a.mp4`);
+    expect(videoUrl("http://example.com/a.mp4", preview)).toBeNull();
+    expect(videoUrl("javascript:alert(1)", preview)).toBeNull();
+    expect(videoUrl("../secrets.mp4", preview)).toBeNull();
+    expect(videoUrl("shorts/a.mp4", null)).toBeNull();
+    expect(videoUrl("  ", preview)).toBeNull();
+  });
+
+  test("the reels block keeps each reel's video", () => {
+    const reels = parseReelPlan(
+      block([reel("2026-11-23", { video: "shorts/a.mp4" }), reel("2026-11-25")]),
+    );
+    expect(reels?.map((r) => r.video)).toEqual(["shorts/a.mp4", ""]);
   });
 });

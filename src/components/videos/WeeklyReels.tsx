@@ -5,6 +5,7 @@ import {
   CalendarClock,
   ChevronDown,
   Copy,
+  ExternalLink,
   Loader2,
   RotateCcw,
   Sparkles,
@@ -26,7 +27,8 @@ import {
 import { cn } from "@/lib/utils";
 
 // The weekly reels of one game on the Videos page (src/lib/video-reels.ts): whether Claude
-// plans them every Sunday night, the format it follows, and the reels it planned, to review.
+// makes them every Sunday night (a web game's Build chat records the videos; other games get
+// a plan), the format it follows, and the reels, with their videos, to review.
 
 export function WeeklyReels({ appId, appName }: { appId: string; appName: string }) {
   const qc = useQueryClient();
@@ -56,7 +58,7 @@ export function WeeklyReels({ appId, appName }: { appId: string; appName: string
     onSuccess: () => {
       toast.success(
         weeklyReels
-          ? `Saved. Claude will plan ${appName}'s reels ${WEEKLY_BRIEF_LABEL}.`
+          ? `Saved. Claude will ${inBuild ? "make" : "plan"} ${appName}'s reels ${WEEKLY_BRIEF_LABEL}.`
           : "Saved.",
       );
       qc.invalidateQueries({ queryKey: key });
@@ -66,7 +68,12 @@ export function WeeklyReels({ appId, appName }: { appId: string; appName: string
   const plan = useMutation({
     mutationFn: () => planFn({ data: { appId } }),
     onSuccess: () => {
-      toast.success("Sent. Claude is planning next week's reels in the conversation above.");
+      toast.success(
+        inBuild
+          ? `Sent to ${appName}'s Build chat. Claude is making next week's videos there; they'll show here when it ends.`
+          : "Sent. Claude is planning next week's reels in the conversation above.",
+        { duration: 8_000 },
+      );
       qc.invalidateQueries({ queryKey: ["video-chat", appId] });
     },
     onError: (e: Error) => toast.error(e.message, { duration: 10_000 }),
@@ -77,6 +84,7 @@ export function WeeklyReels({ appId, appName }: { appId: string; appName: string
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const inBuild = Boolean(q.data?.inBuildChat);
   const reels = q.data?.reels ?? [];
   const weeks = [...new Set(reels.map((r) => r.week_of))];
 
@@ -87,9 +95,20 @@ export function WeeklyReels({ appId, appName }: { appId: string; appName: string
         <div className="flex-1 min-w-0">
           <h2 className="font-display font-semibold">Weekly reels</h2>
           <p className="text-sm text-muted-foreground">
-            Claude plans next week's reels {WEEKLY_BRIEF_LABEL}, one every other day, in your
-            format. You review them here. Recording them with the voice and scheduling them in
-            Metricool come next.
+            {inBuild ? (
+              <>
+                {WEEKLY_BRIEF_LABEL.replace(/^./, (c) => c.toUpperCase())}, {appName}'s Build chat
+                makes next week's reels, one every other day, in your format: it records the game
+                and adds the text, the voice and the music, with the game's own tools. The videos
+                show here for you to review. Nothing is posted anywhere yet.
+              </>
+            ) : (
+              <>
+                Claude plans next week's reels {WEEKLY_BRIEF_LABEL}, one every other day, in your
+                format. You review them here. This game has no repo in the console, so Claude writes
+                the reels but doesn't record them.
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -102,7 +121,7 @@ export function WeeklyReels({ appId, appName }: { appId: string; appName: string
         <>
           <label className="flex items-center gap-3 text-sm">
             <Switch checked={weeklyReels} onCheckedChange={setWeeklyReels} />
-            Plan {appName}'s reels {WEEKLY_BRIEF_LABEL}
+            {inBuild ? "Make" : "Plan"} {appName}'s reels {WEEKLY_BRIEF_LABEL}
           </label>
           <div className="space-y-1.5">
             <p className="text-sm font-medium">Reel format</p>
@@ -128,14 +147,18 @@ export function WeeklyReels({ appId, appName }: { appId: string; appName: string
               className="gap-1.5"
               disabled={plan.isPending}
               onClick={() => plan.mutate()}
-              title="Ask Claude for next week's reels now, without waiting for Sunday"
+              title={
+                inBuild
+                  ? "Send the brief to the Build chat now, without waiting for Sunday"
+                  : "Ask Claude for next week's reels now, without waiting for Sunday"
+              }
             >
               {plan.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
-              Plan next week now
+              {inBuild ? "Make next week now" : "Plan next week now"}
             </Button>
           </div>
 
@@ -144,7 +167,7 @@ export function WeeklyReels({ appId, appName }: { appId: string; appName: string
               No reels planned yet.{" "}
               {weeklyReels
                 ? `They'll show here after ${WEEKLY_BRIEF_LABEL.replace("every ", "")}.`
-                : "Turn on the weekly reels, or press “Plan next week now”."}
+                : `Turn on the weekly reels, or press “${inBuild ? "Make" : "Plan"} next week now”.`}
             </p>
           ) : (
             weeks.map((week) => (
@@ -198,7 +221,21 @@ function ReelCard({
           <span className={cn("text-sm font-medium truncate", discarded && "line-through")}>
             {reel.title}
           </span>
+          {reel.video_url && <span className="text-xs text-primary shrink-0">video</span>}
         </CollapsibleTrigger>
+        {reel.video_url && (
+          <Button
+            asChild
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 shrink-0"
+            title="Open the video"
+          >
+            <a href={reel.video_url} target="_blank" rel="noreferrer">
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          </Button>
+        )}
         <Button
           size="icon"
           variant="ghost"
@@ -211,6 +248,15 @@ function ReelCard({
         </Button>
       </div>
       <CollapsibleContent className="px-3 pb-3 space-y-3 text-sm">
+        {reel.video_url && (
+          <video
+            src={reel.video_url}
+            controls
+            playsInline
+            preload="metadata"
+            className="max-h-96 rounded-md bg-black"
+          />
+        )}
         {reel.hook && <Field label="Hook" text={reel.hook} />}
         {reel.script && <Field label="Script" text={reel.script} />}
         {reel.voiceover && <Field label="Voice-over" text={reel.voiceover} copyable />}
