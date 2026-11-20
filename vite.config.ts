@@ -34,7 +34,8 @@ const nitro: NitroPluginConfig = {
     // Sunday night (UTC; 21:00 and 23:00 in Madrid in winter): the weekly reels brief. The
     // second run only sends to games whose first brief didn't leave a plan for next week.
     // WEEKLY_BRIEF_LABEL in src/lib/video-reels.ts tells people when: change both together.
-    "0 20,22 * * 0": ["videos:brief"],
+    // Cloudflare rejects 0 for Sunday ("invalid cron string"): use the name.
+    "0 20,22 * * SUN": ["videos:brief"],
   },
 };
 
