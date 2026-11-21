@@ -16,7 +16,7 @@ import {
 } from "@/lib/agent.functions";
 import { keepRunnerWatching, previewUrlFor, weeklyBudgetNow } from "@/lib/agent.server";
 import { githubHeaders } from "@/lib/github.functions";
-import { CHANNEL_PATH, PUBLISHED_PATH, scheduledReels } from "@/lib/scheduled-reels";
+import { CHANNEL_PATH, PUBLISHED_PATH, SHORTS_PATH, scheduledReels } from "@/lib/scheduled-reels";
 import { MAX_PROMPT_CHARS, budgetExhaustedMessage, isActiveTurn } from "@/lib/agent";
 import { cleanContext } from "@/lib/assistant";
 import type { AssistantTurn } from "@/lib/assistant.functions";
@@ -336,14 +336,15 @@ export const getScheduledReels = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     if (!app || !isWebGame(app) || isSelfRepo(app.github_owner, app.github_repo))
       return { hasRepo: false as const };
-    const [published, channel, previewUrl] = await Promise.all([
+    const [published, channel, shorts, previewUrl] = await Promise.all([
       repoJson(app, PUBLISHED_PATH),
       repoJson(app, CHANNEL_PATH),
+      repoJson(app, SHORTS_PATH),
       previewUrlFor(app).catch(() => null),
     ]);
     return {
       hasRepo: true as const,
       hasLog: published !== undefined,
-      ...scheduledReels(published, channel, previewUrl, new Date()),
+      ...scheduledReels(published, channel, previewUrl, new Date(), shorts),
     };
   });

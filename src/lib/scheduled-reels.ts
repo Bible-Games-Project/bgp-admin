@@ -6,14 +6,18 @@
 // it shows what the Build chat scheduled. A post changed by hand on Upload-Post's website
 // doesn't show here.
 //
+// The page shows them in a side bar, all of them: the ones still to come out, the ones whose
+// time has passed (published), and the shorts the game has made (tools/shorts/shorts.json)
+// that aren't scheduled yet.
+//
 // Pure rules here; the server side is getScheduledReels in videos.functions.ts.
 
 export const PUBLISHED_PATH = "tools/shorts/published.json";
 export const CHANNEL_PATH = "tools/shorts/channel.json";
-/** How far back the page lists posts whose time has passed. */
-const PAST_DAYS = 14;
-const MAX_PAST = 10;
-const MAX_UPCOMING = 60;
+export const SHORTS_PATH = "tools/shorts/shorts.json";
+const MAX_PAST = 200;
+const MAX_UPCOMING = 200;
+const MAX_UNSCHEDULED = 200;
 const DEFAULT_TIME_ZONE = "Europe/Madrid";
 
 export type ScheduledPost = {
@@ -31,10 +35,21 @@ export type ScheduledPost = {
   thumbnailUrl: string | null;
 };
 
+/** A short the game has made (shorts.json) that no post schedules. */
+export type UnscheduledShort = {
+  id: string;
+  title: string;
+  videoUrl: string | null;
+  thumbnailUrl: string | null;
+};
+
 export type ScheduledReels = {
+  /** Posts still to come out, soonest first. */
   upcoming: ScheduledPost[];
-  /** Posts whose time has passed in the last two weeks, newest first. */
+  /** Posts whose time has passed (published), newest first. */
   past: ScheduledPost[];
+  /** Shorts made but not scheduled, in the order of shorts.json. */
+  unscheduled: UnscheduledShort[];
   /** The channel's time zone, to show the times as the team set them. */
   timeZone: string;
   /** The Upload-Post profile the game uses (channel.json), if it says. */
@@ -82,13 +97,15 @@ const shortId = (value: unknown) => {
 /**
  * The game's scheduled posts from its published.json log. Cancelled posts and those of
  * another Upload-Post account than the channel's (an old one) are left out; the networks of
- * one short at one time are shown as one post.
+ * one short at one time are shown as one post. The shorts in shorts.json that no post left
+ * schedules are listed apart.
  */
 export function scheduledReels(
   published: unknown,
   channelRaw: unknown,
   previewUrl: string | null,
   now: Date,
+  shortsRaw?: unknown,
 ): ScheduledReels {
   const channel = readChannel(channelRaw);
   const preview = previewUrl ? previewUrl.replace(/\/+$/, "") : null;
@@ -124,16 +141,30 @@ export function scheduledReels(
   }
   const posts = [...byKey.values()];
   const nowMs = now.getTime();
-  const since = nowMs - PAST_DAYS * 24 * 60 * 60 * 1000;
+  const scheduledIds = new Set(posts.map((p) => p.id));
+  const unscheduled: UnscheduledShort[] = [];
+  for (const item of Array.isArray(shortsRaw) ? shortsRaw : []) {
+    if (!item || typeof item !== "object") continue;
+    const e = item as Record<string, unknown>;
+    const id = shortId(e.id);
+    if (!id || scheduledIds.has(id) || unscheduled.some((u) => u.id === id)) continue;
+    unscheduled.push({
+      id,
+      title: postTitle(str(e.title, 300)) || id,
+      videoUrl: preview ? `${preview}/shorts/${encodeURIComponent(id)}.mp4` : null,
+      thumbnailUrl: preview ? `${preview}/shorts/${encodeURIComponent(id)}.jpg` : null,
+    });
+  }
   return {
     upcoming: posts
       .filter((p) => Date.parse(p.at) > nowMs)
       .sort((a, b) => a.at.localeCompare(b.at))
       .slice(0, MAX_UPCOMING),
     past: posts
-      .filter((p) => Date.parse(p.at) <= nowMs && Date.parse(p.at) >= since)
+      .filter((p) => Date.parse(p.at) <= nowMs)
       .sort((a, b) => b.at.localeCompare(a.at))
       .slice(0, MAX_PAST),
+    unscheduled: unscheduled.slice(0, MAX_UNSCHEDULED),
     timeZone: channel.timeZone,
     profile: channel.profile,
   };

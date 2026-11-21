@@ -87,7 +87,7 @@ describe("scheduled reels", () => {
     expect(r.upcoming[0].platforms).toEqual(["youtube", "instagram"]);
   });
 
-  test("keeps the last two weeks' past posts, newest first", () => {
+  test("keeps every past post, newest first", () => {
     const r = scheduledReels(
       [
         entry("old", "2026-10-01T17:00:00Z", ["youtube"]),
@@ -98,8 +98,43 @@ describe("scheduled reels", () => {
       preview,
       now,
     );
-    expect(r.past.map((p) => p.id)).toEqual(["b", "a"]);
+    expect(r.past.map((p) => p.id)).toEqual(["b", "a", "old"]);
     expect(r.upcoming).toEqual([]);
+  });
+
+  test("lists the shorts made but not scheduled, once each", () => {
+    const r = scheduledReels(
+      [
+        entry("eden-naming", "2026-11-22T17:00:00Z", ["youtube"]),
+        entry("eden-rib", "2026-11-24T17:00:00Z", ["youtube"], { cancelled: true }),
+      ],
+      channel,
+      preview,
+      now,
+      [
+        { id: "eden-naming", title: "Did you know Adam named the animals? 🦁" },
+        { id: "eden-rib", title: "Did you know Eve was made from Adam's rib? 🦴" },
+        { id: "eden-rib", title: "again" },
+        { id: "../x" },
+        null,
+        { id: "cain-mark" },
+      ],
+    );
+    expect(r.unscheduled).toEqual([
+      {
+        id: "eden-rib",
+        title: "Did you know Eve was made from Adam's rib? 🦴",
+        videoUrl: "https://bgp-bible-rpg.pages.dev/shorts/eden-rib.mp4",
+        thumbnailUrl: "https://bgp-bible-rpg.pages.dev/shorts/eden-rib.jpg",
+      },
+      {
+        id: "cain-mark",
+        title: "cain-mark",
+        videoUrl: "https://bgp-bible-rpg.pages.dev/shorts/cain-mark.mp4",
+        thumbnailUrl: "https://bgp-bible-rpg.pages.dev/shorts/cain-mark.jpg",
+      },
+    ]);
+    expect(scheduledReels([], channel, null, now).unscheduled).toEqual([]);
   });
 
   test("copes with no preview, no channel and junk", () => {

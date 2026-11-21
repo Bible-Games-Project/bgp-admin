@@ -99,7 +99,7 @@ function VideosPage() {
   const app = apps.find((a) => a.id === selected) ?? null;
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto w-full space-y-5">
+    <div className="p-4 md:p-8 max-w-7xl mx-auto w-full space-y-5">
       <div>
         <span className="label-mono">marketing</span>
         <h1 className="text-2xl font-display font-semibold tracking-tight mt-1">Videos</h1>
@@ -107,7 +107,8 @@ function VideosPage() {
           A conversation with Claude about each game's videos: reels, shorts and YouTube. For a web
           game it's the game's Build chat, so Claude can record the game, add the voice and use the
           game's own tools from here. Turn on the weekly reels and Claude makes next week's every
-          Sunday night for you to review, and see the reels already scheduled at Upload-Post.
+          Sunday night for you to review. On the side, the game's reels: the ones still to come out
+          and the ones already published.
         </p>
       </div>
 
@@ -135,11 +136,13 @@ function VideosPage() {
       </div>
 
       {app ? (
-        <>
-          <GameVideoChat key={app.id} appId={app.id} appName={app.name} />
+        <div className="flex flex-col lg:flex-row lg:items-start gap-5">
+          <div className="flex-1 min-w-0 space-y-5">
+            <GameVideoChat key={app.id} appId={app.id} appName={app.name} />
+            <WeeklyReels key={`reels-${app.id}`} appId={app.id} appName={app.name} />
+          </div>
           <ScheduledReels key={`scheduled-${app.id}`} appId={app.id} appName={app.name} />
-          <WeeklyReels key={`reels-${app.id}`} appId={app.id} appName={app.name} />
-        </>
+        </div>
       ) : (
         <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           <Clapperboard className="h-8 w-8 mx-auto mb-3 text-primary" />
