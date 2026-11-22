@@ -3,17 +3,30 @@
 // in its Build chat, which makes the videos in the repo; a game with no repo (or the
 // console's own) in its Videos conversation, which only plans them. Run by the Cron Trigger
 // in src/tasks/video-brief.ts, and by the Videos page's "Make next week now" button.
+//
+// The team also schedules reels themselves (Joan set the pace by hand in November 2026). So a
+// web game's brief first reads what its repo says is scheduled: on Sunday night a week that
+// already has any reel is left alone, and the button's brief skips the days that have one.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { AGENT_SETTING_KEYS, accountFrom, agentSettingsFrom } from "@/lib/agent";
 import { isSelfRepo } from "@/lib/self-repo";
 import { keepRunnerWatching, previewUrlFor, weeklyBudgetNow } from "@/lib/agent.server";
 import { isWebGame } from "@/lib/app-kind";
 import { videoContext } from "@/lib/videos";
+import { repoJson } from "@/lib/repo-json.server";
+import {
+  CHANNEL_PATH,
+  PUBLISHED_PATH,
+  REELS_SCHEDULE_PATH,
+  scheduledPostDays,
+} from "@/lib/scheduled-reels";
 import {
   REELS_BRIEF_PURPOSE,
   briefIsDue,
   buildBriefPrompt,
   nextWeekOf,
+  reelDays,
+  scheduledDaysInWeek,
   weeklyBriefPrompt,
 } from "@/lib/video-reels";
 
@@ -68,6 +81,27 @@ export async function ensureBuildChat(appId: string, userId: string | null) {
   const chat = created.data ?? (await find());
   if (!chat) throw new Error(created.error?.message ?? "Couldn't start the chat.");
   return chat as { id: string };
+}
+
+/**
+ * The days a web game already has a reel scheduled, from its repo's logs. Null when GitHub
+ * can't be read: the brief then goes anyway, and tells Claude to check first.
+ */
+async function scheduledDaysOf(app: {
+  github_owner: string;
+  github_repo: string;
+  default_ref: string | null;
+}) {
+  try {
+    const [published, channel, schedule] = await Promise.all([
+      repoJson(app, PUBLISHED_PATH),
+      repoJson(app, CHANNEL_PATH),
+      repoJson(app, REELS_SCHEDULE_PATH),
+    ]);
+    return scheduledPostDays(published, channel, schedule);
+  } catch {
+    return null;
+  }
 }
 
 export async function chatIsBusy(chatId: string) {
@@ -136,6 +170,13 @@ export async function sendWeeklyBrief(
   // A web game: its Build chat makes the videos. Its turn carries the game, so it waits
   // behind the game's other Build messages and never runs beside them.
   if (isWebGame(app) && !isSelfRepo(app.github_owner, app.github_repo)) {
+    const scheduled = (await scheduledDaysOf(app)) ?? [];
+    if (!force && scheduledDaysInWeek(scheduled, weekOf).length)
+      return result("next week already has reels scheduled by the team");
+    if (reelDays(weekOf).every((day) => scheduled.includes(day)))
+      throw new Error(
+        "Every reel day of next week already has a reel scheduled, so there's nothing to make.",
+      );
     const chat = await ensureBuildChat(app.id, userId);
     if (await chatIsBusy(chat.id))
       throw new Error(
@@ -147,7 +188,7 @@ export async function sendWeeklyBrief(
       .insert({
         chat_id: chat.id,
         app_id: app.id,
-        prompt: buildBriefPrompt(weekOf, format, previewUrl),
+        prompt: buildBriefPrompt(weekOf, format, previewUrl, scheduled),
         context: { purpose: REELS_BRIEF_PURPOSE, weekOf },
         created_by: userId,
         created_by_email: email,

@@ -55,6 +55,14 @@ export function nextWeekOf(now: Date) {
   return ymd(new Date(new Date(`${mondayOf(now)}T00:00:00Z`).getTime() + 7 * DAY_MS));
 }
 
+/** The Sunday that ends the week starting `weekOf`. */
+export const weekEnd = (weekOf: string) =>
+  ymd(new Date(new Date(`${weekOf}T00:00:00Z`).getTime() + 6 * DAY_MS));
+
+/** The days of the week starting `weekOf` that already have a reel scheduled. */
+export const scheduledDaysInWeek = (days: string[], weekOf: string) =>
+  days.filter((day) => day >= weekOf && day <= weekEnd(weekOf));
+
 /** The days a week's reels come out. */
 export function reelDays(weekOf: string) {
   const monday = new Date(`${weekOf}T00:00:00Z`).getTime();
@@ -89,12 +97,25 @@ const VIDEO_FIELD_DOC =
 
 /**
  * The weekly brief for a web game's Build chat: make next week's reels with the repo's own
- * tools, keep them in the repo, post nothing, and hand them over in a reels block.
+ * tools, keep them in the repo, post nothing, and hand them over in a reels block. Days that
+ * already have a reel scheduled (`scheduledDays`) are left out, and Claude checks for more.
  */
-export function buildBriefPrompt(weekOf: string, format: string, previewUrl: string | null) {
-  const days = reelDays(weekOf);
+export function buildBriefPrompt(
+  weekOf: string,
+  format: string,
+  previewUrl: string | null,
+  scheduledDays: string[] = [],
+) {
+  const taken = new Set(scheduledDays);
+  const days = reelDays(weekOf).filter((day) => !taken.has(day));
+  const takenThatWeek = scheduledDaysInWeek(scheduledDays, weekOf);
   return [
     `Weekly reels brief (sent by the console's Videos page): make this game's reels for the week of ${dayLabel(weekOf)}, one for each of these days: ${days.map(dayLabel).join(", ")}.`,
+    takenThatWeek.length
+      ? `These days of that week already have a reel scheduled by the team: ${takenThatWeek.map(dayLabel).join(", ")}. Leave them as they are.`
+      : "",
+    "",
+    "The team sets the pace of the posts and may have scheduled reels themselves. Before you make anything, check what this game already has scheduled (its log in tools/shorts/published.json or scripts/reels/schedule.json, or the Upload-Post schedule): don't make a reel for a day that already has one, and don't move or cancel anything that is scheduled.",
     "",
     format.trim()
       ? `Our reel format:\n${format.trim()}`

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { networkName, postTimeLabel, readChannel, scheduledReels } from "./scheduled-reels";
+import {
+  networkName,
+  postTimeLabel,
+  readChannel,
+  scheduledPostDays,
+  scheduledReels,
+} from "./scheduled-reels";
 
 const channel = {
   account: "team@example.com",
@@ -180,5 +186,33 @@ describe("scheduled reels", () => {
     );
     expect(networkName("tiktok")).toBe("TikTok");
     expect(networkName("mastodon")).toBe("Mastodon");
+  });
+});
+
+describe("days that already have a reel", () => {
+  test("reads both logs, without cancelled posts or another account's, each day once", () => {
+    const days = scheduledPostDays(
+      [
+        entry("eden-rib", "2026-11-24T17:00:00.000Z", ["youtube"]),
+        entry("eden-rib", "2026-11-24T17:00:00.000Z", ["instagram"]),
+        entry("old", "2026-11-25T17:00:00.000Z", ["youtube"], { account: "old@example.com" }),
+        entry("gone", "2026-11-26T17:00:00.000Z", ["youtube"], { cancelled: true }),
+      ],
+      channel,
+      {
+        target: { profile: "Brand_2_BibleFun" },
+        posts: [
+          { date: "2026-11-23T20:00:00Z", id: "06-shining-face", job: "a" },
+          { date: "2026-11-24T20:00:00Z", id: "22-golden-calf", job: "b" },
+          { date: "not a date", id: "x" },
+        ],
+      },
+    );
+    expect(days).toEqual(["2026-11-23", "2026-11-24"]);
+  });
+
+  test("no logs, no days", () => {
+    expect(scheduledPostDays(undefined, undefined, undefined)).toEqual([]);
+    expect(scheduledPostDays({}, null, { posts: "x" })).toEqual([]);
   });
 });

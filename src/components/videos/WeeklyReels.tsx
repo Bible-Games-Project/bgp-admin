@@ -101,7 +101,8 @@ export function WeeklyReels({ appId, appName }: { appId: string; appName: string
                 {WEEKLY_BRIEF_LABEL.replace(/^./, (c) => c.toUpperCase())}, {appName}'s Build chat
                 makes next week's reels, one every other day, in your format: it records the game
                 and adds the text, the voice and the music, with the game's own tools. The videos
-                show here for you to review. Nothing is posted anywhere yet.
+                show here for you to review. Nothing is posted anywhere yet. A week that already has
+                reels scheduled (by you or by the Build chat) is left alone: you set the pace.
               </>
             ) : (
               <>

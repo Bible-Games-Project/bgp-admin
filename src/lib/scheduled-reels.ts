@@ -198,3 +198,48 @@ export function postTimeLabel(at: string, timeZone: string) {
     .format(new Date(at))
     .replace(" at ", ", ");
 }
+
+// --- Days the team already has a reel on (for the weekly brief) ------------------------------
+
+/**
+ * Another log some games keep of what they scheduled at Upload-Post (Exodus's
+ * scripts/reels/publish.ts): `{ posts: [{ date, id, job }] }`.
+ */
+export const REELS_SCHEDULE_PATH = "scripts/reels/schedule.json";
+
+const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+/**
+ * The days (YYYY-MM-DD, UTC) that already have a reel coming out, from the game's logs:
+ * published.json (cancelled posts and another account's left out, as on the page) and
+ * scripts/reels/schedule.json. Sorted, each day once.
+ */
+export function scheduledPostDays(
+  published: unknown,
+  channelRaw: unknown,
+  reelsSchedule: unknown,
+): string[] {
+  const days = new Set<string>();
+  const channel = readChannel(channelRaw);
+  for (const item of Array.isArray(published) ? published : []) {
+    if (!item || typeof item !== "object") continue;
+    const e = item as Record<string, unknown>;
+    if (e.cancelled) continue;
+    const account = str(e.account);
+    if (channel.account && account && account !== channel.account) continue;
+    const at = Date.parse(str(e.at, 40));
+    if (!Number.isNaN(at)) days.add(utcDay(at));
+  }
+  const posts =
+    reelsSchedule && typeof reelsSchedule === "object"
+      ? (reelsSchedule as { posts?: unknown }).posts
+      : undefined;
+  for (const item of Array.isArray(posts) ? posts : []) {
+    if (!item || typeof item !== "object") continue;
+    const e = item as Record<string, unknown>;
+    if (e.cancelled) continue;
+    const at = Date.parse(str(e.date ?? e.at, 40));
+    if (!Number.isNaN(at)) days.add(utcDay(at));
+  }
+  return [...days].sort();
+}

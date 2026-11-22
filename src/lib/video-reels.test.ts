@@ -4,6 +4,7 @@ import {
   REELS_BRIEF_PURPOSE,
   briefIsDue,
   buildBriefPrompt,
+  scheduledDaysInWeek,
   isReelsBrief,
   videoUrl,
   mondayOf,
@@ -148,5 +149,39 @@ describe("weekly reels in the Build chat", () => {
       block([reel("2026-11-23", { video: "shorts/a.mp4" }), reel("2026-11-25")]),
     );
     expect(reels?.map((r) => r.video)).toEqual(["shorts/a.mp4", ""]);
+  });
+});
+
+describe("weekly reels next to the team's own schedule", () => {
+  test("the brief leaves out the days that already have a reel, and says so", () => {
+    const prompt = buildBriefPrompt("2026-11-23", "", null, [
+      "2026-11-22",
+      "2026-11-23",
+      "2026-11-24",
+      "2026-11-27",
+      "2026-11-30",
+    ]);
+    expect(prompt).toContain(
+      "one for each of these days: Wednesday 25 November, Sunday 29 November.",
+    );
+    expect(prompt).toContain(
+      "already have a reel scheduled by the team: Monday 23 November, Tuesday 24 November, Friday 27 November.",
+    );
+    expect(prompt).toContain("don't make a reel for a day that already has one");
+    expect(prompt).not.toContain("\n\n\n");
+  });
+
+  test("with nothing scheduled the brief asks for every reel day", () => {
+    const prompt = buildBriefPrompt("2026-11-23", "", null);
+    expect(prompt).toContain(
+      "Monday 23 November, Wednesday 25 November, Friday 27 November, Sunday 29 November.",
+    );
+    expect(prompt).not.toContain("by the team:");
+  });
+
+  test("only the days of that week count", () => {
+    expect(
+      scheduledDaysInWeek(["2026-11-22", "2026-11-23", "2026-11-29", "2026-11-30"], "2026-11-23"),
+    ).toEqual(["2026-11-23", "2026-11-29"]);
   });
 });
