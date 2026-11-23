@@ -7,6 +7,7 @@ import {
   reelMetrics,
   reelsToRefresh,
   requestIdOf,
+  rotateGames,
   shortNumber,
   totalViews,
   uploadPostKeyFrom,
@@ -191,5 +192,23 @@ describe("reel metrics", () => {
     const { past } = scheduledReels(published, {}, null, new Date("2026-11-24T00:00:00Z"));
     expect(past.find((p) => p.id === "eden-naming")?.jobs).toEqual(["job1abc", "job2abc"]);
     expect(past.find((p) => p.id === "eden-dust")?.jobs).toEqual([]);
+  });
+});
+
+describe("which game a metrics run starts at", () => {
+  const games = [{ id: "c" }, { id: "a" }, { id: "b" }];
+  const run = (hours: number) =>
+    rotateGames(games, new Date(hours * 60 * 60 * 1000)).map((g) => g.id);
+
+  test("every game, each run starting one further on", () => {
+    expect(run(0)).toEqual(["a", "b", "c"]);
+    expect(run(3)).toEqual(["b", "c", "a"]);
+    expect(run(6)).toEqual(["c", "a", "b"]);
+    expect(run(9)).toEqual(["a", "b", "c"]);
+  });
+
+  test("one game or none stay as they are", () => {
+    expect(rotateGames([], new Date())).toEqual([]);
+    expect(rotateGames([{ id: "x" }], new Date())).toEqual([{ id: "x" }]);
   });
 });

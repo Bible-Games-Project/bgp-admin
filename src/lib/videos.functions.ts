@@ -16,7 +16,13 @@ import {
 } from "@/lib/agent.functions";
 import { keepRunnerWatching, previewUrlFor, weeklyBudgetNow } from "@/lib/agent.server";
 import { repoJson } from "@/lib/repo-json.server";
-import { CHANNEL_PATH, PUBLISHED_PATH, SHORTS_PATH, scheduledReels } from "@/lib/scheduled-reels";
+import {
+  CHANNEL_PATH,
+  PUBLISHED_PATH,
+  REELS_SCHEDULE_PATH,
+  SHORTS_PATH,
+  scheduledReels,
+} from "@/lib/scheduled-reels";
 import { MAX_PROMPT_CHARS, budgetExhaustedMessage, isActiveTurn } from "@/lib/agent";
 import { cleanContext } from "@/lib/assistant";
 import type { AssistantTurn } from "@/lib/assistant.functions";
@@ -383,10 +389,11 @@ export const getScheduledReels = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     if (!app || !isWebGame(app) || isSelfRepo(app.github_owner, app.github_repo))
       return { hasRepo: false as const };
-    const [published, channel, shorts, previewUrl, metrics] = await Promise.all([
+    const [published, channel, shorts, reelsSchedule, previewUrl, metrics] = await Promise.all([
       repoJson(app, PUBLISHED_PATH),
       repoJson(app, CHANNEL_PATH),
       repoJson(app, SHORTS_PATH),
+      repoJson(app, REELS_SCHEDULE_PATH).catch(() => undefined),
       previewUrlFor(app).catch(() => null),
       // The reels show even when their numbers can't be read.
       metricsOfApp(app.id).catch(() => ({
@@ -398,9 +405,9 @@ export const getScheduledReels = createServerFn({ method: "GET" })
     ]);
     return {
       hasRepo: true as const,
-      hasLog: published !== undefined,
+      hasLog: published !== undefined || reelsSchedule !== undefined,
       metrics,
-      ...scheduledReels(published, channel, previewUrl, new Date(), shorts),
+      ...scheduledReels(published, channel, previewUrl, new Date(), shorts, reelsSchedule),
     };
   });
 

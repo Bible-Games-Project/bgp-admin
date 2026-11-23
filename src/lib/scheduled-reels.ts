@@ -4,7 +4,8 @@
 // tools/shorts/published.json; tools/shorts/channel.json says which Upload-Post account and
 // profile the game uses. The console reads both from GitHub, so it needs no Upload-Post key:
 // it shows what the Build chat scheduled. A post changed by hand on Upload-Post's website
-// doesn't show here.
+// doesn't show here. Games that schedule with their own script and keep another log (Exodus's
+// scripts/reels/schedule.json, REELS_SCHEDULE_PATH below) show from that log too.
 //
 // The page shows them in a side bar, all of them: the shorts the game has made
 // (tools/shorts/shorts.json) that aren't scheduled yet ("Testing", for the team to pick), the
@@ -115,8 +116,10 @@ export function scheduledReels(
   previewUrl: string | null,
   now: Date,
   shortsRaw?: unknown,
+  reelsSchedule?: unknown,
 ): ScheduledReels {
   const channel = readChannel(channelRaw);
+  const other = otherLog(reelsSchedule);
   const preview = previewUrl ? previewUrl.replace(/\/+$/, "") : null;
   // Each short's number, its place in shorts.json (counting each id once), and its title.
   const made = new Map<string, { number: number; title: string }>();
@@ -163,6 +166,34 @@ export function scheduledReels(
       jobs: job ? [job] : [],
     });
   }
+  // The other log (Exodus's): one entry per short and time, for the networks of its target.
+  for (const item of other.posts) {
+    if (!item || typeof item !== "object") continue;
+    const e = item as Record<string, unknown>;
+    if (e.cancelled) continue;
+    const id = shortId(e.id);
+    const at = Date.parse(str(e.date ?? e.at, 40));
+    if (!id || Number.isNaN(at)) continue;
+    const profile = other.profile || channel.profile;
+    const key = `${id}|${at}|${profile ?? ""}`;
+    const job = cleanJob(e.job);
+    const post = byKey.get(key);
+    if (post) {
+      if (job && !post.jobs.includes(job)) post.jobs.push(job);
+      continue;
+    }
+    byKey.set(key, {
+      id,
+      number: made.get(id)?.number ?? episodeNumber(id),
+      title: made.get(id)?.title || episodeTitle(id),
+      at: new Date(at).toISOString(),
+      platforms: [...other.platforms],
+      profile,
+      videoUrl: preview ? `${preview}/reels/${encodeURIComponent(id)}.mp4` : null,
+      thumbnailUrl: null,
+      jobs: job ? [job] : [],
+    });
+  }
   const posts = [...byKey.values()];
   const nowMs = now.getTime();
   const scheduledIds = new Set(posts.map((p) => p.id));
@@ -189,9 +220,42 @@ export function scheduledReels(
       .slice(0, MAX_PAST),
     unscheduled: unscheduled.slice(0, MAX_UNSCHEDULED),
     timeZone: channel.timeZone,
-    profile: channel.profile,
+    profile: channel.profile ?? other.profile,
   };
 }
+
+/**
+ * The other log's posts and its target (Exodus's schedule.json:
+ * `{ target: { profile, platforms }, posts: [{ date, id, job }] }`). Its videos are
+ * public/reels/<id>.mp4.
+ */
+function otherLog(raw: unknown) {
+  const log = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const target =
+    log.target && typeof log.target === "object" ? (log.target as Record<string, unknown>) : {};
+  return {
+    posts: Array.isArray(log.posts) ? (log.posts as unknown[]) : [],
+    profile: str(target.profile, 100) || null,
+    platforms: (Array.isArray(target.platforms) ? target.platforms : [])
+      .map((p) => str(p, 30).toLowerCase())
+      .filter(Boolean),
+  };
+}
+
+/** An episode's number from its id ("07-bronze-serpent" is 7), or null. */
+const episodeNumber = (id: string) => {
+  const m = /^(\d{1,4})-/.exec(id);
+  return m ? Number(m[1]) : null;
+};
+
+/** An episode's name from its id: "07-bronze-serpent" is "Bronze serpent". */
+const episodeTitle = (id: string) => {
+  const words = id
+    .replace(/^\d+-/, "")
+    .replace(/[-_.]+/g, " ")
+    .trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : id;
+};
 
 /** Numbers in words for the team: "3", "3 and 4", "3, 4 and 7". */
 export function numbersLabel(numbers: number[]) {

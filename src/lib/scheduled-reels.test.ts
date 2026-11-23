@@ -232,6 +232,86 @@ describe("scheduled reels", () => {
   });
 });
 
+describe("scheduled reels from the other log (Exodus's scripts/reels/schedule.json)", () => {
+  const exodus = {
+    target: {
+      profile: "Brand_2_BibleFun",
+      platforms: ["youtube", "tiktok", "instagram", "facebook", "pinterest"],
+    },
+    posts: [
+      { date: "2026-11-19T17:00:00Z", id: "05-locusts", job: "aaaaaaaa11" },
+      { date: "2026-11-21T17:00:00Z", id: "07-bronze-serpent", job: "bbbbbbbb22" },
+      { date: "2026-11-22T17:00:00Z", id: "08-sandals", job: "cccccccc33", cancelled: true },
+      { date: "not a date", id: "09-gleaning", job: "dddddddd44" },
+      { date: "2026-11-21T17:00:00Z", id: "../etc", job: "eeeeeeee55" },
+    ],
+  };
+  const exodusNow = new Date("2026-11-20T20:00:00Z");
+
+  test("shows its posts with the target's networks and profile, numbered by episode", () => {
+    const r = scheduledReels(
+      undefined,
+      undefined,
+      "https://exodus.pages.dev",
+      exodusNow,
+      undefined,
+      exodus,
+    );
+    expect(r.profile).toBe("Brand_2_BibleFun");
+    expect(r.upcoming).toEqual([
+      {
+        id: "07-bronze-serpent",
+        number: 7,
+        title: "Bronze serpent",
+        at: "2026-11-21T17:00:00.000Z",
+        platforms: ["youtube", "tiktok", "instagram", "facebook", "pinterest"],
+        profile: "Brand_2_BibleFun",
+        videoUrl: "https://exodus.pages.dev/reels/07-bronze-serpent.mp4",
+        thumbnailUrl: null,
+        jobs: ["bbbbbbbb22"],
+      },
+    ]);
+    expect(r.past.map((p) => [p.id, p.number, p.jobs])).toEqual([
+      ["05-locusts", 5, ["aaaaaaaa11"]],
+    ]);
+    expect(r.unscheduled).toEqual([]);
+  });
+
+  test("sits next to published.json without changing its posts", () => {
+    const published = [
+      {
+        id: "eden-rib",
+        at: "2026-11-24T17:00:00.000Z",
+        title: "Eve #Shorts",
+        platforms: ["youtube"],
+        job: "job-eden-rib",
+        profile: "Brand_1_RPG",
+      },
+    ];
+    const r = scheduledReels(
+      published,
+      { profile: "Brand_1_RPG" },
+      null,
+      exodusNow,
+      undefined,
+      exodus,
+    );
+    expect(r.profile).toBe("Brand_1_RPG");
+    expect(r.upcoming.map((p) => [p.id, p.profile])).toEqual([
+      ["07-bronze-serpent", "Brand_2_BibleFun"],
+      ["eden-rib", "Brand_1_RPG"],
+    ]);
+  });
+
+  test("an unreadable log adds nothing", () => {
+    for (const raw of [undefined, null, "x", { posts: "x" }, { target: 3, posts: [null, 4] }]) {
+      const r = scheduledReels(undefined, undefined, null, exodusNow, undefined, raw);
+      expect(r.upcoming).toEqual([]);
+      expect(r.past).toEqual([]);
+    }
+  });
+});
+
 describe("days that already have a reel", () => {
   test("reads both logs, without cancelled posts or another account's, each day once", () => {
     const days = scheduledPostDays(

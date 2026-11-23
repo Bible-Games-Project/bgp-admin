@@ -248,3 +248,14 @@ export type GameReelMetrics = {
 /** A reel's views on every network together. */
 export const totalViews = (metrics: Record<string, NetworkMetrics>) =>
   Object.values(metrics).reduce((sum, m) => sum + (m.views ?? 0), 0);
+
+/**
+ * The games in a fixed order that starts at a different one each run (every three hours), so
+ * that when a run's GitHub reads run out before the last game, the next run starts further on.
+ */
+export function rotateGames<T extends { id: string }>(games: T[], now: Date): T[] {
+  if (games.length < 2) return games;
+  const sorted = [...games].sort((a, b) => a.id.localeCompare(b.id));
+  const start = Math.floor(now.getTime() / (3 * 60 * 60 * 1000)) % sorted.length;
+  return [...sorted.slice(start), ...sorted.slice(0, start)];
+}

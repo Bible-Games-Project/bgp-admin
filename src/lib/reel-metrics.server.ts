@@ -8,12 +8,18 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isWebGame } from "@/lib/app-kind";
 import { isSelfRepo } from "@/lib/self-repo";
 import { repoJson } from "@/lib/repo-json.server";
-import { CHANNEL_PATH, PUBLISHED_PATH, scheduledReels } from "@/lib/scheduled-reels";
+import {
+  CHANNEL_PATH,
+  PUBLISHED_PATH,
+  REELS_SCHEDULE_PATH,
+  scheduledReels,
+} from "@/lib/scheduled-reels";
 import {
   MAX_CALLS_A_RUN,
   UPLOAD_POST_API,
   reelMetrics,
   reelsToRefresh,
+  rotateGames,
   requestIdOf,
   type GameReelMetrics,
   type NetworkMetrics,
@@ -23,8 +29,8 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => supabaseAdmin as any;
 const nowIso = () => new Date().toISOString();
-/** GitHub reads a run makes at most besides the Upload-Post calls. */
-const MAX_GITHUB_CALLS = 16;
+/** GitHub reads a run makes at most besides the Upload-Post calls (three a game with a log). */
+const MAX_GITHUB_CALLS = 18;
 
 export class KeyRejected extends Error {
   constructor() {
@@ -105,9 +111,13 @@ export async function refreshReelMetrics({
   if (appIds) query = query.in("id", appIds);
   const { data: apps, error } = await query;
   if (error) throw new Error(error.message);
-  const games = (apps ?? []).filter(
-    (app: { github_owner: string; github_repo: string }) =>
-      isWebGame(app) && !isSelfRepo(app.github_owner, app.github_repo),
+  type Game = { id: string; github_owner: string; github_repo: string; default_ref: string | null };
+  const games = rotateGames<Game>(
+    (apps ?? []).filter(
+      (app: { github_owner: string; github_repo: string }) =>
+        isWebGame(app) && !isSelfRepo(app.github_owner, app.github_repo),
+    ),
+    now,
   );
   if (!games.length) return { read: 0, outcome: "no web games" };
 
@@ -131,13 +141,16 @@ export async function refreshReelMetrics({
   const rows: MetricsRow[] = [];
   let rejected: KeyRejected | null = null;
   for (const app of games) {
-    if (rejected || githubCalls + 2 > MAX_GITHUB_CALLS || budget.calls >= MAX_CALLS_A_RUN) break;
-    githubCalls += 1;
-    const published = await repoJson(app, PUBLISHED_PATH).catch(() => undefined);
-    if (published === undefined) continue;
+    if (rejected || githubCalls + 3 > MAX_GITHUB_CALLS || budget.calls >= MAX_CALLS_A_RUN) break;
+    githubCalls += 2;
+    const [published, reelsSchedule] = await Promise.all([
+      repoJson(app, PUBLISHED_PATH).catch(() => undefined),
+      repoJson(app, REELS_SCHEDULE_PATH).catch(() => undefined),
+    ]);
+    if (published === undefined && reelsSchedule === undefined) continue;
     githubCalls += 1;
     const channel = await repoJson(app, CHANNEL_PATH).catch(() => undefined);
-    const { past } = scheduledReels(published, channel, null, now);
+    const { past } = scheduledReels(published, channel, null, now, undefined, reelsSchedule);
     const mine = known.filter((k) => k.app_id === app.id);
     const due = reelsToRefresh(
       past,
