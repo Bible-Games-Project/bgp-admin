@@ -36,7 +36,7 @@ export function commentsBriefPrompt(profile: string | null) {
     "Comments brief (sent by the console's Videos page): answer the new comments on this game's reels.",
     "",
     profile
-      ? `This game's Upload-Post profile is ${profile} (tools/shorts/channel.json).`
+      ? `This game's Upload-Post profile is ${profile} (tools/shorts/channel.json, or the target of scripts/reels/schedule.json).`
       : "This game's Upload-Post profile isn't in tools/shorts/channel.json. Look for it in the repo (AGENTS.md, tools/, scripts/). If the game has no reels on Upload-Post yet, say so in one line and stop: don't create anything.",
     "",
     "How:",
@@ -61,4 +61,14 @@ export function commentsBriefPrompt(profile: string | null) {
 /** Whether tonight's brief goes to a game: answering comments is on. */
 export function commentsBriefIsDue(settings: { answer_comments?: boolean | null } | null) {
   return Boolean(settings?.answer_comments);
+}
+
+/** The Upload-Post profile in a game's own schedule log (Exodus's `{ target: { profile } }`). */
+export function scheduleProfile(raw: unknown): string | null {
+  const target = raw && typeof raw === "object" ? (raw as { target?: unknown }).target : undefined;
+  const profile =
+    target && typeof target === "object" ? (target as { profile?: unknown }).profile : undefined;
+  return typeof profile === "string" && /^[A-Za-z0-9_.-]{1,100}$/.test(profile.trim())
+    ? profile.trim()
+    : null;
 }

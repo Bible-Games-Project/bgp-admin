@@ -7,11 +7,12 @@ import { isSelfRepo } from "@/lib/self-repo";
 import { isWebGame } from "@/lib/app-kind";
 import { keepRunnerWatching } from "@/lib/agent.server";
 import { repoJson } from "@/lib/repo-json.server";
-import { CHANNEL_PATH, readChannel } from "@/lib/scheduled-reels";
+import { CHANNEL_PATH, REELS_SCHEDULE_PATH, readChannel } from "@/lib/scheduled-reels";
 import {
   COMMENTS_BRIEF_PURPOSE,
   commentsBriefIsDue,
   commentsBriefPrompt,
+  scheduleProfile,
 } from "@/lib/video-comments";
 import {
   assertClaudeReady,
@@ -20,6 +21,7 @@ import {
   type BriefOutcome,
 } from "@/lib/video-brief.server";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => supabaseAdmin as any;
 
 /**
@@ -51,13 +53,18 @@ export async function sendCommentsBrief(
     throw new Error(
       `${name}'s Build chat is still on a message. Try again when it ends (the nightly run tries again the next night).`,
     );
-  const channel = await repoJson(app, CHANNEL_PATH).catch(() => undefined);
+  const [channel, reelsSchedule] = await Promise.all([
+    repoJson(app, CHANNEL_PATH).catch(() => undefined),
+    repoJson(app, REELS_SCHEDULE_PATH).catch(() => undefined),
+  ]);
+  // Exodus keeps its profile in its own log's target instead of channel.json.
+  const profile = readChannel(channel).profile ?? scheduleProfile(reelsSchedule);
   const { error } = await db()
     .from("agent_turns")
     .insert({
       chat_id: chat.id,
       app_id: app.id,
-      prompt: commentsBriefPrompt(readChannel(channel).profile),
+      prompt: commentsBriefPrompt(profile),
       context: { purpose: COMMENTS_BRIEF_PURPOSE },
       created_by: userId,
       created_by_email: email,

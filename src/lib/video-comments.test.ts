@@ -5,6 +5,7 @@ import {
   commentsBriefIsDue,
   commentsBriefPrompt,
   isCommentsBrief,
+  scheduleProfile,
 } from "./video-comments";
 import { isReelsBrief } from "./video-reels";
 
@@ -42,5 +43,15 @@ describe("answering the reels' comments", () => {
     expect(commentsBriefIsDue({ answer_comments: true })).toBe(true);
     expect(commentsBriefIsDue({ answer_comments: false })).toBe(false);
     expect(commentsBriefIsDue(null)).toBe(false);
+  });
+});
+
+describe("the profile in a game's own schedule log", () => {
+  test("Exodus's target profile, and nothing from anything else", () => {
+    expect(scheduleProfile({ target: { profile: "Brand_2_BibleFun" }, posts: [] })).toBe(
+      "Brand_2_BibleFun",
+    );
+    for (const raw of [undefined, null, "x", {}, { target: 3 }, { target: { profile: "a b" } }])
+      expect(scheduleProfile(raw)).toBeNull();
   });
 });
