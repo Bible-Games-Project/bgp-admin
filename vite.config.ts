@@ -22,6 +22,9 @@ const nitro: NitroPluginConfig = {
     "videos:brief": {
       handler: fileURLToPath(new URL("./src/tasks/video-brief.ts", import.meta.url)),
     },
+    "videos:comments": {
+      handler: fileURLToPath(new URL("./src/tasks/video-comments.ts", import.meta.url)),
+    },
   },
   // Each cron is a run of its own, with its own 50 requests on Cloudflare's free plan.
   scheduledTasks: {
@@ -36,6 +39,9 @@ const nitro: NitroPluginConfig = {
     // WEEKLY_BRIEF_LABEL in src/lib/video-reels.ts tells people when: change both together.
     // Cloudflare rejects 0 for Sunday ("invalid cron string"): use the name.
     "0 20,22 * * SUN": ["videos:brief"],
+    // Every night at midnight UTC (1:00 in Madrid in winter, 2:00 in summer): the comments
+    // brief. COMMENTS_BRIEF_LABEL in src/lib/video-comments.ts tells people when.
+    "0 0 * * *": ["videos:comments"],
   },
 };
 

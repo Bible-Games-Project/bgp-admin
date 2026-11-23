@@ -23,6 +23,7 @@ import type { AssistantTurn } from "@/lib/assistant.functions";
 import { videoContext } from "@/lib/videos";
 import { MAX_FORMAT_CHARS, mondayOf, nextWeekOf } from "@/lib/video-reels";
 import { sendWeeklyBrief } from "@/lib/video-brief.server";
+import { lastCommentsBrief, sendCommentsBrief } from "@/lib/video-comments.server";
 import { isWebGame } from "@/lib/app-kind";
 import { isSelfRepo } from "@/lib/self-repo";
 
@@ -294,6 +295,65 @@ export const planNextWeekNow = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.supabase, context.userId);
     return sendWeeklyBrief(data.appId, {
+      force: true,
+      userId: context.userId,
+      email: (context.claims.email as string | undefined) ?? null,
+    });
+  });
+
+// --- Answering the reels' comments (video-comments.ts) ----------------------------------------
+
+/** Whether a web game's Build chat answers its reels' comments every night, and the last run. */
+export const getReelComments = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => appInput.parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const [{ data: app }, { data: settings, error }, last] = await Promise.all([
+      admin().from("apps").select("github_owner, github_repo").eq("id", data.appId).maybeSingle(),
+      admin()
+        .from("video_settings")
+        .select("answer_comments")
+        .eq("app_id", data.appId)
+        .maybeSingle(),
+      lastCommentsBrief(data.appId),
+    ]);
+    if (error) throw new Error(error.message);
+    return {
+      available: Boolean(app && isWebGame(app) && !isSelfRepo(app.github_owner, app.github_repo)),
+      answerComments: Boolean(settings?.answer_comments),
+      last: last
+        ? { status: last.status, sentAt: last.created_at, finishedAt: last.finished_at }
+        : null,
+    };
+  });
+
+/** Turns a game's nightly comment answering on or off. */
+export const setAnswerComments = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => appInput.extend({ on: z.boolean() }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { error } = await admin().from("video_settings").upsert(
+      {
+        app_id: data.appId,
+        answer_comments: data.on,
+        updated_by: context.userId,
+        updated_at: nowIso(),
+      },
+      { onConflict: "app_id" },
+    );
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Sends one game's comments brief now, without waiting for the night. */
+export const answerCommentsNow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => appInput.parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    return sendCommentsBrief(data.appId, {
       force: true,
       userId: context.userId,
       email: (context.claims.email as string | undefined) ?? null,

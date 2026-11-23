@@ -114,7 +114,29 @@ export async function chatIsBusy(chatId: string) {
   return Boolean(data?.length);
 }
 
-type BriefOutcome = { appId: string; app: string; outcome: string };
+/**
+ * Throws, saying why, when a brief can't go to Claude now: no Claude account linked, the
+ * account turned down, or the weekly share used up.
+ */
+export async function assertClaudeReady() {
+  const [{ data: runner }, { data: rows }] = await Promise.all([
+    db().from("agent_runner").select("account, usage").eq("id", "main").maybeSingle(),
+    db().from("app_settings").select("key, value").in("key", AGENT_SETTING_KEYS),
+  ]);
+  const account = accountFrom(runner?.account);
+  if (!account) throw new Error("No Claude account is linked yet. Link one in Settings → Claude.");
+  if (account.rejectedAt)
+    throw new Error(
+      "Claude no longer accepts the linked account. Link it again in Settings → Claude.",
+    );
+  const budget = await weeklyBudgetNow(
+    agentSettingsFrom(rows ?? []).weeklyBudgetPercent,
+    runner?.usage ?? null,
+  );
+  if (budget.exhausted) throw new Error("The weekly share of Claude is used up.");
+}
+
+export type BriefOutcome = { appId: string; app: string; outcome: string };
 
 /**
  * Sends the weekly brief to one game, or says why not. `force` sends it even if the game's
@@ -150,21 +172,7 @@ export async function sendWeeklyBrief(
   if (!force && !briefIsDue(settings, count ?? 0))
     return result(settings?.weekly_reels ? "next week is already planned" : "weekly reels are off");
 
-  const [{ data: runner }, { data: rows }] = await Promise.all([
-    db().from("agent_runner").select("account, usage").eq("id", "main").maybeSingle(),
-    db().from("app_settings").select("key, value").in("key", AGENT_SETTING_KEYS),
-  ]);
-  const account = accountFrom(runner?.account);
-  if (!account) throw new Error("No Claude account is linked yet. Link one in Settings → Claude.");
-  if (account.rejectedAt)
-    throw new Error(
-      "Claude no longer accepts the linked account. Link it again in Settings → Claude.",
-    );
-  const budget = await weeklyBudgetNow(
-    agentSettingsFrom(rows ?? []).weeklyBudgetPercent,
-    runner?.usage ?? null,
-  );
-  if (budget.exhausted) throw new Error("The weekly share of Claude is used up.");
+  await assertClaudeReady();
 
   const format = settings?.format ?? "";
   // A web game: its Build chat makes the videos. Its turn carries the game, so it waits
