@@ -10,6 +10,8 @@
 export const COMMENTS_BRIEF_PURPOSE = "comments";
 /** When the Cron Trigger in vite.config.ts sends it, as the page says it. */
 export const COMMENTS_BRIEF_LABEL = "every night at about 1:00";
+/** The hour (UTC) of the shared Cron Trigger's run that sends it; the others read metrics. */
+export const VIDEOS_NIGHT_HOUR_UTC = 0;
 /** The most replies one night's brief asks for. */
 export const MAX_REPLIES_A_NIGHT = 40;
 /** Comments older than this are left alone. */

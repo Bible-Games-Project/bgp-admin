@@ -14,6 +14,8 @@
 //
 // Pure rules here; the server side is getScheduledReels in videos.functions.ts.
 
+import { cleanJob } from "@/lib/reel-metrics";
+
 export const PUBLISHED_PATH = "tools/shorts/published.json";
 export const CHANNEL_PATH = "tools/shorts/channel.json";
 export const SHORTS_PATH = "tools/shorts/shorts.json";
@@ -37,6 +39,8 @@ export type ScheduledPost = {
   /** Its video and first frame on the game's preview, when it has one. */
   videoUrl: string | null;
   thumbnailUrl: string | null;
+  /** Its Upload-Post jobs (one per scheduling), for its metrics (reel-metrics.ts). */
+  jobs: string[];
 };
 
 /** A short the game has made (shorts.json) that no post schedules. */
@@ -139,10 +143,12 @@ export function scheduledReels(
       .map((p) => str(p, 30).toLowerCase())
       .filter(Boolean);
     const profile = str(e.profile, 100) || channel.profile;
+    const job = cleanJob(e.job);
     const key = `${id}|${at}|${profile ?? ""}`;
     const post = byKey.get(key);
     if (post) {
       for (const p of platforms) if (!post.platforms.includes(p)) post.platforms.push(p);
+      if (job && !post.jobs.includes(job)) post.jobs.push(job);
       continue;
     }
     byKey.set(key, {
@@ -154,6 +160,7 @@ export function scheduledReels(
       profile,
       videoUrl: preview ? `${preview}/shorts/${encodeURIComponent(id)}.mp4` : null,
       thumbnailUrl: preview ? `${preview}/shorts/${encodeURIComponent(id)}.jpg` : null,
+      jobs: job ? [job] : [],
     });
   }
   const posts = [...byKey.values()];

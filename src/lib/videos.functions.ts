@@ -24,6 +24,13 @@ import { videoContext } from "@/lib/videos";
 import { MAX_FORMAT_CHARS, mondayOf, nextWeekOf } from "@/lib/video-reels";
 import { sendWeeklyBrief } from "@/lib/video-brief.server";
 import { lastCommentsBrief, sendCommentsBrief } from "@/lib/video-comments.server";
+import {
+  KeyRejected,
+  metricsOfApp,
+  refreshReelMetrics,
+  uploadPost,
+} from "@/lib/reel-metrics.server";
+import { uploadPostKeyFrom } from "@/lib/reel-metrics";
 import { isWebGame } from "@/lib/app-kind";
 import { isSelfRepo } from "@/lib/self-repo";
 
@@ -376,15 +383,82 @@ export const getScheduledReels = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     if (!app || !isWebGame(app) || isSelfRepo(app.github_owner, app.github_repo))
       return { hasRepo: false as const };
-    const [published, channel, shorts, previewUrl] = await Promise.all([
+    const [published, channel, shorts, previewUrl, metrics] = await Promise.all([
       repoJson(app, PUBLISHED_PATH),
       repoJson(app, CHANNEL_PATH),
       repoJson(app, SHORTS_PATH),
       previewUrlFor(app).catch(() => null),
+      // The reels show even when their numbers can't be read.
+      metricsOfApp(app.id).catch(() => ({
+        connected: false,
+        last4: null,
+        rejected: false,
+        byJob: {},
+      })),
     ]);
     return {
       hasRepo: true as const,
       hasLog: published !== undefined,
+      metrics,
       ...scheduledReels(published, channel, previewUrl, new Date(), shorts),
     };
+  });
+
+// --- The published reels' metrics (reel-metrics.ts) -------------------------------------------
+
+/**
+ * Keeps the team's Upload-Post API key for the reels' metrics, after asking Upload-Post
+ * whether it takes it. Only the server ever reads it back; then reads the game's metrics.
+ */
+export const connectUploadPost = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => appInput.extend({ key: z.string().max(10_000) }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const parsed = uploadPostKeyFrom(data.key);
+    if (!("key" in parsed) || !parsed.key) throw new Error(parsed.problem);
+    try {
+      await uploadPost(parsed.key, "/history?limit=10");
+    } catch (e) {
+      if (e instanceof KeyRejected)
+        throw new Error(
+          "Upload-Post says this key isn't valid. Copy it again, whole, and paste it here.",
+        );
+      // Upload-Post didn't answer: keep the key, the next read tells.
+    }
+    const { error } = await admin()
+      .from("upload_post_account")
+      .upsert(
+        {
+          id: "main",
+          api_key: parsed.key,
+          last4: parsed.key.slice(-4),
+          connected_by: context.userId,
+          connected_at: nowIso(),
+          rejected_at: null,
+        },
+        { onConflict: "id" },
+      );
+    if (error) throw new Error(error.message);
+    const read = await refreshReelMetrics({ appIds: [data.appId] }).catch(() => null);
+    return { ok: true, read: read?.read ?? 0 };
+  });
+
+/** Forgets the Upload-Post key: the metrics stop being read (the ones kept stay). */
+export const disconnectUploadPost = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { error } = await admin().from("upload_post_account").delete().eq("id", "main");
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Reads a game's published reels' metrics now, the ones not read today. */
+export const refreshReelMetricsNow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => appInput.parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    return refreshReelMetrics({ appIds: [data.appId] });
   });

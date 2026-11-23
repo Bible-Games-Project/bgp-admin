@@ -24,7 +24,7 @@ const entry = (
   at,
   title: `Did you know ${id}? #Shorts`,
   platforms,
-  job: "x",
+  job: `job-${id}`,
   account: "team@example.com",
   profile: "Brand_1_RPG",
   ...extra,
@@ -56,6 +56,7 @@ describe("scheduled reels", () => {
       profile: "Brand_1_RPG",
       videoUrl: "https://bgp-bible-rpg.pages.dev/shorts/eden-naming.mp4",
       thumbnailUrl: "https://bgp-bible-rpg.pages.dev/shorts/eden-naming.jpg",
+      jobs: ["job-eden-naming"],
     });
     expect(r.past).toEqual([]);
     expect(r.timeZone).toBe("Europe/Madrid");
@@ -179,6 +180,7 @@ describe("scheduled reels", () => {
         profile: null,
         videoUrl: null,
         thumbnailUrl: null,
+        jobs: [],
       },
     ]);
     expect(scheduledReels({ not: "a list" }, channel, preview, now).upcoming).toEqual([]);
