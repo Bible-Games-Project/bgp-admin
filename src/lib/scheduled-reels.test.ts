@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   networkName,
+  numbersLabel,
+  pickedReelsMessage,
   postTimeLabel,
   readChannel,
   scheduledPostDays,
@@ -47,6 +49,7 @@ describe("scheduled reels", () => {
     expect(r.upcoming[1].title).toBe("Did you know Eve was made from Adam's rib? 🦴");
     expect(r.upcoming[0]).toEqual({
       id: "eden-naming",
+      number: null,
       title: "Did you know eden-naming?",
       at: "2026-11-22T17:00:00.000Z",
       platforms: ["youtube", "tiktok"],
@@ -126,20 +129,25 @@ describe("scheduled reels", () => {
         { id: "cain-mark" },
       ],
     );
+    // Newest (last in shorts.json) first; each keeps its number.
     expect(r.unscheduled).toEqual([
       {
-        id: "eden-rib",
-        title: "Did you know Eve was made from Adam's rib? 🦴",
-        videoUrl: "https://bgp-bible-rpg.pages.dev/shorts/eden-rib.mp4",
-        thumbnailUrl: "https://bgp-bible-rpg.pages.dev/shorts/eden-rib.jpg",
-      },
-      {
         id: "cain-mark",
+        number: 3,
         title: "cain-mark",
         videoUrl: "https://bgp-bible-rpg.pages.dev/shorts/cain-mark.mp4",
         thumbnailUrl: "https://bgp-bible-rpg.pages.dev/shorts/cain-mark.jpg",
       },
+      {
+        id: "eden-rib",
+        number: 2,
+        title: "Did you know Eve was made from Adam's rib? 🦴",
+        videoUrl: "https://bgp-bible-rpg.pages.dev/shorts/eden-rib.mp4",
+        thumbnailUrl: "https://bgp-bible-rpg.pages.dev/shorts/eden-rib.jpg",
+      },
     ]);
+    // The scheduled one keeps its number too.
+    expect(r.upcoming.map((p) => `${p.id} #${p.number}`)).toEqual(["eden-naming #1"]);
     expect(scheduledReels([], channel, null, now).unscheduled).toEqual([]);
   });
 
@@ -164,6 +172,7 @@ describe("scheduled reels", () => {
     expect(r.upcoming).toEqual([
       {
         id: "fine",
+        number: null,
         title: "fine",
         at: "2026-11-22T17:00:00.000Z",
         platforms: ["youtube"],
@@ -173,6 +182,38 @@ describe("scheduled reels", () => {
       },
     ]);
     expect(scheduledReels({ not: "a list" }, channel, preview, now).upcoming).toEqual([]);
+  });
+
+  test("tells the Build chat exactly which reels were picked", () => {
+    expect(
+      pickedReelsMessage(
+        [
+          {
+            number: 4,
+            id: "cain-offering",
+            title: "Did you know why God accepted Abel's offering?",
+          },
+          {
+            number: 3,
+            id: "eden-figleaves",
+            title: "Did you know the first clothes were fig leaves?",
+          },
+        ],
+        "  El 3 i el 4 em molen ",
+      ),
+    ).toBe(
+      [
+        "El 3 i el 4 em molen",
+        "",
+        "Reels I picked in the Testing tab of the Videos page (3 and 4; the number is the reel's place in tools/shorts/shorts.json):",
+        "- #3 eden-figleaves: Did you know the first clothes were fig leaves?",
+        "- #4 cain-offering: Did you know why God accepted Abel's offering?",
+      ].join("\n"),
+    );
+    expect(pickedReelsMessage([{ number: 7, id: "x", title: "X" }], "").split("\n")[0]).toBe(
+      "I like this one.",
+    );
+    expect(numbersLabel([1, 2, 5])).toBe("1, 2 and 5");
   });
 
   test("falls back to Madrid for an unknown time zone", () => {

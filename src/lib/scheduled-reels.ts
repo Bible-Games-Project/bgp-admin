@@ -6,9 +6,11 @@
 // it shows what the Build chat scheduled. A post changed by hand on Upload-Post's website
 // doesn't show here.
 //
-// The page shows them in a side bar, all of them: the ones still to come out, the ones whose
-// time has passed (published), and the shorts the game has made (tools/shorts/shorts.json)
-// that aren't scheduled yet.
+// The page shows them in a side bar, all of them: the shorts the game has made
+// (tools/shorts/shorts.json) that aren't scheduled yet ("Testing", for the team to pick), the
+// ones still to come out, and the ones whose time has passed (published). Each short has a
+// number, its place in shorts.json, so the team can say "I like 3 and 4" and it keeps that
+// number once it's scheduled and published.
 //
 // Pure rules here; the server side is getScheduledReels in videos.functions.ts.
 
@@ -23,6 +25,8 @@ const DEFAULT_TIME_ZONE = "Europe/Madrid";
 export type ScheduledPost = {
   /** The short's id in the repo (its video is public/shorts/<id>.mp4). */
   id: string;
+  /** Its number: its place in shorts.json, from 1. Null if shorts.json doesn't list it. */
+  number: number | null;
   title: string;
   /** When it comes out, ISO. */
   at: string;
@@ -38,6 +42,7 @@ export type ScheduledPost = {
 /** A short the game has made (shorts.json) that no post schedules. */
 export type UnscheduledShort = {
   id: string;
+  number: number;
   title: string;
   videoUrl: string | null;
   thumbnailUrl: string | null;
@@ -48,7 +53,7 @@ export type ScheduledReels = {
   upcoming: ScheduledPost[];
   /** Posts whose time has passed (published), newest first. */
   past: ScheduledPost[];
-  /** Shorts made but not scheduled, in the order of shorts.json. */
+  /** Shorts made but not scheduled, the newest (last in shorts.json) first. */
   unscheduled: UnscheduledShort[];
   /** The channel's time zone, to show the times as the team set them. */
   timeZone: string;
@@ -109,6 +114,17 @@ export function scheduledReels(
 ): ScheduledReels {
   const channel = readChannel(channelRaw);
   const preview = previewUrl ? previewUrl.replace(/\/+$/, "") : null;
+  // Each short's number, its place in shorts.json (counting each id once), and its title.
+  const made = new Map<string, { number: number; title: string }>();
+  let place = 0;
+  for (const item of Array.isArray(shortsRaw) ? shortsRaw : []) {
+    if (!item || typeof item !== "object") continue;
+    const e = item as Record<string, unknown>;
+    const id = shortId(e.id);
+    if (!id || made.has(id)) continue;
+    place += 1;
+    made.set(id, { number: place, title: postTitle(str(e.title, 300)) });
+  }
   const byKey = new Map<string, ScheduledPost>();
   for (const item of Array.isArray(published) ? published : []) {
     if (!item || typeof item !== "object") continue;
@@ -131,6 +147,7 @@ export function scheduledReels(
     }
     byKey.set(key, {
       id,
+      number: made.get(id)?.number ?? null,
       title: postTitle(str(e.title, 300)) || id,
       at: new Date(at).toISOString(),
       platforms,
@@ -143,18 +160,17 @@ export function scheduledReels(
   const nowMs = now.getTime();
   const scheduledIds = new Set(posts.map((p) => p.id));
   const unscheduled: UnscheduledShort[] = [];
-  for (const item of Array.isArray(shortsRaw) ? shortsRaw : []) {
-    if (!item || typeof item !== "object") continue;
-    const e = item as Record<string, unknown>;
-    const id = shortId(e.id);
-    if (!id || scheduledIds.has(id) || unscheduled.some((u) => u.id === id)) continue;
+  for (const [id, short] of made) {
+    if (scheduledIds.has(id)) continue;
     unscheduled.push({
       id,
-      title: postTitle(str(e.title, 300)) || id,
+      number: short.number,
+      title: short.title || id,
       videoUrl: preview ? `${preview}/shorts/${encodeURIComponent(id)}.mp4` : null,
       thumbnailUrl: preview ? `${preview}/shorts/${encodeURIComponent(id)}.jpg` : null,
     });
   }
+  unscheduled.reverse();
   return {
     upcoming: posts
       .filter((p) => Date.parse(p.at) > nowMs)
@@ -168,6 +184,31 @@ export function scheduledReels(
     timeZone: channel.timeZone,
     profile: channel.profile,
   };
+}
+
+/** Numbers in words for the team: "3", "3 and 4", "3, 4 and 7". */
+export function numbersLabel(numbers: number[]) {
+  const n = numbers.map((x) => `${x}`);
+  return n.length <= 1 ? (n[0] ?? "") : `${n.slice(0, -1).join(", ")} and ${n.at(-1)}`;
+}
+
+/**
+ * The message the Testing tab sends to the game's Build chat when the team picks reels: what
+ * they wrote (or "I like these" if nothing), then each picked reel with its number, id and
+ * title, so Claude knows exactly which ones, whatever the numbers mean to it.
+ */
+export function pickedReelsMessage(
+  picked: { number: number; id: string; title: string }[],
+  note: string,
+) {
+  const sorted = [...picked].sort((a, b) => a.number - b.number);
+  const said = note.trim() || `I like ${sorted.length === 1 ? "this one" : "these"}.`;
+  return [
+    said,
+    "",
+    `Reels I picked in the Testing tab of the Videos page (${numbersLabel(sorted.map((r) => r.number))}; the number is the reel's place in tools/shorts/shorts.json):`,
+    ...sorted.map((r) => `- #${r.number} ${r.id}: ${r.title}`),
+  ].join("\n");
 }
 
 const NETWORK_NAMES: Record<string, string> = {
