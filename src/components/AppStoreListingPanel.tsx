@@ -35,6 +35,7 @@ import {
   type AscTextField,
 } from "@/lib/store-listing";
 import { AscScreenshotsEditor } from "@/components/StoreImagesEditor";
+import { ScreenshotsForAllLanguages } from "@/components/StoreScreenshotsAll";
 import { TranslateWithClaude, useStoreTranslations } from "@/components/StoreTranslate";
 import { fieldsToTranslate } from "@/lib/store-translate";
 import {
@@ -408,7 +409,19 @@ export function AppStoreListingPanel({ appId }: { appId: string }) {
           )}
 
           <div className="space-y-2 pt-2">
-            <h3 className="text-sm font-medium">Screenshots · {localeLabel(current.locale)}</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-medium">Screenshots · {localeLabel(current.locale)}</h3>
+              {view.versionEditable && (
+                <ScreenshotsForAllLanguages
+                  appId={appId}
+                  store="ios"
+                  locales={[primary, ...localeCodes.filter((c) => c !== primary)].filter((c) =>
+                    localeCodes.includes(c),
+                  )}
+                  about={view.locales.find((l) => l.locale === primary)?.fields.description ?? ""}
+                />
+              )}
+            </div>
             <AscScreenshotsEditor
               appId={appId}
               viewKind={view.kind}

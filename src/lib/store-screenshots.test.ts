@@ -6,9 +6,15 @@ import {
   SCREENSHOT_SIZES,
   canvasSize,
   clampCaption,
+  captionPieces,
+  designFor,
+  isRightToLeft,
   isScreenshotsContext,
   parseScreenshotDesign,
+  parseScreenshotDesignAll,
   screenshotLayout,
+  screenshotRoom,
+  screenshotsAllPrompt,
   screenshotsPrompt,
   screenshotsSystemPrompt,
 } from "./store-screenshots";
@@ -135,5 +141,97 @@ describe("store screenshots with Claude", () => {
     expect(isScreenshotsContext({ purpose: "screenshots" })).toBe(true);
     expect(isScreenshotsContext({ purpose: "translate" })).toBe(false);
     expect(isScreenshotsContext(null)).toBe(false);
+  });
+
+  describe("every language at once", () => {
+    const locales = ["en-US", "es-ES", "ca"];
+
+    test("the prompt lists every language, main one first, and asks for captions per code", () => {
+      const prompt = screenshotsAllPrompt({
+        store: "ios",
+        appName: "Exodus Survivors",
+        locales,
+        style: "sky blue",
+        notes: ["the Red Sea opens", ""],
+        about: "Lead the people out of Egypt.",
+      });
+      expect(prompt).toContain('"Exodus Survivors"');
+      expect(prompt).toContain("- es-ES:");
+      expect(prompt).toContain("- ca:");
+      expect(prompt).toContain("(en-US) first");
+      expect(prompt).toContain("each with exactly 2 captions");
+      expect(prompt).toContain("with all 3 languages");
+      expect(prompt).toContain("the Red Sea opens");
+      expect(prompt).not.toContain("The design shown now");
+    });
+
+    test("asking for changes sends every language's captions", () => {
+      const prompt = screenshotsAllPrompt({
+        store: "play",
+        appName: "X",
+        locales: ["en-US", "ca"],
+        style: "text at the bottom",
+        notes: [""],
+        about: "",
+        previous: { ...DEFAULT_DESIGN, captions: { "en-US": ["Hi"], ca: ["Hola"] } },
+      });
+      expect(prompt).toContain("change it in every language");
+      expect(prompt).toContain('"Hola"');
+    });
+
+    test("a reply gives the look and the captions per language, padded and matched loosely", () => {
+      const reply = [
+        "Here it is:",
+        "```json",
+        JSON.stringify({
+          background: ["#112233", "#445566"],
+          font: "PLAYFUL",
+          frame: "none",
+          captions: {
+            "en-us": ["Cross the sea", "Find manna"],
+            es_ES: ["Cruza el mar"],
+            ca: ["Creua el mar", "Troba el mannà"],
+          },
+        }),
+        "```",
+      ].join("\n");
+      const r = parseScreenshotDesignAll(reply, 2, locales);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.design.background).toEqual(["#112233", "#445566"]);
+      expect(r.design.font).toBe("playful");
+      expect(r.design.frame).toBe("none");
+      expect(r.design.captions["en-US"]).toEqual(["Cross the sea", "Find manna"]);
+      expect(r.design.captions["es-ES"]).toEqual(["Cruza el mar", ""]);
+      expect(r.missing).toEqual(["es-ES"]);
+      expect(designFor(r.design, "ca")).toEqual({
+        ...r.design,
+        captions: ["Creua el mar", "Troba el mannà"],
+      });
+    });
+
+    test("a reply without captions per language is refused", () => {
+      expect(parseScreenshotDesignAll('```json\n{"captions":["a"]}\n```', 1, locales).ok).toBe(
+        false,
+      );
+      expect(parseScreenshotDesignAll('{"captions":{"de-DE":["a"]}}', 1, locales).ok).toBe(false);
+      expect(parseScreenshotDesignAll("no", 1, locales).ok).toBe(false);
+    });
+
+    test("room in a slot: what fits next to the ones there, or all when replacing", () => {
+      expect(screenshotRoom(10, 0, 5, false)).toBe(5);
+      expect(screenshotRoom(10, 7, 5, false)).toBe(3);
+      expect(screenshotRoom(10, 10, 5, false)).toBe(0);
+      expect(screenshotRoom(8, 8, 10, true)).toBe(8);
+    });
+  });
+
+  test("captions break at spaces, or between characters in Chinese and Japanese", () => {
+    const join = (t: string) => captionPieces(t).map((p) => p.join + p.text);
+    expect(join("Cross  the sea")).toEqual(["Cross", " the", " sea"]);
+    expect(join("ノアの箱舟！")).toEqual(["ノ", "ア", "の", "箱", "舟！"]);
+    expect(join("Gospi Kids で遊ぼう")).toEqual(["Gospi", " Kids", " で", "遊", "ぼ", "う"]);
+    expect(isRightToLeft("أبحر مع سفينة نوح!")).toBe(true);
+    expect(isRightToLeft("¡Navega!")).toBe(false);
   });
 });

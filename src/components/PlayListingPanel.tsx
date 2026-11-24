@@ -31,6 +31,7 @@ import {
   type PlayTextField,
 } from "@/lib/store-listing";
 import { PlayGraphicsEditor } from "@/components/StoreImagesEditor";
+import { ScreenshotsForAllLanguages } from "@/components/StoreScreenshotsAll";
 import { TranslateWithClaude, useStoreTranslations } from "@/components/StoreTranslate";
 import { fieldsToTranslate } from "@/lib/store-translate";
 import {
@@ -95,6 +96,11 @@ export function PlayListingPanel({ appId }: { appId: string }) {
   const defaultFields =
     listings.find((l) => l.language === defaultLanguage)?.fields ?? EMPTY_FIELDS;
   const codes = [...listings.map((l) => l.language), ...(newLanguage ? [newLanguage] : [])];
+  // The languages Google has, the default one first (for «Every language and device»).
+  const savedLanguages = [
+    ...(defaultLanguage ? [defaultLanguage] : []),
+    ...listings.map((l) => l.language).filter((c) => c !== defaultLanguage),
+  ];
   const selected =
     (language && codes.includes(language) ? language : null) ?? defaultLanguage ?? codes[0] ?? null;
   const isNew = selected !== null && selected === newLanguage;
@@ -356,7 +362,15 @@ export function PlayListingPanel({ appId }: { appId: string }) {
 
           {!isNew && (
             <div className="space-y-2 pt-2">
-              <h3 className="text-sm font-medium">Graphics · {localeLabel(selected)}</h3>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-medium">Graphics · {localeLabel(selected)}</h3>
+                <ScreenshotsForAllLanguages
+                  appId={appId}
+                  store="play"
+                  locales={savedLanguages}
+                  about={defaultFields.fullDescription ?? ""}
+                />
+              </div>
               <PlayGraphicsEditor
                 appId={appId}
                 language={selected}

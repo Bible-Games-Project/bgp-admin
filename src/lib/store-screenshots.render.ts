@@ -2,6 +2,8 @@
 // real capture of the game, at the slot's exact size. What the person sees in the preview
 // is exactly what gets uploaded.
 import {
+  captionPieces,
+  isRightToLeft,
   screenshotLayout,
   type ScreenshotDesign,
   type ScreenshotFont,
@@ -99,15 +101,14 @@ function drawDecor(
 
 /** Splits the caption into lines that fit `maxWidth`, at most `maxLines`. */
 function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let line = "";
-  for (const word of words) {
-    const tryLine = line ? `${line} ${word}` : word;
+  for (const piece of captionPieces(text)) {
+    const tryLine = line ? `${line}${piece.join}${piece.text}` : piece.text;
     if (ctx.measureText(tryLine).width <= maxWidth || !line) line = tryLine;
     else {
       lines.push(line);
-      line = word;
+      line = piece.text;
     }
   }
   if (line) lines.push(line);
@@ -140,6 +141,7 @@ function drawCaption(
   // The bar sits on the side away from the phone.
   const top = design.captionPosition === "top" ? blockTop : blockTop + extra(size);
   ctx.save();
+  ctx.direction = isRightToLeft(text) ? "rtl" : "ltr";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = design.textColor;
