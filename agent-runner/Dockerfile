@@ -13,8 +13,10 @@ RUN apt-get update \
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx && bun --version
 # The platform package carries the native binary; no install script runs
-RUN npm install -g --ignore-scripts "@anthropic-ai/claude-code-linux-x64@${CLAUDE_CODE_VERSION}" \
- && ln -s /usr/local/lib/node_modules/@anthropic-ai/claude-code-linux-x64/claude /usr/local/bin/claude \
+ARG TARGETARCH
+RUN p=$([ "$TARGETARCH" = arm64 ] && echo arm64 || echo x64) \
+ && npm install -g --ignore-scripts "@anthropic-ai/claude-code-linux-${p}@${CLAUDE_CODE_VERSION}" \
+ && ln -s /usr/local/lib/node_modules/@anthropic-ai/claude-code-linux-${p}/claude /usr/local/bin/claude \
  && claude --version \
  && rm -rf /root/.npm
 COPY egress.mjs /opt/bgp-agent/egress.mjs

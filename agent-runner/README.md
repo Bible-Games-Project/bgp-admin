@@ -11,8 +11,8 @@ browser ── console (Workers + Supabase) ◀── /api/agent/* ── bgp-ag
               └──────── Cloudflare preview ◀── GitHub Actions ◀── git push (deploy key per repo)
 ```
 
-Today it runs on the home server (Debian, `192.168.73.24`) as the systemd service `bgp-agent`, user
-`bgp-agent`. Nothing in it is tied to that machine: any Debian or Ubuntu box with Docker and Node 22
+Today it runs on Pau's Mac mini, in a Debian virtual machine (Lima, `agentes`: 8 CPUs, 16 GB, arm64), as the
+systemd service `bgp-agent`, user `bgp-agent`. Until 2026-11-25 it ran on the home server (Debian, `192.168.73.24`). Nothing in it is tied to that machine: any Debian or Ubuntu box with Docker and Node 22
 (a VPS, for example) works the same. See "Moving it" below.
 
 ## What it does
@@ -165,8 +165,8 @@ share is approximate by a percent or two.
 - **1.2 GB of memory per message** (`AGENT_MEMORY`) and no swap. A message has no time or step
   limit: it runs until Claude finishes, someone presses Stop, or the account's usage (or the chat's weekly
   share of it) runs out. `TURN_MINUTES` and `MAX_TURNS` bring a cap back if one is ever wanted.
-- **It gives way to the machine's other services.** The home server has 3.8 GB and also runs cpl-agent,
-  the GitHub Actions runners and other services that must not stop. So:
+- **It gives way to the machine's other services.** The machine (the `agentes` VM, 16 GB) also runs cpl-agent.
+  On the old home server it had 3.8 GB next to services that must not stop. So:
   - another message only starts while others run when the machine has room for all of them at their
     limit plus `AGENT_MIN_FREE_MB` for the new one (`roomForAnotherTurn` in `lib.mjs`). Until then it waits in
     the queue and its chat says what it waits for. On the home server that's one message at a time, now and
@@ -239,8 +239,8 @@ set the GitHub secret, push to main (or re-run that workflow), and put the same 
 ## Look at what it does
 
 ```sh
-ssh root@192.168.73.24 journalctl -u bgp-agent -f       # what it's doing
-ssh root@192.168.73.24 ls /var/lib/bgp-agent/logs        # each session's stream-json (the last 60)
+ssh agentes journalctl -u bgp-agent -f       # what it's doing (from the Mac mini; `agentes` is in its ~/.ssh/config)
+ssh agentes ls /var/lib/bgp-agent/logs        # each session's stream-json (the last 60)
 ```
 
 Settings → Claude says whether the server is online and when it last checked in.
