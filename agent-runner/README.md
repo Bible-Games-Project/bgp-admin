@@ -11,7 +11,7 @@ browser ── console (Workers + Supabase) ◀── /api/agent/* ── bgp-ag
               └──────── Cloudflare preview ◀── GitHub Actions ◀── git push (deploy key per repo)
 ```
 
-Today it runs on the home server (Debian, `192.168.1.24`) as the systemd service `bgp-agent`, user
+Today it runs on the home server (Debian, `192.168.73.24`) as the systemd service `bgp-agent`, user
 `bgp-agent`. Nothing in it is tied to that machine: any Debian or Ubuntu box with Docker and Node 22
 (a VPS, for example) works the same. See "Moving it" below.
 
@@ -239,8 +239,8 @@ set the GitHub secret, push to main (or re-run that workflow), and put the same 
 ## Look at what it does
 
 ```sh
-ssh root@192.168.1.24 journalctl -u bgp-agent -f       # what it's doing
-ssh root@192.168.1.24 ls /var/lib/bgp-agent/logs        # each session's stream-json (the last 60)
+ssh root@192.168.73.24 journalctl -u bgp-agent -f       # what it's doing
+ssh root@192.168.73.24 ls /var/lib/bgp-agent/logs        # each session's stream-json (the last 60)
 ```
 
 Settings → Claude says whether the server is online and when it last checked in.
