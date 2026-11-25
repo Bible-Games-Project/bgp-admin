@@ -76,3 +76,19 @@ export const setRepoSecrets = async (
 // repos) and createAppWithRepo (new repos) so both paths notify the same chat.
 export const setPublishTelegramSecrets = async (repoName: string): Promise<string[]> =>
   setRepoSecrets(repoName, await telegramSecrets());
+
+// Sets the Telegram secrets on a repo that lacks either of them, and leaves a repo
+// that has both alone (its chat may be a different one on purpose). Games linked
+// to the console by hand (Gospi Kids was inserted by SQL) never got them, and
+// their deploys failed on the notify job; triggerDeploy calls this first so the
+// next deploy notifies. Returns the names that could not be set.
+export const ensurePublishTelegramSecrets = async (repoName: string): Promise<string[]> => {
+  const res = await fetch(`${GITHUB_API}/repos/${ORG}/${repoName}/actions/secrets?per_page=100`, {
+    headers: githubHeaders(),
+  });
+  if (!res.ok) return ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"];
+  const body = (await res.json()) as { secrets?: { name: string }[] };
+  const present = new Set((body.secrets ?? []).map((s) => s.name));
+  if (present.has("TELEGRAM_BOT_TOKEN") && present.has("TELEGRAM_CHAT_ID")) return [];
+  return setRepoSecrets(repoName, await telegramSecrets());
+};

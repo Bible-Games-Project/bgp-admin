@@ -48,6 +48,16 @@ describe("notify-telegram.yml speaks about failures", () => {
     expect(workflow).toContain("Beta published successfully");
   });
 
+  // Gospi Kids had no Telegram secrets and every deploy went red on curl's 404,
+  // although both stores had their build.
+  it("never fails a deploy because the message could not be sent", () => {
+    expect(workflow).toContain(
+      'if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then',
+    );
+    expect(workflow).toContain('if ! curl -sS -X POST "https://api.telegram.org/bot');
+    expect(workflow).toContain("Telegram refused the message. The deploy itself is fine.");
+  });
+
   it("tells a production release from a beta", () => {
     expect(workflow).toContain("github.event.inputs.production");
     expect(workflow).toContain("Production release");

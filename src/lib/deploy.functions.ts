@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { requireWebGame } from "@/lib/app-kind";
 import { type FailedJob, explainFailure, failureExcerpt } from "@/lib/deploy-failure";
 import { type RunJob, type RunTargetInfo, runTarget } from "@/lib/deploy-run-target";
+import { ensurePublishTelegramSecrets } from "@/lib/repo-secrets.server";
 
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -365,6 +366,12 @@ export const triggerDeploy = createServerFn({ method: "POST" })
         console.error("Failed to update package.json version:", err);
         // Don't throw — allow deploy to proceed even if version update fails
       }
+    }
+
+    // The store deploy ends with a Telegram message; a repo without its secrets
+    // gets them now. Best effort: a notification never blocks a deploy.
+    if (app.github_owner === "Bible-Games-Project") {
+      await ensurePublishTelegramSecrets(app.github_repo).catch(() => []);
     }
 
     const url = `https://api.github.com/repos/${app.github_owner}/${app.github_repo}/actions/workflows/${encodeURIComponent(

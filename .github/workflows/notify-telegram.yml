@@ -85,6 +85,13 @@ jobs:
           ACTOR: ${{ github.actor }}
           CONSOLE_URL: https://bgp-admin-preview.biblegamesproject.workers.dev
         run: |
+          # A missing notification must never turn a good deploy red: a repo linked to the
+          # console without its Telegram secrets (Gospi Kids, 2026-11-25) failed every deploy
+          # here with curl's 404 although both stores had their build.
+          if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then
+            echo "::warning::No Telegram message: this repo has no TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID secret. The deploy itself is fine; deploying from the console sets them."
+            exit 0
+          fi
           # Telegram's HTML mode rejects the whole message on a stray <, > or &. sed, not
           # ${s//…}: bash 5.2 turns & in a replacement into the matched text.
           esc() {
@@ -150,10 +157,13 @@ jobs:
           fi
           MESSAGE+="🧑🏻‍💻 <b>Published by:</b> ${ACTOR}"
 
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+          if ! curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             --data-urlencode chat_id="${TELEGRAM_CHAT_ID}" \
             --data-urlencode parse_mode="HTML" \
             --data-urlencode disable_web_page_preview=true \
             --data-urlencode text="${MESSAGE}" \
-            --fail-with-body --output /dev/null
+            --fail-with-body --output /dev/null; then
+            echo "::warning::Telegram refused the message. The deploy itself is fine."
+            exit 0
+          fi
           echo "Sent Telegram notification."
