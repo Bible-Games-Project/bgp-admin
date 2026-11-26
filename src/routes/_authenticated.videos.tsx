@@ -175,7 +175,9 @@ function GameVideoChat({ appId, appName }: { appId: string; appName: string }) {
       </div>
     );
   }
-  if (q.error || !q.data || q.data.blocked) return <VideoChat appId={appId} appName={appName} />;
+  // A refresh that fails keeps the Build chat it already has; only a first read that fails
+  // falls back to the Videos chat.
+  if (!q.data || q.data.blocked) return <VideoChat appId={appId} appName={appName} />;
   return <BuildVideoChat appId={appId} appName={appName} data={q.data} />;
 }
 

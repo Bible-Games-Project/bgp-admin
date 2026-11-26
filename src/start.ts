@@ -3,6 +3,7 @@ import { createStart, createMiddleware } from "@tanstack/react-start";
 import { renderErrorPage } from "./lib/error-page";
 import { corsMiddleware } from "./lib/cors-middleware";
 import { attachSupabaseAuth } from "./integrations/supabase/auth-attacher";
+import { unreadableServerFnResponse } from "./lib/server-fn-response";
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
@@ -37,16 +38,14 @@ function isNativeApp(): boolean {
   );
 }
 
-const serverFnFetch: typeof fetch = (input, init) => {
-  if (
-    APP_SERVER_ORIGIN &&
-    typeof input === "string" &&
-    input.startsWith("/") &&
-    isNativeApp()
-  ) {
-    return fetch(new URL(input, APP_SERVER_ORIGIN).toString(), init);
-  }
-  return fetch(input, init);
+const serverFnFetch: typeof fetch = async (input, init) => {
+  const response =
+    APP_SERVER_ORIGIN && typeof input === "string" && input.startsWith("/") && isNativeApp()
+      ? await fetch(new URL(input, APP_SERVER_ORIGIN).toString(), init)
+      : await fetch(input, init);
+  const unreadable = unreadableServerFnResponse(response);
+  if (unreadable) throw unreadable;
+  return response;
 };
 
 export const startInstance = createStart(() => ({

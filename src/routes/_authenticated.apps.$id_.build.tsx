@@ -122,6 +122,12 @@ function BuildPage() {
       query.state.data?.turns.some((t) => isActiveTurn(t.status)) ? 3000 : 10_000,
   });
   useLiveUpdates(id, () => qc.invalidateQueries({ queryKey: chatKey }));
+  // The chat stays on screen when a refresh fails; this says why it may be a little behind.
+  const refreshError = q.data && q.error ? (q.error as Error).message : null;
+  useEffect(() => {
+    if (refreshError)
+      toast.error(`The chat couldn't refresh. ${refreshError}`, { id: "build-chat" });
+  }, [refreshError, q.errorUpdatedAt]);
 
   // Shares its cache with the app page and the Setup tab.
   const previewQ = useQuery({
@@ -283,9 +289,15 @@ function BuildPage() {
       </div>
     );
   }
-  if (q.error)
-    return <div className="p-8 text-sm text-destructive">{(q.error as Error).message}</div>;
-  const data = q.data!;
+  // A refresh that fails keeps the chat on screen (it's tried again every few seconds); the
+  // error takes the page only when there's nothing to show yet.
+  if (!q.data)
+    return (
+      <div className="p-8 text-sm text-destructive">
+        {(q.error as Error | null)?.message ?? "Couldn't open the chat."}
+      </div>
+    );
+  const data = q.data;
   const active = data.turns.find((t) => isActiveTurn(t.status));
   const model =
     AGENT_MODELS.find((m) => m.id === data.settings.model)?.label ?? data.settings.model;
